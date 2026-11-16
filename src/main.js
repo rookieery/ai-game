@@ -9,6 +9,8 @@ import { loadGLB, createLoadingManager } from "./park/loader.js";
 import { createFerrisWheel } from "./rides/ferris.js";
 import { createPostFX } from "./fx/postfx.js";
 import { createHUD } from "./ui/hud.js";
+import { createSettings } from "./core/config.js";
+import { createSettingsPanel } from "./ui/settings.js";
 
 const canvas = document.getElementById("game-canvas");
 
@@ -20,18 +22,37 @@ const hud = createHUD();
 const audio = createAudio(hud);
 window.__hud = hud; // 截图验证钩子（开发用）
 
+// ---------- 游戏状态 ----------
+const game = { state: "boot" }; // boot -> walk -> boarding -> riding -> exiting -> walk
+let player = null;
+let ferris = null;
+let interact = null;
+let entered = false;
+
+// ---------- 设置面板 ----------
+const settings = createSettings();
+const settingsUI = createSettingsPanel(settings, {
+  // 开合影响视角锁定提示的显隐，关面板时若仍未锁定则恢复提示
+  onOpenChange: (open) => {
+    if (!open) hud.setLookHint(entered && !input.locked);
+  },
+});
+window.__settings = { store: settings, ui: settingsUI }; // 截图/排错钩子（开发用）
+
+function applyAllSettings() {
+  world.applySettings(settings.values);
+  postfx.applySettings(settings.values);
+  if (ferris) ferris.applySettings(settings.values);
+}
+applyAllSettings(); // 恢复持久化配置（含舱内灯光默认 40%）
+settings.onChange(applyAllSettings);
+
 const manager = createLoadingManager({
   onProgress: (p) => hud.setLoadingProgress(p),
   onLoad: () => hud.setReady(),
 });
 
 const updates = [world];
-
-// ---------- 游戏状态 ----------
-const game = { state: "boot" }; // boot -> walk -> boarding -> riding -> exiting -> walk
-let player = null;
-let ferris = null;
-let interact = null;
 
 async function boot() {
   // 碰撞与玩法锚点
@@ -57,6 +78,7 @@ async function boot() {
   if (legacyGround) legacyGround.removeFromParent();
   scene.add(wheelRoot);
   ferris = createFerrisWheel(wheelRoot);
+  ferris.applySettings(settings.values); // 摩天轮就位后补应用（含持久化配置）
   updates.push(ferris);
 
   // 交互
@@ -94,9 +116,8 @@ async function boot() {
     });
   });
 
-  // 指针锁定
-  let entered = false;
-  input.onLockChange((locked) => hud.setLookHint(entered && !locked));
+  // 指针锁定（面板打开时不出「点击画面」提示，避免与抽屉重叠）
+  input.onLockChange((locked) => hud.setLookHint(entered && !locked && !settingsUI.isOpen));
   canvas.addEventListener("click", () => {
     if (entered && !input.locked) input.requestLock();
   });

@@ -37,13 +37,21 @@ export function createFerrisWheel(gltfRoot) {
 
   if (!wheel) console.warn("[ferris] FW_Wheel 节点未找到");
 
-  // 近距离贴脸的轮缘灯管辉光偏强, 运行时轻收 (远景观感由 Bloom 兜底)
+  // 自发光材质登记（设置面板可调）：
+  //   舱内照明 = FW_InteriorGlow(天花/墙板) + FW_RoofLamp(檐灯) —— 随「舱内灯光亮度」
+  //   装饰灯效 = 其余 FW_ 发光材质(轮缘/彩点/轮毂/招牌/灯环/舱体涂装) —— 随「装饰灯亮度」
+  // 轮缘灯管近距离贴脸辉光偏强，基准系数 0.8 (远景观感由 Bloom 兜底)
+  const CABIN_LIGHT_BASE = 16; // 登舱补光点光基准强度
+  const cabinGlowMats = [];
+  const decoGlowMats = [];
   gltfRoot.traverse((o) => {
     const mats = Array.isArray(o.material) ? o.material : (o.material ? [o.material] : []);
     for (const m of mats) {
-      if (/^FW_Rim(Amber|Violet)$/.test(m.name) && m.emissiveIntensity != null) {
-        m.emissiveIntensity *= 0.8;
-      }
+      if (!m.name || !m.name.startsWith("FW_") || !m.emissive) continue;
+      if (m.emissive.r + m.emissive.g + m.emissive.b < 1e-3) continue; // 非自发光
+      const base = m.emissiveIntensity ?? 1;
+      if (/^FW_(InteriorGlow|RoofLamp)$/.test(m.name)) cabinGlowMats.push({ m, base });
+      else decoGlowMats.push({ m, base: m.name.startsWith("FW_Rim") ? base * 0.8 : base });
     }
   });
 
@@ -59,11 +67,15 @@ export function createFerrisWheel(gltfRoot) {
     c.getWorldQuaternion(new THREE.Quaternion())
   );
 
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
   const state = {
     theta: 0,
-    speed: (2 * Math.PI) / 24,  // 待机转速：24s/圈
-    rideSpeed: (2 * Math.PI) / 75, // 乘坐转速：75s/圈（约 1.5 分钟一圈）
     riding: false,
+    idlePeriod: 24,   // 待机周期：秒/圈
+    ridePeriod: 75,   // 乘坐周期：秒/圈（约 1.5 分钟一圈）
+    cabinLight: 0.4,  // 舱内灯光系数（补光 + 自发光联动）
+    decoLight: 1.0,   // 装饰灯系数
   };
 
   const _v = new THREE.Vector3();
@@ -87,7 +99,8 @@ export function createFerrisWheel(gltfRoot) {
     wheelRoot: wheel,
     update(dt) {
       if (!wheel) return;
-      state.theta = (state.theta + dt * state.speed) % (Math.PI * 2);
+      const omega = (2 * Math.PI) / (state.riding ? state.ridePeriod : state.idlePeriod);
+      state.theta = (state.theta + dt * omega) % (Math.PI * 2);
 
       // 轮体：绕世界轮轴旋转 -> 反解为本地四元数
       _wq.setFromAxisAngle(spinAxis, state.theta).multiply(wheelRestWorld);
@@ -100,14 +113,13 @@ export function createFerrisWheel(gltfRoot) {
         c.quaternion.copy(_inv.copy(_pq).invert()).multiply(cabinRest[i]);
       }
     },
-    // 登舱：锁定最低点舱位，切慢速旋转，挂舱内暖光（glTF 灯偏弱，运行时补一盏）
+    // 登舱：锁定最低点舱位（转速由 update 按 riding 态取用），挂舱内暖光
     board() {
       if (!wheel) return;
       state.riding = true;
       rideCabIdx = nearestBottomCabin();
-      state.speed = state.rideSpeed;
       if (!cabLight) {
-        cabLight = new THREE.PointLight("#ffe9c4", 16, 7, 2);
+        cabLight = new THREE.PointLight("#ffe9c4", CABIN_LIGHT_BASE * state.cabinLight, 7, 2);
       }
       cabLight.position.set(0, -1.25, 0);
       cabins[rideCabIdx].add(cabLight);
@@ -116,8 +128,17 @@ export function createFerrisWheel(gltfRoot) {
     disembark() {
       state.riding = false;
       rideCabIdx = -1;
-      state.speed = (2 * Math.PI) / 24;
       if (cabLight) cabLight.removeFromParent();
+    },
+    // 应用设置面板（百分比 -> 实际参数）
+    applySettings(s) {
+      state.idlePeriod = clamp(s.ferrisIdlePeriod, 12, 60);
+      state.ridePeriod = clamp(s.ferrisRidePeriod, 40, 120);
+      state.cabinLight = clamp(s.cabinLight, 0, 200) / 100;
+      state.decoLight = clamp(s.decoLight, 0, 200) / 100;
+      for (const { m, base } of cabinGlowMats) m.emissiveIntensity = base * state.cabinLight;
+      for (const { m, base } of decoGlowMats) m.emissiveIntensity = base * state.decoLight;
+      if (cabLight) cabLight.intensity = CABIN_LIGHT_BASE * state.cabinLight;
     },
     // 乘坐中：把相机放进舱内第一人称坐姿（舱体保持水平，偏移即世界偏移）
     applyRideCamera(camera) {

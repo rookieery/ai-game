@@ -4,6 +4,7 @@ import * as THREE from "three";
 const AURORA_FRAG = /* glsl */ `
   varying vec3 vDir;
   uniform float uTime;
+  uniform float uAurora;
 
   float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
   float vnoise(vec2 p) {
@@ -29,7 +30,7 @@ const AURORA_FRAG = /* glsl */ `
     float curtain = smoothstep(0.42, 0.85, n) * band;
     vec3 aurora = mix(vec3(0.18, 0.75, 0.52), vec3(0.45, 0.30, 0.85),
                       fbm(vec2(uTime * 0.04, d.y * 3.0)));
-    col += aurora * curtain * 0.85;
+    col += aurora * curtain * uAurora;
     gl_FragColor = vec4(col, 1.0);
   }
 `;
@@ -59,26 +60,34 @@ export function createWorld(scene) {
   scene.background = new THREE.Color("#060812");
   scene.fog = new THREE.FogExp2("#0a0c1e", 0.0085);
 
+  // 亮度基准（applySettings 以此换算百分比）
+  const BASE = {
+    moon: 0.85, hemi: 0.55,
+    plaza1: 90, plaza2: 70, gate: 55,
+    fog: 0.0085, aurora: 0.85,
+    starOpacity: 0.9, mistOpacity: 0.10,
+  };
+
   // 月光 + 环境
-  const moon = new THREE.DirectionalLight("#b4c7ff", 0.85);
+  const moon = new THREE.DirectionalLight("#b4c7ff", BASE.moon);
   moon.position.set(60, 80, -40);
   scene.add(moon);
-  const hemi = new THREE.HemisphereLight("#2a3050", "#141024", 0.55);
+  const hemi = new THREE.HemisphereLight("#2a3050", "#141024", BASE.hemi);
   scene.add(hemi);
 
   // 广场暖光（灯串/南瓜的"实际照明"）
-  const plaza1 = new THREE.PointLight("#ff9a5c", 90, 80, 1.7);
+  const plaza1 = new THREE.PointLight("#ff9a5c", BASE.plaza1, 80, 1.7);
   plaza1.position.set(12, 7, 12);
   scene.add(plaza1);
-  const plaza2 = new THREE.PointLight("#ff9a5c", 70, 70, 1.7);
+  const plaza2 = new THREE.PointLight("#ff9a5c", BASE.plaza2, 70, 1.7);
   plaza2.position.set(-12, 7, -14);
   scene.add(plaza2);
-  const gate = new THREE.PointLight("#ffc46b", 55, 60, 1.7);
+  const gate = new THREE.PointLight("#ffc46b", BASE.gate, 60, 1.7);
   gate.position.set(0, 7, 66);
   scene.add(gate);
 
   // 极光天穹
-  const skyUniforms = { uTime: { value: 0 } };
+  const skyUniforms = { uTime: { value: 0 }, uAurora: { value: BASE.aurora } };
   const sky = new THREE.Mesh(
     new THREE.SphereGeometry(460, 32, 18),
     new THREE.ShaderMaterial({
@@ -91,20 +100,22 @@ export function createWorld(scene) {
   );
   scene.add(sky);
 
-  // 星空
-  const starGeo = new THREE.BufferGeometry();
-  const starPos = [];
-  for (let i = 0; i < 1400; i++) {
-    const th = Math.random() * Math.PI * 2;
-    const ph = Math.acos(Math.random() * 0.92); // 上半球
-    const r = 440;
-    starPos.push(r * Math.sin(ph) * Math.cos(th), r * Math.cos(ph) + 4, r * Math.sin(ph) * Math.sin(th));
+  // 星空（数量可重建：设置面板 200-3000 颗）
+  function makeStarGeo(count) {
+    const pos = [];
+    for (let i = 0; i < count; i++) {
+      const th = Math.random() * Math.PI * 2;
+      const ph = Math.acos(Math.random() * 0.92); // 上半球
+      const r = 440;
+      pos.push(r * Math.sin(ph) * Math.cos(th), r * Math.cos(ph) + 4, r * Math.sin(ph) * Math.sin(th));
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    return geo;
   }
-  starGeo.setAttribute("position", new THREE.Float32BufferAttribute(starPos, 3));
-  const stars = new THREE.Points(
-    starGeo,
-    new THREE.PointsMaterial({ color: "#dfe6ff", size: 1.9, sizeAttenuation: true, transparent: true, opacity: 0.9, fog: false })
-  );
+  const starMat = new THREE.PointsMaterial({ color: "#dfe6ff", size: 1.9, sizeAttenuation: true, transparent: true, opacity: BASE.starOpacity, fog: false });
+  const stars = new THREE.Points(makeStarGeo(1400), starMat);
+  let curStarCount = 1400;
   scene.add(stars);
 
   // 月亮 + 光晕
@@ -123,16 +134,14 @@ export function createWorld(scene) {
   moonGlow.position.copy(moonDisc.position);
   scene.add(moonGlow);
 
-  // 地面雾片（缓慢漂移）
+  // 地面雾片（缓慢漂移；共享单材质便于整体调透明度）
+  const mistMat = new THREE.MeshBasicMaterial({
+    map: glowTex, transparent: true, opacity: BASE.mistOpacity,
+    depthWrite: false, side: THREE.DoubleSide,
+  });
   const mists = [];
   for (let i = 0; i < 9; i++) {
-    const m = new THREE.Mesh(
-      new THREE.PlaneGeometry(55, 20),
-      new THREE.MeshBasicMaterial({
-        map: glowTex, transparent: true, opacity: 0.10,
-        depthWrite: false, side: THREE.DoubleSide,
-      })
-    );
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(55, 20), mistMat);
     const th = (i / 9) * Math.PI * 2;
     const rr = 18 + (i % 4) * 14;
     m.position.set(rr * Math.cos(th), 1.0 + (i % 3) * 0.5, rr * Math.sin(th));
@@ -151,5 +160,26 @@ export function createWorld(scene) {
     }
   }
 
-  return { update, moon };
+  // 应用设置面板（百分比 -> 实际参数）
+  function applySettings(s) {
+    const pct = (k) => Math.min(200, Math.max(0, s[k])) / 100;
+    moon.intensity = BASE.moon * pct("moonLight");
+    hemi.intensity = BASE.hemi * pct("moonLight");
+    plaza1.intensity = BASE.plaza1 * pct("parkLampLight");
+    plaza2.intensity = BASE.plaza2 * pct("parkLampLight");
+    gate.intensity = BASE.gate * pct("parkLampLight");
+    scene.fog.density = BASE.fog * pct("fogDensity");
+    skyUniforms.uAurora.value = BASE.aurora * pct("auroraLight");
+    starMat.opacity = Math.min(1, BASE.starOpacity * pct("starBrightness"));
+    mistMat.opacity = BASE.mistOpacity * pct("mistDensity");
+    const n = Math.round(Math.min(3000, Math.max(200, s.starCount)));
+    if (n !== curStarCount) {
+      const old = stars.geometry;
+      stars.geometry = makeStarGeo(n);
+      old.dispose();
+      curStarCount = n;
+    }
+  }
+
+  return { update, moon, applySettings };
 }

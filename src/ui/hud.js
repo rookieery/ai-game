@@ -70,6 +70,7 @@ export function createHUD() {
     keycap("E", "互动"),
     keycap("Shift", "疾走"),
     keycap("Esc", "释放鼠标"),
+    keycap("O", "设置"),
   );
   function keycap(k, label) {
     const wrap = el("span", "key-group");
