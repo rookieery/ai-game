@@ -3,11 +3,13 @@
 //   模式 "states" — UI 六态采集（默认，输出到 .impeccable/review/）
 //   模式 "spin"   — 两帧验证轮体旋转
 //   模式 "game"   — P3 游玩流程取证（走动/提示/乘坐/打卡）
+//   模式 "cabin"  — 舱内走动取证 + 碰撞断言（长椅/中柱/外墙/坐站切换）
 import { chromium } from "playwright";
 import { mkdirSync } from "node:fs";
 
 const outDir = process.argv[2] ?? ".impeccable/review";
 const mode = process.argv[3] ?? "states";
+const BASE_URL = process.env.GAME_URL ?? "http://127.0.0.1:8765"; // dev 端口被占时会顺延, 可用 GAME_URL 覆盖
 mkdirSync(outDir, { recursive: true });
 
 // 延迟 glb 响应，让「加载中」态可被取证（真实加载过快）
@@ -27,7 +29,7 @@ page.on("pageerror", (e) => errors.push(String(e)));
 if (mode === "states") {
   await page.route("**/ferris_wheel.glb", slowRoute);
   await page.route("**/park_env.glb", slowRoute);
-  await page.goto("http://127.0.0.1:8765", { waitUntil: "domcontentloaded" });
+  await page.goto(BASE_URL, { waitUntil: "domcontentloaded" });
 
   // 1. 加载中（平滑进度进行时）
   await page.waitForTimeout(500);
@@ -59,7 +61,7 @@ if (mode === "states") {
   await page.waitForTimeout(700);
   await page.screenshot({ path: `${outDir}/state-stars-plaque.png` });
 } else if (mode === "spin") {
-  await page.goto("http://127.0.0.1:8765", { waitUntil: "domcontentloaded" });
+  await page.goto(BASE_URL, { waitUntil: "domcontentloaded" });
   await page.waitForFunction(() => {
     const b = document.getElementById("enter-btn");
     return b && !b.disabled;
@@ -71,7 +73,7 @@ if (mode === "states") {
   await page.screenshot({ path: `${outDir}/03_scene_b.png` });
 } else if (mode === "game") {
   // —— P3 游玩流程取证 ——
-  await page.goto("http://127.0.0.1:8765", { waitUntil: "domcontentloaded" });
+  await page.goto(BASE_URL, { waitUntil: "domcontentloaded" });
   await page.waitForFunction(() => {
     const b = document.getElementById("enter-btn");
     return b && !b.disabled;
@@ -122,6 +124,93 @@ if (mode === "states") {
 
   const state = await page.evaluate(() => window.__game.state);
   console.log("game-state:", state);
+} else if (mode === "cabin") {
+  // —— 舱内走动取证 + 碰撞断言 ——
+  const fails = [];
+  const expect = async (name, cond) => {
+    const ok = !!cond;
+    if (!ok) fails.push(name);
+    console.log(`cabin-check ${ok ? "ok  " : "FAIL"} : ${name}`);
+  };
+  await page.goto(BASE_URL, { waitUntil: "domcontentloaded" });
+  await page.waitForFunction(() => {
+    const b = document.getElementById("enter-btn");
+    return b && !b.disabled;
+  }, { timeout: 60000 });
+  await page.click("#enter-btn");
+  await page.waitForTimeout(1200);
+
+  // 登舱
+  await page.evaluate(() => window.__game.player.teleport(0, 18.8));
+  await page.waitForTimeout(400);
+  await page.keyboard.press("KeyE");
+  await page.waitForTimeout(1800);
+  await page.screenshot({ path: `${outDir}/c1_board_stand.png` });
+  let loc = await page.evaluate(() => window.__game.player.cabinLocal());
+  await expect(`登舱后为站姿且落位在走道内 ${JSON.stringify(loc)}`,
+    loc && !loc.seated && Math.abs(loc.x) <= 0.63 && loc.z >= 0.03 && loc.z <= 0.37);
+
+  // 前行 0.9s：确认真的在走动（面向 +x 走长边，出生朝向 -z 正对长椅走不远）
+  await page.evaluate(() => window.__game.player.setView(-Math.PI / 2, -0.2)); // 面向 +x
+  await page.keyboard.down("KeyW");
+  await page.waitForTimeout(900);
+  await page.keyboard.up("KeyW");
+  const loc2 = await page.evaluate(() => window.__game.player.cabinLocal());
+  await page.screenshot({ path: `${outDir}/c2_walked.png` });
+  await expect(`走动改变了舱内位置 ${JSON.stringify(loc2)}`,
+    Math.hypot(loc2.x - loc.x, loc2.z - loc.z) > 0.4);
+
+  // 冲刺长椅墙（面向 -z 顶墙走）：不得穿入长椅
+  await page.evaluate(() => window.__game.player.setView(0, -0.3)); // yaw 0 = 面向 -z(长椅)
+  await page.keyboard.down("KeyW");
+  await page.waitForTimeout(1800);
+  await page.keyboard.up("KeyW");
+  const bench = await page.evaluate(() => window.__game.player.cabinLocal());
+  await page.screenshot({ path: `${outDir}/c3_bench_block.png` });
+  await expect(`长椅阻挡 z >= 0.03 ${JSON.stringify(bench)}`, bench.z >= 0.03);
+
+  // 走向 -x 大窗贴墙：不得穿出玻璃
+  await page.evaluate(() => window.__game.player.setView(Math.PI / 2, -0.2)); // 面向 -x
+  await page.keyboard.down("KeyW");
+  await page.waitForTimeout(1800);
+  await page.keyboard.up("KeyW");
+  const wall = await page.evaluate(() => window.__game.player.cabinLocal());
+  await page.screenshot({ path: `${outDir}/c4_window_wall.png` });
+  await expect(`外墙阻挡 |x| <= 0.63 ${JSON.stringify(wall)}`, Math.abs(wall.x) <= 0.63);
+
+  // C 坐下 -> 移动键起身
+  await page.keyboard.press("KeyC");
+  await page.waitForTimeout(900);
+  const sit = await page.evaluate(() => window.__game.player.cabinLocal());
+  await page.screenshot({ path: `${outDir}/c5_seated.png` });
+  await expect(`C 坐下生效 ${JSON.stringify(sit)}`, sit.seated === true);
+
+  await page.keyboard.down("KeyW");
+  await page.waitForTimeout(700);
+  await page.keyboard.up("KeyW");
+  const stood = await page.evaluate(() => window.__game.player.cabinLocal());
+  await page.screenshot({ path: `${outDir}/c6_stood_up.png` });
+  await expect(`移动键起身 ${JSON.stringify(stood)}`, stood.seated === false);
+
+  // 冲向中柱：从 -x 墙边面向 +x 直走，距柱心不得小于 0.19
+  await page.evaluate(() => window.__game.player.setView(-Math.PI / 2, -0.35)); // 面向 +x
+  await page.keyboard.down("KeyW");
+  await page.waitForTimeout(2600);
+  await page.keyboard.up("KeyW");
+  const pole = await page.evaluate(() => window.__game.player.cabinLocal());
+  await page.screenshot({ path: `${outDir}/c7_pole_block.png` });
+  await expect(`中柱阻挡距柱心 >= 0.19 ${JSON.stringify(pole)}`,
+    Math.hypot(pole.x, pole.z) >= 0.19);
+
+  // E 下乘回站台
+  await page.keyboard.press("KeyE");
+  await page.waitForTimeout(1600);
+  const state = await page.evaluate(() => window.__game.state);
+  await page.screenshot({ path: `${outDir}/c8_disembark.png` });
+  await expect(`下乘回到 walk 态 (state=${state})`, state === "walk");
+
+  console.log("cabin-check result:", fails.length ? `FAILED x${fails.length}` : "all passed");
+  if (fails.length) process.exitCode = 1;
 }
 
 console.log("console-errors:", errors.length ? JSON.stringify(errors, null, 2) : "none");

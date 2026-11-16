@@ -91,9 +91,9 @@ async function boot() {
       game.state = "boarding";
       audio.setRiding(true);
       hud.transition(() => {
-        player.setRiding(true);
         ferris.board();
-        hud.showPlaque("幽眠摩天轮", "高空观光 · 移动视角环视 · E 随时下乘");
+        player.enterCabin(() => ferris.getRideFrame());
+        hud.showPlaque("幽眠摩天轮", "高空观光 · WASD 舱内走动 · C 坐下起身 · E 随时下乘");
         game.state = "riding";
       });
     },
@@ -109,7 +109,7 @@ async function boot() {
     game.state = "exiting";
     audio.setRiding(false);
     hud.transition(() => {
-      player.setRiding(false);
+      player.exitCabin();
       ferris.disembark();
       hud.hidePlaque();
       game.state = "walk";
@@ -131,11 +131,10 @@ async function boot() {
     hud.toast("欢迎来到幽夜游乐场");
   });
 
-  // 乘坐姿态：每帧相机挂舱（在 ferris.update 之后执行）
+  // 玩家每帧：园区行走或舱内走动（舱内相机由玩家控制器挂舱，ferris.update 先行）
   updates.push({
     update(dt) {
       player.update(dt);
-      ferris.applyRideCamera(camera);
       interact.update();
     },
   });

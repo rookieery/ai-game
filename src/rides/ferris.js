@@ -10,6 +10,7 @@ import * as THREE from "three";
 const _pq = new THREE.Quaternion();
 const _wq = new THREE.Quaternion();
 const _inv = new THREE.Quaternion();
+const _frame = { pos: new THREE.Vector3(), quat: new THREE.Quaternion() };
 
 // 从世界包围盒推导圆盘类资产的轴方向（最薄维度）
 function detectDiscAxis(object) {
@@ -121,7 +122,9 @@ export function createFerrisWheel(gltfRoot) {
       if (!cabLight) {
         cabLight = new THREE.PointLight("#ffe9c4", CABIN_LIGHT_BASE * state.cabinLight, 7, 2);
       }
-      cabLight.position.set(0, -1.25, 0);
+      // 落地灯位（柱脚旁偏门侧）：走动模式下眼位可到舱中心 0.37m 内，
+      // 灯挂中心会贴脸照爆（Bloom 过曝）；落地后最近 1.1m，光也更均匀
+      cabLight.position.set(0, -2.05, 0.15);
       cabins[rideCabIdx].add(cabLight);
     },
     // 下客：恢复待机转速
@@ -140,13 +143,15 @@ export function createFerrisWheel(gltfRoot) {
       for (const { m, base } of decoGlowMats) m.emissiveIntensity = base * state.decoLight;
       if (cabLight) cabLight.intensity = CABIN_LIGHT_BASE * state.cabinLight;
     },
-    // 乘坐中：把相机放进舱内第一人称坐姿（舱体保持水平，偏移即世界偏移）
-    applyRideCamera(camera) {
-      if (!state.riding || rideCabIdx < 0) return;
+    // 乘坐中：返回所乘舱的世界位姿（舱根每帧被锁回摆正姿态，quat 恒定）
+    // 供玩家控制器做舱内本地走动；非乘坐态返回 null
+    getRideFrame() {
+      if (!state.riding || rideCabIdx < 0) return null;
       const c = cabins[rideCabIdx];
       c.updateWorldMatrix(true, false);
-      c.getWorldPosition(_v);
-      camera.position.set(_v.x + 0.45, _v.y - 1.16, _v.z - 0.20);
+      c.getWorldPosition(_frame.pos);
+      c.getWorldQuaternion(_frame.quat);
+      return _frame;
     },
   };
 }

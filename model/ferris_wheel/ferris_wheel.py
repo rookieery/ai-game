@@ -7,8 +7,8 @@ All sizes in meters. Wheel spins about local Y (axle), cabins stay level.
 v2 万圣节惊魂夜重做:
   - R=16m, 16 cabins, hub 19m  (登舱平台顶 1.0m, 舱底地板 ~1.06m 正好踏板)
   - 双弦杆轮缘桁架 + 之字斜撑 + 内环 + 24 辐条 + 细张拉杆
-  - 舱体: 弧顶灯笼 + 密分格玻璃带 + 内饰(地板/对坐长椅/中柱扶手/暖光天花)
-    + 南瓜徽牌 + 裙边缓冲 + 门框
+  - 舱体: 弧顶灯笼 + 密分格玻璃带 + 内饰(地板/端墙长椅/中柱/暖光天花墙裙)
+    + 南瓜徽牌 + 裙边缓冲 + 门框  (v2.1: 舱内可走动布局)
   - 站台: 雨棚 + 吊灯 + 排队围栏 + 台阶 + 售票亭 + 地面灯环
 """
 import bpy
@@ -259,7 +259,9 @@ try:
     m_glass.surface_render_method = "BLENDED"
 except Exception:
     pass
-m_glow   = make_mat("FW_InteriorGlow", HEX["warm"], rough=0.5, emit=HEX["warm"], strength=3.2)
+# 舱内暖光面板: strength 2.0 — 走动模式站姿眼位距天花仅 0.16m, 面板入视场即成片;
+# 默认舱内灯 40% 时亮度 0.80 < Bloom 阈值 0.85 不起晕, 调高亮度仍可点亮辉光
+m_glow   = make_mat("FW_InteriorGlow", HEX["warm"], rough=0.5, emit=HEX["warm"], strength=2.0)
 m_bench  = make_mat("FW_Bench", "#4A3A26", rough=0.8)
 m_lamp   = make_mat("FW_RoofLamp", HEX["warm"], rough=0.4, emit=HEX["warm"], strength=2.6)
 m_pump   = make_mat("FW_Pumpkin", HEX["orange"], rough=0.35, emit=HEX["orange"], strength=2.4)
@@ -540,11 +542,12 @@ for i in range(P["cabins"]):
             ob = add_box(f"FW_Post_{i}_{sx}_{sy}", (0.07, 0.07, 1.20),
                          (px + sx * 0.815, sy * 0.555, Z(-1.28)), mat=m_metal)
             cabin_part(ob)
-    # mullions: +-z faces x2 each, +-y faces x1 each
+    # mullions: +-x 大窗面各 2 根(分 3 格), +-y 门面各 1 根
+    # (修复: 原定位漏加 sz*0.815, 两根竖杆悬在舱内走道中央)
     for sz in (1, -1):
         for my in (-0.39, 0.39):
             ob = add_box(f"FW_MullZ_{i}_{sz}_{my}", (0.05, 0.06, 1.16),
-                         (px, my, Z(-1.28)), mat=m_metal)
+                         (px + sz * 0.815, my, Z(-1.28)), mat=m_metal)
             cabin_part(ob)
     for sy in (1, -1):
         ob = add_box(f"FW_MullY_{i}_{sy}", (0.06, 0.05, 1.16),
@@ -554,39 +557,38 @@ for i in range(P["cabins"]):
     cabin_part(ob)
     ob = add_box(f"FW_Sill_{i}", (1.72, 1.20, 0.05), (px, 0, Z(-1.80)), mat=m_metal)
     cabin_part(ob)
-    # door frames (两侧 +-y 开口)
+    # door frames (两侧 +-y 开口) — 暗色金属: 门框凸入舱内 0.03, 走动模式可贴到 0.2m,
+    # 发光 trim (strength 1.5) 会贴脸炸 Bloom; 外观门框改暗框, 发光交给腰线/檐口
     for sy in (1, -1):
         for sx in (1, -1):
             ob = add_box(f"FW_DoorJamb_{i}_{sy}_{sx}", (0.08, 0.06, 1.16),
-                         (px + sx * 0.70, sy * 0.585, Z(-1.28)), mat=m_trim[ci])
+                         (px + sx * 0.70, sy * 0.585, Z(-1.28)), mat=m_metal_d)
             cabin_part(ob)
         ob = add_box(f"FW_DoorHead_{i}_{sy}", (1.48, 0.06, 0.08),
-                     (px, sy * 0.585, Z(-0.74)), mat=m_trim[ci])
+                     (px, sy * 0.585, Z(-0.74)), mat=m_metal_d)
         cabin_part(ob)
 
-    # interior: floor + glow ceiling + wainscot + benches + pole + rail
+    # interior: floor + glow ceiling + wainscot + end bench + pole
+    # 舱内走动版布局: 端墙单长椅(贴登舱门对面) + 中央立柱, 让出贯通站立走道
     ob = add_box(f"FW_Floor_{i}", (1.58, 1.06, 0.08), (px, 0, Z(-2.38)), mat=m_bench)
     cabin_part(ob)
     ob = add_box(f"FW_GlowCeil_{i}", (1.50, 1.04, 0.04), (px, 0, Z(-0.76)), mat=m_glow)
     cabin_part(ob)
-    ob = add_box(f"FW_GlowWall_{i}", (1.50, 0.04, 0.44), (px, 0.52, Z(-2.12)), mat=m_glow)
+    # 墙裙暖光条移到登舱门侧墙 (原 +y 侧现为长椅背板)
+    ob = add_box(f"FW_GlowWall_{i}", (1.50, 0.04, 0.44), (px, -0.52, Z(-2.12)), mat=m_glow)
+    cabin_part(ob)
+    # 端墙长椅: 座长 1.30(坐2人) / 座深 0.35 + 靠背 0.07 / 座高同前(顶 -1.86)
+    ob = add_box(f"FW_BenchSeat_{i}", (1.30, 0.35, 0.09),
+                 (px, 0.285, Z(-1.905)), mat=m_bench)
+    cabin_part(ob)
+    ob = add_box(f"FW_BenchBack_{i}", (1.30, 0.07, 0.50),
+                 (px, 0.495, Z(-1.61)), mat=m_bench)
     cabin_part(ob)
     for sx in (1, -1):
-        ob = add_box(f"FW_BenchSeat_{i}_{sx}", (0.46, 0.94, 0.09),
-                     (px + sx * 0.50, 0, Z(-1.905)), mat=m_bench)
+        ob = add_box(f"FW_BenchArm_{i}_{sx}", (0.05, 0.42, 0.06),
+                     (px + sx * 0.625, 0.285, Z(-1.74)), mat=m_wood)
         cabin_part(ob)
-        ob = add_box(f"FW_BenchBack_{i}_{sx}", (0.07, 0.94, 0.50),
-                     (px + sx * 0.775, 0, Z(-1.61)), mat=m_bench)
-        cabin_part(ob)
-        for sy in (1, -1):
-            ob = add_box(f"FW_BenchArm_{i}_{sx}_{sy}", (0.42, 0.05, 0.06),
-                         (px + sx * 0.50, sy * 0.44, Z(-1.74)), mat=m_wood)
-            cabin_part(ob)
     ob = add_cyl(f"FW_Pole_{i}", 0.045, 1.3, (px, 0, Z(-1.52)), mat=m_metal, verts=10)
-    cabin_part(ob)
-    # 扶手环降到坐姿视线下方 (原 dz-1.12 r0.30 恰在相机眼前 0.16m, 辉光成"穿舱白管")
-    ob = add_torus(f"FW_Rail_{i}", 0.22, 0.03, (px, 0, Z(-1.55)),
-                   rot=(radians(90), 0, 0), mat=m_metal, ms=24, ns=6)
     cabin_part(ob)
     # 舱内真实暖光点光源 (自发光面板不产光, 长椅地板需要它照亮)
     bpy.ops.object.light_add(type="POINT", location=(px, 0, Z(-1.25)))
@@ -675,13 +677,13 @@ cz = HZ + R * sin(cabin_roots[best][1])
 cx = R * cos(cabin_roots[best][1])
 cam_det = add_cam("FW_CamDetail", (cx + 3.6, -6.6, cz + 2.4), (cx, 0, cz - 1.6), lens=50)
 
-# 舱内第一人称视角 (验证内饰): 找最接近 -90 度(最低点)的舱, 坐姿视线
+# 舱内第一人称视角 (验证内饰与走道): 找最接近 -90 度(最低点)的舱, 站姿视线
 fp_th = radians(-90)
 best_fp = min(range(P["cabins"]), key=lambda i: _ang_diff(cabin_roots[i][1], fp_th))
 fpz = HZ + R * sin(cabin_roots[best_fp][1])
 fpx = R * cos(cabin_roots[best_fp][1])
-cam_fp = add_cam("FW_CamInterior", (fpx + 0.45, 0.20, fpz - 1.16),
-                 (fpx - 1.8, -0.05, fpz - 1.02), lens=18)
+cam_fp = add_cam("FW_CamInterior", (fpx + 0.35, -0.16, fpz - 1.40),
+                 (fpx - 1.8, -0.16, fpz - 1.52), lens=18)
 
 sc.view_settings.view_transform = "Standard"
 sc.view_settings.exposure = 0.15
