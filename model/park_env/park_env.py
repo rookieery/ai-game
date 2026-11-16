@@ -13,9 +13,10 @@ Run: blender --background --python park_env.py
 输出: park_env.glb (按材质合并) + colliders.json (app 坐标) + preview/
 """
 import bpy
+import bmesh
 import json
 import random
-from math import radians, pi, cos, sin
+from math import radians, pi, cos, sin, atan2
 from pathlib import Path
 import numpy as np
 from mathutils import Vector
@@ -126,6 +127,23 @@ def add_torus(name, R, tube, loc, rot=(0, 0, 0), mat=None, ms=64, ns=8, scale=(1
     smooth(ob)
     return ob
 
+def torus_gap(ob, gap_half_deg, gap_center_deg):
+    """水平圆环按局部角度开缺口: 删 [center-half, center+half] 区间的顶点。
+    用于广场发光环在摩天轮登舱台阶走廊断开 (角度 270° = blender -y = 台阶侧)。"""
+    bm = bmesh.new()
+    bm.from_mesh(ob.data)
+    lo = radians(gap_center_deg - gap_half_deg) % (2 * pi)
+    hi = radians(gap_center_deg + gap_half_deg) % (2 * pi)
+    def in_gap(v):
+        a = atan2(v.co.y, v.co.x) % (2 * pi)
+        return lo <= a <= hi
+    doomed = [v for v in bm.verts if in_gap(v)]
+    bmesh.ops.delete(bm, geom=doomed, context="VERTS")
+    bm.to_mesh(ob.data)
+    bm.free()
+    ob.data.update()
+    return ob
+
 def add_box(name, size, loc, rot=(0, 0, 0), mat=None):
     bpy.ops.mesh.primitive_cube_add(size=1.0, location=loc, rotation=rot)
     ob = bpy.context.active_object
@@ -199,8 +217,12 @@ def at(name, ob):
 # ---------------- 地面 / 广场 / 道路 ----------------
 add_cyl("PE_GroundDisc", P["park_r"], 0.2, (0, 0, -0.15), mat=m_ground, verts=64)
 add_cyl("PE_PlazaDisc", P["plaza_r"], 0.1, (0, 0, -0.02), mat=m_path, verts=64)
+# 广场双发光环: 南向 ±13° 断弧 —— 摩天轮登舱台阶占据南向走廊 (r9~16.2, 半宽 2.2),
+# 全圆环会从台阶中段下方穿过/与末级台阶相交, 制造台阶悬浮错觉 (v2.3)
 add_torus("PE_PlazaRing1", 15.5, 0.14, (0, 0, 0.07), mat=m_orange, ms=96, ns=6, scale=(1, 1, 0.12))
+torus_gap(bpy.data.objects["PE_PlazaRing1"], gap_half_deg=13.0, gap_center_deg=270.0)
 add_torus("PE_PlazaRing2", 13.0, 0.10, (0, 0, 0.07), mat=m_violet, ms=96, ns=6, scale=(1, 1, 0.12))
+torus_gap(bpy.data.objects["PE_PlazaRing2"], gap_half_deg=13.0, gap_center_deg=270.0)
 
 # 主路 (南入口 -> 广场), 分 4 段
 for k, yc in enumerate((-27.5, -45.0, -62.5, -78.0)):

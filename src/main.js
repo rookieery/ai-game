@@ -74,8 +74,8 @@ async function boot() {
 
   const wheelRoot = await loadGLB("/assets/models/ferris_wheel.glb", manager);
   hud.setLoadingProgress(0.85); // 召轮
-  const legacyGround = wheelRoot.getObjectByName("FW_Ground");
-  if (legacyGround) legacyGround.removeFromParent();
+  // 注: legacy FW_Ground 地面盘已在 Blender 管线导出前移除 (ferris_wheel.py v2.3),
+  // app 侧地面由 park_env.glb 提供
   scene.add(wheelRoot);
   ferris = createFerrisWheel(wheelRoot);
   ferris.applySettings(settings.values); // 摩天轮就位后补应用（含持久化配置）

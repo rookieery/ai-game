@@ -10,10 +10,18 @@ v2 万圣节惊魂夜重做:
   - 舱体: 弧顶灯笼 + 密分格玻璃带 + 内饰(地板/端墙长椅/中柱/暖光天花墙裙)
     + 南瓜徽牌 + 裙边缓冲 + 门框  (v2.1: 舱内可走动布局)
   - 站台: 雨棚 + 吊灯 + 排队围栏 + 台阶 + 售票亭 + 地面灯环
+
+v2.3 场景贴合修复:
+  - 售票亭/排队围栏/矮柱灯落地 (原按站台面标高 1.55 定位, 但平面位置在站台半径外, 悬空)
+  - 排队围栏外移 x=±1.5 -> ±2.7 (原位落地会埋进台阶体), 台阶口两侧各补一盏矮柱灯
+  - FW_GroundRing1 南向断弧 ±13°, 不再从台阶下方穿过 (悬浮错觉线)
+  - 修复 join_group 分组未填充导致合并静默失效 (glb 1266 mesh -> 按材质合并)
+  - legacy FW_Ground 地面盘只在 blend/预览保留, glb 导出前移除 (避免盖住公园地坪)
 """
 import bpy
+import bmesh
 import math
-from math import radians, pi, cos, sin
+from math import radians, pi, cos, sin, atan2
 from pathlib import Path
 import numpy as np
 from mathutils import Vector
@@ -145,6 +153,23 @@ def add_torus(name, R, tube, loc, rot=(0, 0, 0), mat=None, ms=64, ns=10):
     ob.name = name
     if mat: ob.data.materials.append(mat)
     smooth(ob)
+    return ob
+
+def torus_gap(ob, gap_half_deg, gap_center_deg):
+    """水平圆环按局部角度开缺口: 删 [center-half, center+half] 区间的顶点。
+    用于发光地环在登舱台阶走廊断开 (角度 270° = blender -y = 台阶侧)。"""
+    bm = bmesh.new()
+    bm.from_mesh(ob.data)
+    lo = radians(gap_center_deg - gap_half_deg) % (2 * pi)
+    hi = radians(gap_center_deg + gap_half_deg) % (2 * pi)
+    def in_gap(v):
+        a = atan2(v.co.y, v.co.x) % (2 * pi)
+        return lo <= a <= hi
+    doomed = [v for v in bm.verts if in_gap(v)]
+    bmesh.ops.delete(bm, geom=doomed, context="VERTS")
+    bm.to_mesh(ob.data)
+    bm.free()
+    ob.data.update()
     return ob
 
 def add_box(name, size, loc, rot=(0, 0, 0), mat=None):
@@ -291,16 +316,19 @@ for k in range(8):
     add_box(f"FW_Step{k}", (4.4, 0.9, 0.194), (0, -(9.45 + k * 0.9), top_z - 0.097),
             mat=m_platform)
 
-# 地面灯环
+# 地面灯环 (v2.3: 内环南向断弧 ±13°, 避免发光线从登舱台阶下方穿过造成悬浮错觉)
 add_torus("FW_GroundRing1", 12.5, 0.05, (0, 0, 0.03), mat=m_ring_a, ms=96, ns=8)
+torus_gap(bpy.data.objects["FW_GroundRing1"], gap_half_deg=13.0, gap_center_deg=270.0)
 add_torus("FW_GroundRing2", 16.5, 0.05, (0, 0, 0.03), mat=m_ring_v, ms=96, ns=8)
 
-# 平台矮柱灯
-for i in range(12):
-    th = i * pi / 6
-    x, y = 10.4 * cos(th), 10.4 * sin(th)
-    add_cyl(f"FW_Bollard{i}", 0.1, 0.5, (x, y, P["platform_h"] + 0.25), mat=m_iron, verts=10)
-    add_sphere(f"FW_BollardTop{i}", 0.1, (x, y, P["platform_h"] + 0.56),
+# 平台矮柱灯 (v2.3: 落地 z=0 起步; 原悬空 1.55 — 平面位置在站台半径外却按站台面标高定位。
+# 南向走廊 (blender -y) 让位登舱台阶, 撤掉该处一盏, 在台阶口两侧各补一盏)
+bollard_xy = [(10.4 * cos(i * pi / 6), 10.4 * sin(i * pi / 6))
+              for i in range(12) if i != 9]
+bollard_xy += [(2.69, -10.05), (-2.69, -10.05)]
+for i, (x, y) in enumerate(bollard_xy):
+    add_cyl(f"FW_Bollard{i}", 0.1, 0.5, (x, y, 0.25), mat=m_iron, verts=10)
+    add_sphere(f"FW_BollardTop{i}", 0.1, (x, y, 0.56),
                mat=m_dot[i % len(m_dot)], seg=12, ring=8)
 
 # 雨棚 (canopy): 4 角柱(棚顶四角正下方 ±6.222) + 四棱锥尖顶 + 周圈吊灯笼
@@ -320,28 +348,29 @@ for i in range(8):
     add_cyl(f"FW_CanDrop{i}", 0.02, 0.4, (lx, ly, 5.8), mat=m_iron, verts=8)
     add_sphere(f"FW_CanLamp{i}", 0.1, (lx, ly, 5.5), mat=m_lamp, seg=12, ring=8)
 
-# 排队围栏 (queue railings, platform -y 侧)
-for lane_x in (-1.5, 1.5):
+# 排队围栏 (queue railings, 台阶两侧; v2.3 落地并外移 x=±2.7 —
+# 原 x=±1.5 且按站台面标高 1.55 定位, 骑在台阶上方悬空; ±1.5 落地会埋进台阶体内)
+for lane_x in (-2.7, 2.7):
     n_post = 5
     for k in range(n_post):
-        y = -10.2 - k * 0.95
-        add_cyl(f"FW_QPost{lane_x}_{k}", 0.035, 1.0, (lane_x, y, P["platform_h"] + 0.5),
+        y = -10.8 - k * 0.9
+        add_cyl(f"FW_QPost{lane_x}_{k}", 0.035, 1.0, (lane_x, y, 0.5),
                 mat=m_iron, verts=8)
-        add_sphere(f"FW_QPostTop{lane_x}_{k}", 0.05, (lane_x, y, P["platform_h"] + 1.02),
+        add_sphere(f"FW_QPostTop{lane_x}_{k}", 0.05, (lane_x, y, 1.02),
                    mat=m_dot[1], seg=10, ring=6)
     for rz in (0.62, 0.98):
-        y0, y1 = -10.2, -10.2 - (n_post - 1) * 0.95
+        y0, y1 = -10.8, -10.8 - (n_post - 1) * 0.9
         add_cyl(f"FW_QRail{lane_x}_{rz}", 0.025, abs(y1 - y0),
-                (lane_x, (y0 + y1) / 2, P["platform_h"] + rz), rot=(radians(90), 0, 0),
+                (lane_x, (y0 + y1) / 2, rz), rot=(radians(90), 0, 0),
                 mat=m_iron, verts=8)
 
-# 售票亭 (ticket booth, 右前)
+# 售票亭 (ticket booth, 右前; v2.3 落地 z=0 起步, 原按站台面标高悬空 1.55)
 bx, by = 7.6, -8.2
-add_box("FW_BoothBody", (1.7, 1.7, 2.2), (bx, by, P["platform_h"] + 1.1), mat=m_wood)
-add_cone("FW_BoothRoof", 1.35, 0.75, (bx, by, P["platform_h"] + 2.55), mat=m_metal_d, verts=4,
+add_box("FW_BoothBody", (1.7, 1.7, 2.2), (bx, by, 1.1), mat=m_wood)
+add_cone("FW_BoothRoof", 1.35, 0.75, (bx, by, 2.55), mat=m_metal_d, verts=4,
          rot=(0, 0, radians(45)))
-add_box("FW_BoothSign", (0.95, 0.06, 0.5), (bx, by - 0.88, P["platform_h"] + 1.7), mat=m_sign)
-add_box("FW_BoothCounter", (1.1, 0.25, 0.08), (bx, by - 0.78, P["platform_h"] + 1.05), mat=m_wood)
+add_box("FW_BoothSign", (0.95, 0.06, 0.5), (bx, by - 0.88, 1.7), mat=m_sign)
+add_box("FW_BoothCounter", (1.1, 0.25, 0.08), (bx, by - 0.78, 1.05), mat=m_wood)
 
 # support structure (static) ---------------------------------------------
 lbx, lby, ltx, lty = P["leg_base_x"], P["leg_base_y"], P["leg_top_x"], P["leg_top_y"]
@@ -743,15 +772,27 @@ def under_root(ob, root_name):
     return False
 
 def join_group(pred, prefix):
+    # v2.3 修复: 原 groups 字典从未填充, 合并静默跳过, glb 实际 1266 个独立 mesh
     groups = {}
-    meshes = [ob for ob in bpy.context.scene.objects
-              if ob.type == "MESH" and pred(ob)]
+    for ob in bpy.context.scene.objects:
+        if ob.type != "MESH" or not pred(ob):
+            continue
+        mat = ob.data.materials[0].name if ob.data.materials else "NONE"
+        groups.setdefault(mat, []).append(ob)
     for mat_name, obs in groups.items():
         # 关键: 每组合并前必须清空选择——join 会吞掉所有已选中对象,
         # 上组合并结果保持选中, 不清空会把别的组滚雪球并进来
         bpy.ops.object.select_all(action="DESELECT")
+        # 先逐个应用修改器(倒角), 避免 join 后活动对象的修改器参数
+        # 被套用到整组几何上
         for ob in obs:
             ob.select_set(True)
+            if ob.modifiers:
+                bpy.context.view_layer.objects.active = ob
+                try:
+                    bpy.ops.object.modifier_apply(modifier=ob.modifiers[0].name)
+                except Exception as e:
+                    print(f"WARN modifier_apply {ob.name}: {type(e).__name__}")
         bpy.context.view_layer.objects.active = obs[0]
         if len(obs) > 1:
             bpy.ops.object.join()
@@ -766,19 +807,9 @@ for i in range(P["cabins"]):                                          # 每舱
     join_group(lambda ob, i=i: under_root(ob, f"FW_CabinRoot_{i}"), f"FW_C{i}")
 bpy.ops.object.select_all(action="DESELECT")
 
-# save source + export glb -----------------------------------------------------
+# save source (预览渲染仍含地面盘; glb 在预览之后单独导出) -----------------------
 bpy.ops.wm.save_as_mainfile(filepath=str(OUT / "ferris_wheel.blend"))
 print("BLEND_SAVED")
-
-try:
-    bpy.ops.export_scene.gltf(filepath=str(OUT / "ferris_wheel.glb"),
-                              export_format="GLB", export_animations=True,
-                              export_apply=True)
-except (TypeError, RuntimeError) as e:
-    print("GLTF_KWARG_FALLBACK", type(e).__name__)
-    bpy.ops.export_scene.gltf(filepath=str(OUT / "ferris_wheel.glb"),
-                              export_format="GLB")
-print("GLB_EXPORTED")
 
 # renders ----------------------------------------------------------------------
 def brightness(path):
@@ -872,6 +903,26 @@ if P["render_video"]:
         print("VIDEO_OK")
     except Exception as e:
         print("VIDEO_FAIL", type(e).__name__, str(e)[:160])
+
+# export glb -------------------------------------------------------------------
+# legacy 地面盘 (r70, 顶面 y=0) 仅服务 blender 预览; app 侧地面由 park_env 提供
+# (地坪顶 y=-0.05), 不移除会盖住公园地面 —— 预览渲完再删, 然后导出。
+# 注意: 上面的按材质合并会把节点改名为 FW_S_<材质>, 所以按材质名查找而不是节点名
+ground = next((o for o in bpy.context.scene.objects
+               if o.type == "MESH" and o.data.materials
+               and o.data.materials[0].name == "FW_Ground"), None)
+if ground:
+    print("FW_GROUND_REMOVED", ground.name)
+    bpy.data.objects.remove(ground, do_unlink=True)
+try:
+    bpy.ops.export_scene.gltf(filepath=str(OUT / "ferris_wheel.glb"),
+                              export_format="GLB", export_animations=True,
+                              export_apply=True)
+except (TypeError, RuntimeError) as e:
+    print("GLTF_KWARG_FALLBACK", type(e).__name__)
+    bpy.ops.export_scene.gltf(filepath=str(OUT / "ferris_wheel.glb"),
+                              export_format="GLB")
+print("GLB_EXPORTED")
 
 # report ------------------------------------------------------------------------
 tris = 0

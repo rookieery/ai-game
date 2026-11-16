@@ -39,10 +39,26 @@ export function createPlayer(camera, input, park) {
   let bobT = 0;
 
   // 碰撞圆: colliders.json + 摩天轮站台/台阶护栏 (登舱走交互, 不走台阶)
+  // + 站台落地装饰件 (v2.3 ferris_wheel.py: 售票亭/排队围栏/矮柱灯,
+  //   此前无碰撞体, 人物可从建筑中间穿过)
+  const booth = { x: 7.6, z: 8.2, r: 1.25 };
+  const queueRails = [-2.7, 2.7].flatMap((lx) =>
+    [11.0, 12.6, 14.2].map((z) => ({ x: lx, z, r: 0.55 }))
+  );
+  const bollards = [];
+  for (let i = 0; i < 12; i++) {
+    if (i === 9) continue; // 南向走廊让位登舱台阶 (管线侧同步跳过, 台阶口两侧另补)
+    const th = (i * Math.PI) / 6;
+    bollards.push({ x: 10.4 * Math.cos(th), z: -10.4 * Math.sin(th), r: 0.35 });
+  }
+  bollards.push({ x: 2.69, z: 10.05, r: 0.35 }, { x: -2.69, z: 10.05, r: 0.35 });
   const extra = [
     { x: 0, z: 0, r: 9.8 },
     { x: 0, z: 11.5, r: 2.7 },
     { x: 0, z: 14.2, r: 2.7 },
+    booth,
+    ...queueRails,
+    ...bollards,
   ];
   const circles = [...(park?.circles ?? []), ...extra];
   const boundaryR = park?.boundaryR ?? 60;
