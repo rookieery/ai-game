@@ -125,7 +125,7 @@ export function createFerrisWheel(gltfRoot) {
       const c = cabins[rideCabIdx];
       c.updateWorldMatrix(true, false);
       c.getWorldPosition(_v);
-      camera.position.set(_v.x + 0.45, _v.y + 1.16, _v.z - 0.20);
+      camera.position.set(_v.x + 0.45, _v.y - 1.16, _v.z - 0.20);
     },
   };
 }

@@ -434,7 +434,7 @@ for sy in (1, -1):
                          (CB * cos(th2), sy * G, HZ + CB * sin(th2)),
                          0.028, m_metal, verts=6)
         wheel_child(ob)
-        spokes_mid[(sy, k)] = (0.5 * CB * cos(th), sy * G, HZ + 0.5 * (HZ + CB * sin(th)))
+        spokes_mid[(sy, k)] = (0.5 * CB * cos(th), sy * G, HZ + 0.5 * CB * sin(th))
 
 # 轮盘面之字斜撑 (两轮缘平面间)
 n_sp = P["spokes_per_side"]
