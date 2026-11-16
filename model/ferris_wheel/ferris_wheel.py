@@ -1,8 +1,15 @@
 # -*- coding: utf-8 -*-
 """
-Ferris Wheel - Neon Night Style (game-ready glTF asset)
+Ferris Wheel v2 - Halloween Night "幽眠摩天轮" (game-ready glTF asset)
 Run: blender --background --python ferris_wheel.py
-All sizes in meters. Wheel spins around Y axis, cabins stay level.
+All sizes in meters. Wheel spins about local Y (axle), cabins stay level.
+
+v2 万圣节惊魂夜重做:
+  - R=16m, 16 cabins, hub 19m  (登舱平台顶 1.0m, 舱底地板 ~1.06m 正好踏板)
+  - 双弦杆轮缘桁架 + 之字斜撑 + 内环 + 24 辐条 + 细张拉杆
+  - 舱体: 弧顶灯笼 + 密分格玻璃带 + 内饰(地板/对坐长椅/中柱扶手/暖光天花)
+    + 南瓜徽牌 + 裙边缓冲 + 门框
+  - 站台: 雨棚 + 吊灯 + 排队围栏 + 台阶 + 售票亭 + 地面灯环
 """
 import bpy
 import math
@@ -13,38 +20,43 @@ from mathutils import Vector
 
 # ---------------------------------------------------------------- params ---
 P = {
-    "wheel_radius": 12.0,      # wheel rim radius
-    "rim_half_gap": 1.1,       # rim planes at y = +/- this
-    "hub_z": 15.5,             # axle height above ground
-    "inner_ring_r": 10.2,      # structural ring spokes attach to
+    "wheel_radius": 16.0,
+    "rim_chord_a_r": 16.0,      # 轮缘外弦
+    "rim_chord_b_r": 15.25,     # 轮缘内弦 (桁架双弦杆)
+    "rim_half_gap": 1.25,       # 轮缘平面 y = +/- gap
+    "inner_ring_r": 9.6,
+    "hub_z": 20.1,
     "platform_r": 9.0,
-    "platform_h": 0.7,
+    "platform_h": 1.55,         # 高站台: 落舱时舱地板(1.76)与站台(1.55)差 0.21 可跨入
     "ground_r": 70.0,
-    "cabins": 12,
-    "spokes_per_side": 12,
-    "spin_period_s": 24.0,     # seconds per full revolution
+    "cabins": 16,
+    "spokes_per_side": 24,
+    "lattice_per_side": 48,     # 轮缘桁架之字斜撑数/侧
+    "spin_period_s": 28.0,
     "fps": 30,
-    "leg_base_x": 4.5,
-    "leg_base_y": 2.2,
-    "leg_top_x": 0.85,
-    "leg_top_y": 1.6,
+    "leg_base_x": 6.2,
+    "leg_base_y": 3.0,
+    "leg_top_x": 1.1,
+    "leg_top_y": 2.2,
     "res_still": (1600, 900),
-    "res_still_cycles": (1280, 720),
-    "glass_alpha": 0.45,       # cabin glass transparency (1.0 = opaque)
+    "glass_alpha": 0.34,
+    "render_video": False,      # 迭代期 False, 定稿 True
 }
 
+# 万圣节色板
 HEX = {
-    "pink":   "#FF2E88",
-    "cyan":   "#00E5FF",
-    "yellow": "#FFE600",
-    "green":  "#7CFF00",
-    "purple": "#B26BFF",
-    "warm":   "#FFD9A0",
-    "metal":  "#262B36",
-    "metal_d":"#1E2330",
-    "ground": "#0A0D16",
+    "orange":  "#FFA53B",   # 南瓜橙
+    "violet":  "#9B5BFF",   # 暗夜紫
+    "green":   "#8CFF4A",   # 磷光绿
+    "red":     "#C43B3B",   # 暗红
+    "warm":    "#FFE9C4",   # 暖白灯色
+    "metal":   "#3A4152",
+    "metal_d": "#1E2330",
+    "iron":    "#23273A",
+    "ground":  "#0A0D16",
     "platform":"#161B27",
-    "night":  "#060913",
+    "night":   "#060913",
+    "wood":    "#4A3526",
 }
 
 def hex_lin(h, a=1.0):
@@ -111,7 +123,7 @@ def add_cyl(name, r, depth, loc, rot=(0, 0, 0), mat=None, verts=16, sm=True, sca
     if sm: smooth(ob)
     return ob
 
-def cyl_between(name, p1, p2, r, mat, verts=12, sm=True):
+def cyl_between(name, p1, p2, r, mat, verts=10, sm=True):
     p1, p2 = Vector(p1), Vector(p2)
     d = p2 - p1
     L = d.length
@@ -125,7 +137,7 @@ def cyl_between(name, p1, p2, r, mat, verts=12, sm=True):
     if sm: smooth(ob)
     return ob
 
-def add_torus(name, R, tube, loc, rot=(0, 0, 0), mat=None, ms=64, ns=12):
+def add_torus(name, R, tube, loc, rot=(0, 0, 0), mat=None, ms=64, ns=10):
     bpy.ops.mesh.primitive_torus_add(major_radius=R, minor_radius=tube,
                                      major_segments=ms, minor_segments=ns,
                                      location=loc, rotation=rot)
@@ -143,7 +155,7 @@ def add_box(name, size, loc, rot=(0, 0, 0), mat=None):
     if mat: ob.data.materials.append(mat)
     return ob
 
-def add_bevel_box(name, size, loc, mat=None, segments=2, width=0.03, rot=(0, 0, 0)):
+def add_bevel_box(name, size, loc, mat=None, segments=3, width=0.03, rot=(0, 0, 0)):
     ob = add_box(name, size, loc, rot=rot, mat=mat)
     bev = ob.modifiers.new("Bevel", "BEVEL")
     bev.width = width
@@ -153,6 +165,15 @@ def add_bevel_box(name, size, loc, mat=None, segments=2, width=0.03, rot=(0, 0, 
         bev.angle_limit = radians(40)
     except Exception:
         pass
+    return ob
+
+def add_cone(name, r, depth, loc, mat=None, verts=4, rot=(0, 0, 0)):
+    bpy.ops.mesh.primitive_cone_add(radius1=r, depth=depth, vertices=verts,
+                                    location=loc, rotation=rot)
+    ob = bpy.context.active_object
+    ob.name = name
+    if mat: ob.data.materials.append(mat)
+    smooth(ob)
     return ob
 
 def add_sphere(name, r, loc, mat=None, seg=16, ring=10, scale=(1, 1, 1)):
@@ -212,20 +233,23 @@ col_wheel  = bpy.data.collections.new("WheelSpin")
 sc.collection.children.link(col_static)
 sc.collection.children.link(col_wheel)
 
-pal = [HEX["pink"], HEX["cyan"], HEX["yellow"], HEX["green"], HEX["purple"]]
+PAINTS = [HEX["orange"], HEX["violet"], HEX["green"], HEX["red"]]
+DOTS   = [HEX["warm"], HEX["orange"], HEX["violet"], HEX["green"]]
 
 # materials -------------------------------------------------------------
-m_metal    = make_mat("FW_Metal", "#3A4152", rough=0.45, metal=0.85)
+m_metal    = make_mat("FW_Metal", HEX["metal"], rough=0.45, metal=0.85)
 m_metal_d  = make_mat("FW_MetalDark", HEX["metal_d"], rough=0.6, metal=0.7)
+m_iron     = make_mat("FW_Iron", HEX["iron"], rough=0.55, metal=0.8)
+m_wood     = make_mat("FW_Wood", HEX["wood"], rough=0.85, metal=0.0)
 m_ground   = make_mat("FW_Ground", HEX["ground"], rough=0.95)
 m_platform = make_mat("FW_Platform", HEX["platform"], rough=0.55, metal=0.1)
-m_rim_pink  = make_mat("FW_RimPink", HEX["pink"], rough=0.4, emit=HEX["pink"], strength=2.5)
-m_rim_cyan  = make_mat("FW_RimCyan", HEX["cyan"], rough=0.4, emit=HEX["cyan"], strength=2.5)
-m_dot = [make_mat(f"FW_Dot{i}", c, rough=0.4, emit=c, strength=3.0) for i, c in enumerate(pal)]
-m_cabin = [make_mat(f"FW_Cabin{i}", c, rough=0.28, metal=0.05, emit=c, strength=0.45,
-                    coat=0.6) for i, c in enumerate(pal)]
-m_trim  = [make_mat(f"FW_Trim{i}", c, rough=0.4, emit=c, strength=2.0)
-           for i, c in enumerate(pal)]
+m_rim_a    = make_mat("FW_RimAmber", HEX["orange"], rough=0.4, emit=HEX["orange"], strength=2.2)
+m_rim_v    = make_mat("FW_RimViolet", HEX["violet"], rough=0.4, emit=HEX["violet"], strength=2.2)
+m_dot = [make_mat(f"FW_Dot{i}", c, rough=0.4, emit=c, strength=2.6) for i, c in enumerate(DOTS)]
+m_cabin = [make_mat(f"FW_Cabin{i}", c, rough=0.28, metal=0.05, emit=c, strength=0.35,
+                    coat=0.6) for i, c in enumerate(PAINTS)]
+m_trim  = [make_mat(f"FW_Trim{i}", c, rough=0.4, emit=c, strength=1.5)
+           for i, c in enumerate(PAINTS)]
 m_glass = make_mat("FW_Glass", "#142A3E", rough=0.06, metal=0.0, alpha=P["glass_alpha"])
 try:
     m_glass.blend_method = "BLEND"
@@ -235,34 +259,84 @@ try:
     m_glass.surface_render_method = "BLENDED"
 except Exception:
     pass
-m_glow  = make_mat("FW_InteriorGlow", HEX["warm"], rough=0.5, emit=HEX["warm"], strength=2.2)
-m_bench = make_mat("FW_Bench", "#1A1E28", rough=0.8)
-m_lamp  = make_mat("FW_RoofLamp", HEX["warm"], rough=0.4, emit=HEX["warm"], strength=3.0)
-m_edge_cyan = make_mat("FW_EdgeCyan", HEX["cyan"], rough=0.4, emit=HEX["cyan"], strength=3.0)
-m_ring_pink   = make_mat("FW_RingPink", HEX["pink"], rough=0.4, emit=HEX["pink"], strength=2.2)
-m_ring_purple = make_mat("FW_RingPurple", HEX["purple"], rough=0.4, emit=HEX["purple"], strength=1.8)
-m_hub_glow = make_mat("FW_HubGlow", HEX["cyan"], rough=0.4, emit=HEX["cyan"], strength=3.0)
+m_glow   = make_mat("FW_InteriorGlow", HEX["warm"], rough=0.5, emit=HEX["warm"], strength=3.2)
+m_bench  = make_mat("FW_Bench", "#4A3A26", rough=0.8)
+m_lamp   = make_mat("FW_RoofLamp", HEX["warm"], rough=0.4, emit=HEX["warm"], strength=2.6)
+m_pump   = make_mat("FW_Pumpkin", HEX["orange"], rough=0.35, emit=HEX["orange"], strength=2.4)
+m_stem   = make_mat("FW_Stem", "#3E5230", rough=0.8)
+m_edge_c = make_mat("FW_EdgeWarm", HEX["warm"], rough=0.4, emit=HEX["warm"], strength=2.4)
+m_ring_a = make_mat("FW_RingAmber", HEX["orange"], rough=0.4, emit=HEX["orange"], strength=1.8)
+m_ring_v = make_mat("FW_RingViolet", HEX["violet"], rough=0.4, emit=HEX["violet"], strength=1.8)
+m_hub_g  = make_mat("FW_HubGlow", HEX["warm"], rough=0.4, emit=HEX["warm"], strength=2.6)
+m_sign   = make_mat("FW_Sign", HEX["violet"], rough=0.4, emit=HEX["violet"], strength=2.0)
 
 R = P["wheel_radius"]
 G = P["rim_half_gap"]
 HZ = P["hub_z"]
+CA, CB = P["rim_chord_a_r"], P["rim_chord_b_r"]
 
 # ground & platform -----------------------------------------------------
 add_cyl("FW_Ground", P["ground_r"], 0.2, (0, 0, -0.1), mat=m_ground, verts=64)
 add_cyl("FW_Platform", P["platform_r"], P["platform_h"],
         (0, 0, P["platform_h"] / 2), mat=m_platform, verts=64)
-add_torus("FW_EdgeRing", P["platform_r"] - 0.05, 0.07,
-          (0, 0, P["platform_h"] + 0.02), mat=m_edge_cyan, ms=96, ns=10)
-add_box("FW_Step1", (4.0, 1.2, 0.24), (0, -(P["platform_r"] + 0.6), 0.12), mat=m_platform)
-add_box("FW_Step2", (4.0, 1.2, 0.24), (0, -(P["platform_r"] - 0.05), 0.40), mat=m_platform)
-add_torus("FW_GroundRing1", 13.0, 0.045, (0, 0, 0.03), mat=m_ring_pink, ms=96, ns=8)
-add_torus("FW_GroundRing2", 17.0, 0.045, (0, 0, 0.03), mat=m_ring_purple, ms=96, ns=8)
-for i in range(10):
-    th = i * pi / 5
-    x, y = 9.9 * cos(th), 9.9 * sin(th)
-    add_cyl(f"FW_Bollard{i}", 0.1, 0.45, (x, y, 0.225), mat=m_metal_d, verts=10)
-    add_sphere(f"FW_BollardTop{i}", 0.09, (x, y, 0.52),
+add_torus("FW_EdgeRing", P["platform_r"] - 0.05, 0.06,
+          (0, 0, P["platform_h"] + 0.02), mat=m_edge_c, ms=96, ns=8)
+
+# 台阶 (platform -y 侧, 8 级到 1.55 高站台)
+for k in range(8):
+    top_z = P["platform_h"] - (k + 1) * 0.194
+    add_box(f"FW_Step{k}", (4.4, 0.9, 0.194), (0, -(9.45 + k * 0.9), top_z - 0.097),
+            mat=m_platform)
+
+# 地面灯环
+add_torus("FW_GroundRing1", 12.5, 0.05, (0, 0, 0.03), mat=m_ring_a, ms=96, ns=8)
+add_torus("FW_GroundRing2", 16.5, 0.05, (0, 0, 0.03), mat=m_ring_v, ms=96, ns=8)
+
+# 平台矮柱灯
+for i in range(12):
+    th = i * pi / 6
+    x, y = 10.4 * cos(th), 10.4 * sin(th)
+    add_cyl(f"FW_Bollard{i}", 0.1, 0.5, (x, y, P["platform_h"] + 0.25), mat=m_iron, verts=10)
+    add_sphere(f"FW_BollardTop{i}", 0.1, (x, y, P["platform_h"] + 0.56),
                mat=m_dot[i % len(m_dot)], seg=12, ring=8)
+
+# 雨棚 (canopy): 6 柱六角布置 + 四棱锥尖顶 + 周圈吊灯笼
+for i in range(6):
+    th = i * pi / 3
+    cx_, cy_ = 7.2 * cos(th), 7.2 * sin(th)
+    add_cyl(f"FW_CanopyCol{i}", 0.14, 6.0 - P["platform_h"],
+            (cx_, cy_, (6.0 + P["platform_h"]) / 2), mat=m_iron, verts=12)
+add_cone("FW_CanopyRoof", 8.8, 1.5, (0, 0, 6.75), mat=m_metal_d, verts=4,
+         rot=(0, 0, radians(45)))
+add_torus("FW_CanopyEave", 6.55, 0.07, (0, 0, 6.06), mat=m_edge_c, ms=64, ns=8)
+for i in range(8):
+    th = i * pi / 4 + pi / 8
+    lx, ly = 7.0 * cos(th), 7.0 * sin(th)
+    add_cyl(f"FW_CanDrop{i}", 0.02, 0.4, (lx, ly, 5.8), mat=m_iron, verts=8)
+    add_sphere(f"FW_CanLamp{i}", 0.1, (lx, ly, 5.5), mat=m_lamp, seg=12, ring=8)
+
+# 排队围栏 (queue railings, platform -y 侧)
+for lane_x in (-1.5, 1.5):
+    n_post = 5
+    for k in range(n_post):
+        y = -10.2 - k * 0.95
+        add_cyl(f"FW_QPost{lane_x}_{k}", 0.035, 1.0, (lane_x, y, P["platform_h"] + 0.5),
+                mat=m_iron, verts=8)
+        add_sphere(f"FW_QPostTop{lane_x}_{k}", 0.05, (lane_x, y, P["platform_h"] + 1.02),
+                   mat=m_dot[1], seg=10, ring=6)
+    for rz in (0.62, 0.98):
+        y0, y1 = -10.2, -10.2 - (n_post - 1) * 0.95
+        add_cyl(f"FW_QRail{lane_x}_{rz}", 0.025, abs(y1 - y0),
+                (lane_x, (y0 + y1) / 2, P["platform_h"] + rz), rot=(radians(90), 0, 0),
+                mat=m_iron, verts=8)
+
+# 售票亭 (ticket booth, 右前)
+bx, by = 7.6, -8.2
+add_box("FW_BoothBody", (1.7, 1.7, 2.2), (bx, by, P["platform_h"] + 1.1), mat=m_wood)
+add_cone("FW_BoothRoof", 1.35, 0.75, (bx, by, P["platform_h"] + 2.55), mat=m_metal_d, verts=4,
+         rot=(0, 0, radians(45)))
+add_box("FW_BoothSign", (0.95, 0.06, 0.5), (bx, by - 0.88, P["platform_h"] + 1.7), mat=m_sign)
+add_box("FW_BoothCounter", (1.1, 0.25, 0.08), (bx, by - 0.78, P["platform_h"] + 1.05), mat=m_wood)
 
 # support structure (static) ---------------------------------------------
 lbx, lby, ltx, lty = P["leg_base_x"], P["leg_base_y"], P["leg_top_x"], P["leg_top_y"]
@@ -272,9 +346,9 @@ for sx in (1, -1):
         base = (sx * lbx, sy * lby, P["platform_h"])
         top = (sx * ltx, sy * lty, HZ)
         legs[(sx, sy)] = (base, top)
-        ob = cyl_between(f"FW_Leg_{sx}_{sy}", base, top, 0.28, m_metal_d)
+        ob = cyl_between(f"FW_Leg_{sx}_{sy}", base, top, 0.30, m_metal_d)
         link_col(ob, col_static)
-        ob = add_cyl(f"FW_Foot_{sx}_{sy}", 0.5, 0.15, (sx * lbx, sy * lby, 0.075),
+        ob = add_cyl(f"FW_Foot_{sx}_{sy}", 0.55, 0.18, (sx * lbx, sy * lby, 0.09),
                      mat=m_metal_d, verts=12)
         link_col(ob, col_static)
 
@@ -282,32 +356,29 @@ def leg_point(sx, sy, t):
     base, top = legs[(sx, sy)]
     return tuple(Vector(base) + (Vector(top) - Vector(base)) * t)
 
-# X ties between left/right leg pairs (front and back)
 for sy in (1, -1):
-    for t, rr in ((0.32, 0.14), (0.62, 0.14)):
+    for t, rr in ((0.30, 0.15), (0.58, 0.15)):
         p1 = leg_point(-1, sy, t)
         p2 = leg_point(1, sy, t)
         ob = cyl_between(f"FW_TieX_{sy}_{int(t*100)}", p1, p2, rr, m_metal_d)
         link_col(ob, col_static)
 
-# Y ties + X braces on each side pair
 for sx in (1, -1):
     for t in (0.25, 0.5, 0.75):
         p1 = leg_point(sx, 1, t)
         p2 = leg_point(sx, -1, t)
-        ob = cyl_between(f"FW_TieY_{sx}_{int(t*100)}", p1, p2, 0.11, m_metal_d)
+        ob = cyl_between(f"FW_TieY_{sx}_{int(t*100)}", p1, p2, 0.12, m_metal_d)
         link_col(ob, col_static)
-    for (t1, t2) in ((0.18, 0.55), (0.55, 0.85)):
+    for (t1, t2) in ((0.18, 0.52), (0.52, 0.85)):
         p1 = leg_point(sx, 1, t1)
         p2 = leg_point(sx, -1, t2)
         ob = cyl_between(f"FW_Brace_{sx}_{int(t1*100)}", p1, p2, 0.06, m_metal_d)
         link_col(ob, col_static)
 
-# axle housings (static bearings)
 for sy in (1, -1):
-    add_cyl(f"FW_Housing_{sy}", 0.55, 0.8, (0, sy * 1.85, HZ),
-            rot=(radians(90), 0, 0), mat=m_metal, verts=20)
-    link_col(bpy.context.active_object, col_static)
+    ob = add_cyl(f"FW_Housing_{sy}", 0.6, 0.9, (0, sy * 1.9, HZ),
+                 rot=(radians(90), 0, 0), mat=m_metal, verts=20)
+    link_col(ob, col_static)
 
 # wheel (rotating) ---------------------------------------------------------
 wheel = add_empty("FW_Wheel", (0, 0, HZ))
@@ -317,70 +388,102 @@ def wheel_child(ob):
     parent_keep(ob, wheel)
     link_col(ob, col_wheel)
 
-# rotating axle shaft
-ob = add_cyl("FW_Axle", 0.3, 4.0, (0, 0, HZ), rot=(radians(90), 0, 0), mat=m_metal, verts=16)
+# axle
+ob = add_cyl("FW_Axle", 0.34, 4.4, (0, 0, HZ), rot=(radians(90), 0, 0), mat=m_metal, verts=16)
 wheel_child(ob)
 
-# rims (glowing) + structural inner rings
-ob = add_torus("FW_RimPlus", R, 0.18, (0, G, HZ), rot=(radians(90), 0, 0),
-               mat=m_rim_pink, ms=72, ns=14)
-wheel_child(ob)
-ob = add_torus("FW_RimMinus", R, 0.18, (0, -G, HZ), rot=(radians(90), 0, 0),
-               mat=m_rim_cyan, ms=72, ns=14)
-wheel_child(ob)
+# 轮缘桁架: 每侧双弦杆 (外弦发光色, 内弦金属) + 之字斜撑
 for sy in (1, -1):
-    ob = add_torus(f"FW_InnerRing_{sy}", P["inner_ring_r"], 0.14, (0, sy * G, HZ),
-                   rot=(radians(90), 0, 0), mat=m_metal, ms=48, ns=10)
+    yy = sy * G
+    ob = add_torus(f"FW_RimOuter_{sy}", CA, 0.15, (0, yy, HZ), rot=(radians(90), 0, 0),
+                   mat=(m_rim_a if sy > 0 else m_rim_v), ms=96, ns=12)
+    wheel_child(ob)
+    ob = add_torus(f"FW_RimInner_{sy}", CB, 0.11, (0, yy, HZ), rot=(radians(90), 0, 0),
+                   mat=m_metal, ms=96, ns=10)
+    wheel_child(ob)
+    # 之字斜撑 (桁架腹杆)
+    for k in range(P["lattice_per_side"]):
+        th1 = k * 2 * pi / P["lattice_per_side"]
+        th2 = (k + 0.5) * 2 * pi / P["lattice_per_side"]
+        p1 = (CA * cos(th1), yy, HZ + CA * sin(th1))
+        p2 = (CB * cos(th2), yy, HZ + CB * sin(th2))
+        ob = cyl_between(f"FW_Lattice_{sy}_{k}", p1, p2, 0.035, m_metal, verts=6)
+        wheel_child(ob)
+
+# 内环 (structural)
+for sy in (1, -1):
+    ob = add_torus(f"FW_InnerRing_{sy}", P["inner_ring_r"], 0.13, (0, sy * G, HZ),
+                   rot=(radians(90), 0, 0), mat=m_metal, ms=64, ns=10)
     wheel_child(ob)
 
-# spokes
+# 辐条: 24 主辐条 (hub -> 内弦) + 24 细张拉杆 (错半角)
 spokes_mid = {}
 for sy in (1, -1):
     for k in range(P["spokes_per_side"]):
-        th = k * 2 * pi / P["spokes_per_side"] + (pi / 12 if sy < 0 else 0)
-        ix = P["inner_ring_r"] * cos(th)
-        iz = HZ + P["inner_ring_r"] * sin(th)
-        ob = cyl_between(f"FW_Spoke_{sy}_{k}", (0, sy * G, HZ), (ix, sy * G, iz),
-                         0.11, m_metal)
+        th = k * 2 * pi / P["spokes_per_side"]
+        ex = CB * cos(th)
+        ez = HZ + CB * sin(th)
+        ob = cyl_between(f"FW_Spoke_{sy}_{k}", (0, sy * G, HZ), (ex, sy * G, ez),
+                         0.09, m_metal, verts=8)
         wheel_child(ob)
-        spokes_mid[(sy, k)] = (0.5 * ix, sy * G, 0.5 * (HZ + iz))
+        # 细张拉杆 (错半角, 内环 -> 内弦)
+        th2 = th + pi / P["spokes_per_side"]
+        ir = P["inner_ring_r"]
+        ob = cyl_between(f"FW_Tension_{sy}_{k}",
+                         (ir * cos(th2), sy * G, HZ + ir * sin(th2)),
+                         (CB * cos(th2), sy * G, HZ + CB * sin(th2)),
+                         0.028, m_metal, verts=6)
+        wheel_child(ob)
+        spokes_mid[(sy, k)] = (0.5 * CB * cos(th), sy * G, HZ + 0.5 * (HZ + CB * sin(th)))
 
-# zigzag cross bracing between spoke planes
+# 轮盘面之字斜撑 (两轮缘平面间)
 n_sp = P["spokes_per_side"]
 for k in range(n_sp):
     p1 = spokes_mid[(1, k)]
-    k2 = (k + 1) % n_sp
-    p2 = spokes_mid[(-1, k2)]
-    ob = cyl_between(f"FW_BraceSpoke_{k}", p1, p2, 0.05, m_metal)
+    p2 = spokes_mid[(-1, (k + 1) % n_sp)]
+    ob = cyl_between(f"FW_BraceSpoke_{k}", p1, p2, 0.045, m_metal, verts=6)
     wheel_child(ob)
 
-# rim struts (offset from cabin angles)
-for k in range(24):
-    th = (k + 0.5) * 2 * pi / 24
+# 舱位横连杆 (两轮缘平面之间, 舱角度) + 错位斜撑
+for k in range(P["cabins"]):
+    th = k * 2 * pi / P["cabins"]
     x, z = R * cos(th), HZ + R * sin(th)
-    ob = cyl_between(f"FW_Strut_{k}", (x, G, z), (x, -G, z), 0.07, m_metal)
+    ob = cyl_between(f"FW_CrossTie_{k}", (x, -G, z), (x, G, z), 0.06, m_metal, verts=8)
+    wheel_child(ob)
+    th2 = th + pi / P["cabins"]
+    x2, z2 = CA * cos(th2), HZ + CA * sin(th2)
+    ob = cyl_between(f"FW_CrossBrace_{k}", (x2, -G * 0.6, z2), (x2, G * 0.6, z2), 0.04, m_metal, verts=6)
     wheel_child(ob)
 
-# hub discs + glow rings
+# hub
 for sy in (1, -1):
-    ob = add_cyl(f"FW_HubDisc_{sy}", 1.25, 0.18, (0, sy * G, HZ),
+    ob = add_cyl(f"FW_HubDisc_{sy}", 1.35, 0.2, (0, sy * G, HZ),
                  rot=(radians(90), 0, 0), mat=m_metal, verts=24)
     wheel_child(ob)
-    ob = add_torus(f"FW_HubGlow_{sy}", 1.15, 0.10, (0, sy * (G + 0.22), HZ),
-                   rot=(radians(90), 0, 0), mat=m_hub_glow, ms=48, ns=10)
+    ob = add_torus(f"FW_HubGlow_{sy}", 1.2, 0.09, (0, sy * (G + 0.22), HZ),
+                   rot=(radians(90), 0, 0), mat=m_hub_g, ms=48, ns=8)
     wheel_child(ob)
+    for k in range(8):
+        th = k * pi / 4
+        x, z = 1.05 * cos(th), HZ + 1.05 * sin(th)
+        add_bolt = add_sphere(f"FW_HubBolt_{sy}_{k}", 0.05, (x, sy * (G + 0.12), z),
+                              mat=m_metal_d, seg=8, ring=6)
+        wheel_child(add_bolt)
 
-# light dots along rims
-n_dots = 36
+# 轮缘灯珠 (沿外弦)
+n_dots = 40
 for sy in (1, -1):
     for k in range(n_dots):
         th = k * 2 * pi / n_dots
-        x, z = R * cos(th), HZ + R * sin(th)
-        ob = add_sphere(f"FW_Dot_{sy}_{k}", 0.12, (x, sy * (G + 0.15), z),
-                        mat=m_dot[k % len(m_dot)], seg=12, ring=8)
+        x, z = CA * cos(th), HZ + CA * sin(th)
+        ob = add_sphere(f"FW_Dot_{sy}_{k}", 0.11, (x, sy * (G + 0.14), z),
+                        mat=m_dot[k % len(m_dot)], seg=10, ring=8)
         wheel_child(ob)
 
 # cabins -------------------------------------------------------------------
+# 相对 pivot 的 z 布局 (dz) — 真实观光舱比例 (外高 ~2.3m):
+#   车顶 -0.50..-0.62 / 玻璃带 -0.70..-1.86 / 舱体 -1.86..-2.42 / 裙边 -2.42..-2.52
+#   内部地板顶 -2.34, 坐姿视线 ~ -1.16 (玻璃带中部), 内净高 ~1.56
 cabin_roots = []
 for i in range(P["cabins"]):
     th = i * 2 * pi / P["cabins"]
@@ -401,86 +504,143 @@ for i in range(P["cabins"]):
     ci = i % len(m_cabin)
     paint = m_cabin[ci]
     trim = m_trim[ci]
+    Z = lambda dz: pz + dz  # noqa: E731
 
-    # crossbar connecting the two rims
-    ob = cyl_between(f"FW_Crossbar_{i}", (px, -(G + 0.15), pz), (px, G + 0.15, pz),
-                     0.055, m_metal)
+    # crossbar + joint + A-frame hanger
+    ob = cyl_between(f"FW_Crossbar_{i}", (px, -(G + 0.18), pz), (px, G + 0.18, pz),
+                     0.06, m_metal, verts=8)
     cabin_part(ob)
-    # pivot joint + A-frame hanger arms
-    ob = add_cyl(f"FW_Joint_{i}", 0.07, 0.16, (px, 0, pz - 0.12), mat=m_metal, verts=10)
+    ob = add_cyl(f"FW_Joint_{i}", 0.08, 0.18, (px, 0, Z(-0.08)), mat=m_metal, verts=10)
     cabin_part(ob)
-    ob = cyl_between(f"FW_ArmL_{i}", (px, 0, pz - 0.20), (px - 0.42, 0, pz - 0.70),
-                     0.045, m_metal)
+    ob = cyl_between(f"FW_ArmL_{i}", (px, 0, Z(-0.14)), (px - 0.52, 0, Z(-0.50)), 0.048, m_metal)
     cabin_part(ob)
-    ob = cyl_between(f"FW_ArmR_{i}", (px, 0, pz - 0.20), (px + 0.42, 0, pz - 0.70),
-                     0.045, m_metal)
+    ob = cyl_between(f"FW_ArmR_{i}", (px, 0, Z(-0.14)), (px + 0.52, 0, Z(-0.50)), 0.048, m_metal)
     cabin_part(ob)
-    # roof cap (thin) + neon eave trim + roof lamp
-    ob = add_bevel_box(f"FW_Roof_{i}", (1.48, 0.96, 0.10), (px, 0, pz - 0.75),
-                       mat=paint, segments=3, width=0.03)
+
+    # roof cap + eave trim + lantern
+    ob = add_bevel_box(f"FW_Roof_{i}", (1.78, 1.24, 0.12), (px, 0, Z(-0.56)),
+                       mat=paint, segments=4, width=0.04)
     cabin_part(ob)
-    ob = add_box(f"FW_RoofTrim_{i}", (1.52, 1.0, 0.04), (px, 0, pz - 0.82), mat=trim)
+    ob = add_box(f"FW_RoofTrim_{i}", (1.86, 1.32, 0.05), (px, 0, Z(-0.645)), mat=trim)
     cabin_part(ob)
-    ob = add_sphere(f"FW_RoofLamp_{i}", 0.07, (px, 0, pz - 0.63), mat=m_lamp,
-                    seg=12, ring=8)
+    ob = add_sphere(f"FW_Lantern_{i}", 0.09, (px, 0, Z(-0.40)), mat=m_lamp, seg=12, ring=8)
     cabin_part(ob)
-    # wraparound glass band (dominant, the actual wall between roof and body)
-    ob = add_bevel_box(f"FW_Glass_{i}", (1.42, 0.90, 0.62), (px, 0, pz - 1.10),
-                       mat=m_glass, segments=3, width=0.03)
+    ob = add_cyl(f"FW_LanternCap_{i}", 0.05, 0.06, (px, 0, Z(-0.31)), mat=m_metal_d, verts=8)
     cabin_part(ob)
-    # window frame: corner posts + mid mullions + transom bar
+
+    # glass band (wraparound, 1.16m 高)
+    ob = add_bevel_box(f"FW_Glass_{i}", (1.70, 1.18, 1.16), (px, 0, Z(-1.28)),
+                       mat=m_glass, segments=3, width=0.035)
+    cabin_part(ob)
+    # window frame: corner posts
     for sx in (1, -1):
         for sy in (1, -1):
-            ob = add_box(f"FW_Post_{i}_{sx}_{sy}", (0.07, 0.07, 0.64),
-                         (px + sx * 0.72, sy * 0.47, pz - 1.10), mat=m_metal)
+            ob = add_box(f"FW_Post_{i}_{sx}_{sy}", (0.07, 0.07, 1.20),
+                         (px + sx * 0.815, sy * 0.555, Z(-1.28)), mat=m_metal)
             cabin_part(ob)
-    ob = add_box(f"FW_MullX_{i}", (0.05, 0.96, 0.64), (px, 0, pz - 1.10), mat=m_metal)
+    # mullions: +-z faces x2 each, +-y faces x1 each
+    for sz in (1, -1):
+        for my in (-0.39, 0.39):
+            ob = add_box(f"FW_MullZ_{i}_{sz}_{my}", (0.05, 0.06, 1.16),
+                         (px, my, Z(-1.28)), mat=m_metal)
+            cabin_part(ob)
+    for sy in (1, -1):
+        ob = add_box(f"FW_MullY_{i}_{sy}", (0.06, 0.05, 1.16),
+                     (px, sy * 0.585, Z(-1.28)), mat=m_metal)
+        cabin_part(ob)
+    ob = add_box(f"FW_Transom_{i}", (1.72, 1.20, 0.045), (px, 0, Z(-0.92)), mat=m_metal)
     cabin_part(ob)
-    ob = add_box(f"FW_MullY_{i}", (1.48, 0.05, 0.64), (px, 0, pz - 1.10), mat=m_metal)
+    ob = add_box(f"FW_Sill_{i}", (1.72, 1.20, 0.05), (px, 0, Z(-1.80)), mat=m_metal)
     cabin_part(ob)
-    ob = add_box(f"FW_Transom_{i}", (1.46, 0.96, 0.045), (px, 0, pz - 0.97), mat=m_metal)
+    # door frames (两侧 +-y 开口)
+    for sy in (1, -1):
+        for sx in (1, -1):
+            ob = add_box(f"FW_DoorJamb_{i}_{sy}_{sx}", (0.08, 0.06, 1.16),
+                         (px + sx * 0.70, sy * 0.585, Z(-1.28)), mat=m_trim[ci])
+            cabin_part(ob)
+        ob = add_box(f"FW_DoorHead_{i}_{sy}", (1.48, 0.06, 0.08),
+                     (px, sy * 0.585, Z(-0.74)), mat=m_trim[ci])
+        cabin_part(ob)
+
+    # interior: floor + glow ceiling + wainscot + benches + pole + rail
+    ob = add_box(f"FW_Floor_{i}", (1.58, 1.06, 0.08), (px, 0, Z(-2.38)), mat=m_bench)
     cabin_part(ob)
-    # interior: glowing ceiling + back wall + floor + bench silhouette
-    ob = add_box(f"FW_GlowCeil_{i}", (1.30, 0.66, 0.04), (px, 0, pz - 0.84), mat=m_glow)
+    ob = add_box(f"FW_GlowCeil_{i}", (1.50, 1.04, 0.04), (px, 0, Z(-0.76)), mat=m_glow)
     cabin_part(ob)
-    ob = add_box(f"FW_GlowWall_{i}", (1.30, 0.04, 0.52), (px, 0.37, pz - 1.10), mat=m_glow)
+    ob = add_box(f"FW_GlowWall_{i}", (1.50, 0.04, 0.44), (px, 0.52, Z(-2.12)), mat=m_glow)
     cabin_part(ob)
-    ob = add_box(f"FW_GlowFloor_{i}", (1.30, 0.62, 0.04), (px, 0, pz - 1.38), mat=m_glow)
+    for sx in (1, -1):
+        ob = add_box(f"FW_BenchSeat_{i}_{sx}", (0.46, 0.94, 0.09),
+                     (px + sx * 0.50, 0, Z(-1.905)), mat=m_bench)
+        cabin_part(ob)
+        ob = add_box(f"FW_BenchBack_{i}_{sx}", (0.07, 0.94, 0.50),
+                     (px + sx * 0.775, 0, Z(-1.61)), mat=m_bench)
+        cabin_part(ob)
+        for sy in (1, -1):
+            ob = add_box(f"FW_BenchArm_{i}_{sx}_{sy}", (0.42, 0.05, 0.06),
+                         (px + sx * 0.50, sy * 0.44, Z(-1.74)), mat=m_wood)
+            cabin_part(ob)
+    ob = add_cyl(f"FW_Pole_{i}", 0.045, 1.3, (px, 0, Z(-1.52)), mat=m_metal, verts=10)
     cabin_part(ob)
-    ob = add_box(f"FW_BenchSeat_{i}", (0.70, 0.24, 0.08), (px, 0.16, pz - 1.24), mat=m_bench)
+    ob = add_torus(f"FW_Rail_{i}", 0.30, 0.03, (px, 0, Z(-1.12)),
+                   rot=(radians(90), 0, 0), mat=m_metal, ms=24, ns=6)
     cabin_part(ob)
-    ob = add_box(f"FW_BenchBack_{i}", (0.70, 0.06, 0.26), (px, 0.30, pz - 1.10), mat=m_bench)
-    cabin_part(ob)
-    # lower body (clearcoat paint) + neon belt line + skirt + corner bumpers
-    ob = add_bevel_box(f"FW_Body_{i}", (1.42, 0.92, 0.40), (px, 0, pz - 1.61),
+    # 舱内真实暖光点光源 (自发光面板不产光, 长椅地板需要它照亮)
+    bpy.ops.object.light_add(type="POINT", location=(px, 0, Z(-1.25)))
+    lamp = bpy.context.active_object
+    lamp.name = f"FW_CabinLight_{i}"
+    lamp.data.energy = 12.0
+    lamp.data.color = hex_lin(HEX["warm"])[:3]
+    lamp.data.shadow_soft_size = 0.15
+    cabin_part(lamp)
+
+    # lower body + belt trim + pumpkin emblems(四向) + skirt + bumpers
+    ob = add_bevel_box(f"FW_Body_{i}", (1.70, 1.18, 0.56), (px, 0, Z(-2.14)),
                        mat=paint, segments=3, width=0.05)
     cabin_part(ob)
-    ob = add_box(f"FW_TrimBelt_{i}", (1.46, 0.96, 0.06), (px, 0, pz - 1.47), mat=trim)
+    ob = add_box(f"FW_Belt_{i}", (1.76, 1.24, 0.06), (px, 0, Z(-1.90)), mat=trim)
     cabin_part(ob)
-    ob = add_box(f"FW_Skirt_{i}", (1.50, 0.98, 0.12), (px, 0, pz - 1.87), mat=m_metal_d)
+    # +-z 面南瓜 (压扁 z)
+    for sz in (1, -1):
+        ob = add_sphere(f"FW_Pump_{i}_z{sz}", 0.17, (px, 0, Z(-1.98)),
+                        mat=m_pump, seg=14, ring=10, scale=(1.0, 1.0, 0.5))
+        cabin_part(ob)
+        ob = add_cyl(f"FW_PumpStem_{i}_z{sz}", 0.025, 0.1, (px, 0, Z(-1.84)),
+                     mat=m_stem, verts=6)
+        cabin_part(ob)
+    # +-y 面南瓜 (压扁 y)
+    for sy in (1, -1):
+        ob = add_sphere(f"FW_Pump_{i}_y{sy}", 0.17, (px, sy * 0.60, Z(-1.98)),
+                        mat=m_pump, seg=14, ring=10, scale=(1.0, 0.5, 1.0))
+        cabin_part(ob)
+        ob = add_cyl(f"FW_PumpStem_{i}_y{sy}", 0.025, 0.1, (px, sy * 0.60, Z(-1.84)),
+                     mat=m_stem, verts=6)
+        cabin_part(ob)
+    ob = add_bevel_box(f"FW_Skirt_{i}", (1.78, 1.26, 0.10), (px, 0, Z(-2.47)),
+                       mat=m_metal_d, segments=2, width=0.03)
     cabin_part(ob)
     for sx in (1, -1):
         for sy in (1, -1):
-            ob = add_sphere(f"FW_Bumper_{i}_{sx}_{sy}", 0.06,
-                            (px + sx * 0.70, sy * 0.44, pz - 1.87),
+            ob = add_sphere(f"FW_Bumper_{i}_{sx}_{sy}", 0.07,
+                            (px + sx * 0.82, sy * 0.56, Z(-2.50)),
                             mat=m_metal, seg=10, ring=6)
             cabin_part(ob)
 
 # lights, world, camera ------------------------------------------------------
 bpy.ops.object.light_add(type="SUN", location=(25, -30, 55))
 sun = bpy.context.active_object
-sun.data.energy = 2.4
+sun.data.energy = 2.2
 sun.data.color = hex_lin("#B4C7FF")[:3]
 sun.data.angle = radians(6)
 look_at(sun, (0, 0, 10))
 link_col(sun, col_static)
 
-bpy.ops.object.light_add(type="AREA", location=(0, -10, 16))
+bpy.ops.object.light_add(type="AREA", location=(0, -12, 18))
 fill = bpy.context.active_object
-fill.data.energy = 150
-fill.data.size = 10
+fill.data.energy = 180
+fill.data.size = 12
 fill.data.color = hex_lin("#FF9A5C")[:3]
-look_at(fill, (0, 0, 5))
+look_at(fill, (0, 0, 6))
 link_col(fill, col_static)
 
 w = bpy.data.worlds.new("Night")
@@ -499,17 +659,26 @@ def add_cam(name, loc, target, lens=50):
     link_col(cam, col_static)
     return cam
 
-cam_front = add_cam("FW_CamFront", (0, -47, 17.0), (0, 0.5, 15.5), lens=35)
-cam_three = add_cam("FW_CamThree", (33, -38, 20), (0, 0, 15.0), lens=38)
-cam_side  = add_cam("FW_CamSide", (52, -4, 17), (0, 0, 15.5), lens=35)
-# detail shot targets the cabin nearest to front-right-bottom
-det_th = radians(-28)
+cam_front = add_cam("FW_CamFront", (0, -64, 18), (0, 1, 17), lens=34)
+cam_three = add_cam("FW_CamThree", (46, -52, 27), (0, 0, 16), lens=36)
+cam_side  = add_cam("FW_CamSide", (70, -5, 19), (0, 0, 17), lens=35)
+
+# 舱体特写: 找最接近 -30 度角的舱
+det_th = radians(-30)
 def _ang_diff(a, b):
     return abs(((a - b + pi) % (2 * pi)) - pi)
 best = min(range(P["cabins"]), key=lambda i: _ang_diff(cabin_roots[i][1], det_th))
 cz = HZ + R * sin(cabin_roots[best][1])
 cx = R * cos(cabin_roots[best][1])
-cam_det = add_cam("FW_CamDetail", (cx + 7.0, -14.0, cz + 3.5), (cx, 0, cz - 1.2), lens=50)
+cam_det = add_cam("FW_CamDetail", (cx + 3.6, -6.6, cz + 2.4), (cx, 0, cz - 1.6), lens=50)
+
+# 舱内第一人称视角 (验证内饰): 找最接近 -90 度(最低点)的舱, 坐姿视线
+fp_th = radians(-90)
+best_fp = min(range(P["cabins"]), key=lambda i: _ang_diff(cabin_roots[i][1], fp_th))
+fpz = HZ + R * sin(cabin_roots[best_fp][1])
+fpx = R * cos(cabin_roots[best_fp][1])
+cam_fp = add_cam("FW_CamInterior", (fpx + 0.45, 0.20, fpz - 1.16),
+                 (fpx - 1.8, -0.05, fpz - 1.02), lens=18)
 
 sc.view_settings.view_transform = "Standard"
 sc.view_settings.exposure = 0.15
@@ -616,7 +785,8 @@ except Exception:
     pass
 
 stills = [("01_front.png", cam_front), ("02_three_quarter.png", cam_three),
-          ("03_side.png", cam_side), ("04_cabin_detail.png", cam_det)]
+          ("03_side.png", cam_side), ("04_cabin_detail.png", cam_det),
+          ("05_interior_fp.png", cam_fp)]
 ok = True
 for name, cam in stills:
     if not render_still(name, cam):
@@ -624,37 +794,38 @@ for name, cam in stills:
 
 if not ok:
     print("FALLBACK_CYCLES")
-    set_engine_cycles(P["res_still_cycles"], 64)
+    set_engine_cycles((1280, 720), 64)
     for name, cam in stills:
         if not render_still(name, cam):
             print("STILL_FAILED_FINAL", name)
 
-# video (5.3 API: media_type selects movie output)
-sc.camera = cam_three
-sc.render.image_settings.media_type = "VIDEO"
-sc.render.image_settings.file_format = "FFMPEG"
-sc.render.filepath = str(PREV / "spin_preview.mp4")
-sc.render.ffmpeg.format = "MPEG4"
-sc.render.ffmpeg.codec = "H264"
-try:
-    sc.render.ffmpeg.constant_rate_factor = "HIGH"
-    sc.render.ffmpeg.ffmpeg_preset = "GOOD"
-    sc.render.ffmpeg.audio_codec = "NONE"
-except Exception:
-    pass
-if sc.render.engine == "BLENDER_EEVEE":
-    sc.render.resolution_x, sc.render.resolution_y = (1280, 720)
-    sc.frame_end = 181
-else:
-    sc.render.resolution_x, sc.render.resolution_y = (960, 540)
-    sc.cycles.samples = 32
-    sc.frame_end = 121
-sc.render.filepath = str(PREV / "spin_preview.mp4")
-try:
-    bpy.ops.render.render(animation=True)
-    print("VIDEO_OK")
-except Exception as e:
-    print("VIDEO_FAIL", type(e).__name__, str(e)[:160])
+# video (可选, 定稿时开)
+if P["render_video"]:
+    sc.camera = cam_three
+    sc.render.image_settings.media_type = "VIDEO"
+    sc.render.image_settings.file_format = "FFMPEG"
+    sc.render.filepath = str(PREV / "spin_preview.mp4")
+    sc.render.ffmpeg.format = "MPEG4"
+    sc.render.ffmpeg.codec = "H264"
+    try:
+        sc.render.ffmpeg.constant_rate_factor = "HIGH"
+        sc.render.ffmpeg.ffmpeg_preset = "GOOD"
+        sc.render.ffmpeg.audio_codec = "NONE"
+    except Exception:
+        pass
+    if sc.render.engine == "BLENDER_EEVEE":
+        sc.render.resolution_x, sc.render.resolution_y = (1280, 720)
+        sc.frame_end = 181
+    else:
+        sc.render.resolution_x, sc.render.resolution_y = (960, 540)
+        sc.cycles.samples = 32
+        sc.frame_end = 121
+    sc.render.filepath = str(PREV / "spin_preview.mp4")
+    try:
+        bpy.ops.render.render(animation=True)
+        print("VIDEO_OK")
+    except Exception as e:
+        print("VIDEO_FAIL", type(e).__name__, str(e)[:160])
 
 # report ------------------------------------------------------------------------
 tris = 0
