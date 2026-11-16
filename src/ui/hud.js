@@ -67,6 +67,7 @@ export function createHUD() {
   const keysBar = el("div", "keys-bar");
   keysBar.append(
     keycap("W A S D", "移动"),
+    keycap("Space", "跳跃"),
     keycap("E", "互动"),
     keycap("Shift", "疾走"),
     keycap("Esc", "释放鼠标"),

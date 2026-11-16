@@ -1,14 +1,24 @@
-// 第一人称玩家控制器：WASD 移动 / Shift 疾走 / 指针锁定视角 / 圆碰撞
+// 第一人称玩家控制器：WASD 移动 / Shift 疾走 / 空格跳跃 / 指针锁定视角 / 圆碰撞
 // 双模式：
-//   园区模式 —— 世界坐标行走，圆碰撞表（colliders.json + 站台护栏）
+//   园区模式 —— 世界坐标行走，2.5D 解析垂直运动（无物理引擎）：
+//               圆碰撞表（colliders.json + 站台护栏）+ 顶面平台（圆 h / 台阶矩形），
+//               台阶 ≤0.30 直接迈上，更高的顶面（长椅/干草/木桶/站台…）空格跳上
 //   舱内模式 —— 摩天轮舱本地坐标行走，解析碰撞（外墙/长椅/中柱），
-//               C 键坐/站切换；相机 = 舱世界位姿 × 本地偏移
+//               C 键坐/站切换；相机 = 舱世界位姿 × 本地偏移（净高不足, 禁跳）
 import * as THREE from "three";
 
 const EYE = 1.65;      // 眼高（园区）
 const PR = 0.38;       // 玩家碰撞半径（园区）
 const WALK = 4.0;
 const SPRINT = 7.2;
+
+// 垂直运动（园区跳跃/台阶）：平台顶面支撑 + 解析式重力积分
+const GRAV = 20;       // 重力加速度
+const JUMP_V = 6.9;    // 起跳速度（跳高 ≈ JUMP_V²/2G ≈ 1.19m, 覆盖木桶顶 0.955）
+const STEP = 0.30;     // 一脚可直接迈上的高度差（登舱台阶每级 0.194）
+const COYOTE = 0.1;    // 土狼时间：离地后仍可起跳的窗口
+const BUFFER = 0.15;   // 跳跃预输入缓冲
+const GRACE = 0.05;    // 顶面支撑判定的边缘容差
 
 // 舱内参数（舱本地坐标，与 ferris_wheel.py v2.2 内饰布局严格一致）：
 //   地板 1.58×1.06（半宽 0.79 / 半深 0.53），地板顶相对舱根 -2.34
@@ -38,9 +48,16 @@ export function createPlayer(camera, input, park) {
   let pitch = -0.04;
   let bobT = 0;
 
-  // 碰撞圆: colliders.json + 摩天轮站台/台阶护栏 (登舱走交互, 不走台阶)
-  // + 站台落地装饰件 (v2.3 ferris_wheel.py: 售票亭/排队围栏/矮柱灯,
-  //   此前无碰撞体, 人物可从建筑中间穿过)
+  // 垂直状态（园区模式）：pos.y = 脚部离地高度
+  let vy = 0;            // 垂直速度
+  let grounded = true;   // 是否贴地
+  let coyoteT = 0;       // 土狼时间剩余
+  let jumpBufT = 0;      // 跳跃缓冲剩余
+  let landDip = 0;       // 落地相机下沉
+
+  // 碰撞圆: colliders.json（含可站顶面 h 的圆：长椅/干草/木桶/旋转木马平台）
+  // + 摩天轮登舱站台（顶面可站）/排队围栏/售票亭/矮柱灯
+  // 圆无 h = 无限高阻挡（树/灯/柱/南瓜…）；有 h = 顶面可站立（详见 park_env.py collider()）
   const booth = { x: 7.6, z: 8.2, r: 1.25 };
   const queueRails = [-2.7, 2.7].flatMap((lx) =>
     [11.0, 12.6, 14.2].map((z) => ({ x: lx, z, r: 0.55 }))
@@ -53,15 +70,36 @@ export function createPlayer(camera, input, park) {
   }
   bollards.push({ x: 2.69, z: 10.05, r: 0.35 }, { x: -2.69, z: 10.05, r: 0.35 });
   const extra = [
-    { x: 0, z: 0, r: 9.8 },
-    { x: 0, z: 11.5, r: 2.7 },
-    { x: 0, z: 14.2, r: 2.7 },
+    // 登舱站台 (ferris_wheel.py: platform_r 9.0 / platform_h 1.55)：
+    // 侧壁 = 圆推挤（地面走近被挡, 1.55 超出跳高, 只能走台阶），顶面 = 可站立平台
+    { x: 0, z: 0, r: 9.0, h: 1.55 },
     booth,
     ...queueRails,
     ...bollards,
   ];
+  // 站台家具阻挡小圆: 雨棚角柱 x4 (ferris_wheel.py:334-341) + A 字支腿 x4 (:376-387)
+  for (const sx of [1, -1]) {
+    for (const sy of [1, -1]) {
+      extra.push(
+        { x: sx * 6.222, z: sy * 6.222, r: 0.14 },
+        { x: sx * 6.2, z: sy * 3.0, r: 0.30 },
+      );
+    }
+  }
   const circles = [...(park?.circles ?? []), ...extra];
   const boundaryR = park?.boundaryR ?? 60;
+
+  // 矩形碰撞体两类：
+  //   solid（墙）—— colliders.json rects（市集亭体等精确盒墙, 无 h, 各高度推挤）
+  //   平台（顶面）—— 登舱台阶 8 级 (ferris_wheel.py:313-317: 每级 4.4×0.9×0.194,
+  //     blender -y 侧 → app +z；第 k 级 z = 9.45 + k*0.9, 顶 = 1.55-(k+1)*0.194),
+  //     不推挤, 只做「顶面支撑 + 超高阻挡」（canStand 分轴挡向）
+  const stallRects = (park?.rects ?? []).map((r) => ({ ...r, solid: true }));
+  const stepRects = [];
+  for (let k = 0; k < 8; k++) {
+    stepRects.push({ x: 0, z: 9.45 + k * 0.9, hw: 2.2, hd: 0.45, h: 1.55 - (k + 1) * 0.194 });
+  }
+  const rects = [...stallRects, ...stepRects];
 
   // ---------- 舱内模式状态 ----------
   const cabin = {
@@ -176,25 +214,112 @@ export function createPlayer(camera, input, park) {
     const f = (input.isDown("KeyW") ? 1 : 0) - (input.isDown("KeyS") ? 1 : 0);
     const s = (input.isDown("KeyD") ? 1 : 0) - (input.isDown("KeyA") ? 1 : 0);
     const sprint = input.isDown("ShiftLeft") || input.isDown("ShiftRight");
-    if (f || s) {
+    const moving = !!(f || s);
+    let dx = 0;
+    let dz = 0;
+    if (moving) {
       const len = Math.hypot(f, s);
       const sp = sprint ? SPRINT : WALK;
       const fx = -Math.sin(yaw), fz = -Math.cos(yaw);   // 前
       const rx = Math.cos(yaw), rz = -Math.sin(yaw);    // 右
-      tryMove(
-        pos.x + ((fx * f + rx * s) / len) * sp * dt,
-        pos.z + ((fz * f + rz * s) / len) * sp * dt
-      );
+      dx = ((fx * f + rx * s) / len) * sp;
+      dz = ((fz * f + rz * s) / len) * sp;
       bobT += dt * (sprint ? 11 : 8);
     } else {
       bobT += dt * 1.8;
     }
-    camera.position.set(pos.x, EYE + Math.sin(bobT) * 0.035, pos.z);
+
+    // 水平 + 垂直积分：
+    //   贴地 —— 整步水平位移 + 台阶吸附（地面步长远小于场内最小平台面, 无隧穿）
+    //   空中 —— ≤16ms 子步交替推进水平/垂直, 防低帧率大 dt 一步跨过木桶等小平台顶
+    //   （走出台缘的那一帧, 空中子步会追加本帧位移, 一帧 ~2x 的瞬态, 不可感知）
+    jumpBufT = Math.max(0, jumpBufT - dt);
+    if (grounded) {
+      if (moving) tryMove(pos.x + dx * dt, pos.z + dz * dt);
+      coyoteT = COYOTE;
+      const g = groundAt(pos.x, pos.z);
+      if (g < pos.y - STEP) {
+        grounded = false;  // 走出台缘：不瞬移贴地, 转入下落
+        vy = 0;
+      } else {
+        pos.y = g;         // 台阶吸附（≤一步上吸 / 下行顺台阶走下）
+      }
+    }
+    if (!grounded) {
+      coyoteT = Math.max(0, coyoteT - dt);
+      const n = Math.max(1, Math.ceil(dt / 0.016));
+      const h = dt / n;
+      for (let i = 0; i < n; i++) {
+        if (moving) tryMove(pos.x + dx * h, pos.z + dz * h);
+        vy -= GRAV * h;
+        pos.y += vy * h;
+        const g = groundAt(pos.x, pos.z);
+        if (pos.y <= g) {
+          pos.y = g;
+          landDip = Math.min(0.16, Math.max(0.04, -vy * 0.022)); // 落地下沉 ∝ 坠速
+          vy = 0;
+          grounded = true;
+          break;
+        }
+      }
+    }
+    // 起跳：贴地或土狼时间内, 且有未消费的按键缓冲
+    if (jumpBufT > 0 && (grounded || coyoteT > 0)) {
+      vy = JUMP_V;
+      grounded = false;
+      coyoteT = 0;
+      jumpBufT = 0;
+    }
+
+    landDip *= Math.exp(-dt * 7);
+    camera.position.set(pos.x, EYE + pos.y + Math.sin(bobT) * 0.035 - landDip, pos.z);
+  }
+
+  // 空格：跳跃（仅园区模式；舱内净高 1.62 禁跳）
+  input.onPress("Space", () => {
+    if (cabin.active) return;
+    jumpBufT = BUFFER;
+  });
+
+  // ---------- 园区垂直运动：平台支撑 / 台阶吸附 / 跳跃 ----------
+  // groundAt: 覆盖 (x,z) 的平台（带 h 的圆或台阶矩形）的最高顶面；无平台处为 0
+  function groundAt(x, z) {
+    let g = 0;
+    for (const c of circles) {
+      if (c.h === undefined) continue;
+      const dx = x - c.x;
+      const dz = z - c.z;
+      const rr = c.r + GRACE;
+      if (dx * dx + dz * dz <= rr * rr && c.h > g) g = c.h;
+    }
+    for (const rc of rects) {
+      if (
+        Math.abs(x - rc.x) <= rc.hw + GRACE &&
+        Math.abs(z - rc.z) <= rc.hd + GRACE &&
+        rc.h > g
+      ) g = rc.h;
+    }
+    return g;
+  }
+
+  // 目标点是否可站：平台顶面不得高出「脚部 + 一步」（贴地）；
+  // 空中改为不高于脚部（防低空侧穿平台壁，从上方越过不受限）
+  function canStand(x, z) {
+    return groundAt(x, z) <= pos.y + (grounded ? STEP : 0.01);
   }
 
   function tryMove(nx, nz) {
+    // 分轴尝试实现贴墙滑动：目标方向被平台顶面挡住时退回该轴分量
+    const okXZ = canStand(nx, nz);
+    const okX = okXZ || canStand(nx, pos.z);
+    const okZ = okXZ || canStand(pos.x, nz);
+    if (!okX) nx = pos.x;
+    if (!okZ) nz = pos.z;
+    if (!okX && !okZ) return;
     for (let it = 0; it < 2; it++) {
       for (const c of circles) {
+        // 顶面在脚部一步范围内或以下的圆不再推挤 —— 可直接迈上/跳上它的顶
+        if (c.h !== undefined && pos.y >= c.h - STEP) continue;
         const dx = nx - c.x;
         const dz = nz - c.z;
         const d = Math.hypot(dx, dz);
@@ -202,6 +327,26 @@ export function createPlayer(camera, input, park) {
         if (d < min && d > 1e-4) {
           nx = c.x + (dx / d) * min;
           nz = c.z + (dz / d) * min;
+        }
+      }
+      for (const rc of rects) {
+        if (!rc.solid) continue; // 台阶平台不推挤（可走上）
+        const qx = clamp(nx, rc.x - rc.hw, rc.x + rc.hw);
+        const qz = clamp(nz, rc.z - rc.hd, rc.z + rc.hd);
+        const ddx = nx - qx;
+        const ddz = nz - qz;
+        const dd = Math.hypot(ddx, ddz);
+        if (dd < PR) {
+          if (dd > 1e-4) {
+            nx = qx + (ddx / dd) * PR;
+            nz = qz + (ddz / dd) * PR;
+          } else {
+            // 点在盒内: 沿最薄方向推出
+            const ox = rc.hw - Math.abs(nx - rc.x);
+            const oz = rc.hd - Math.abs(nz - rc.z);
+            if (ox < oz) nx = rc.x + (nx >= rc.x ? 1 : -1) * (rc.hw + PR);
+            else nz = rc.z + (nz >= rc.z ? 1 : -1) * (rc.hd + PR);
+          }
         }
       }
       const d0 = Math.hypot(nx, nz);
@@ -229,6 +374,11 @@ export function createPlayer(camera, input, park) {
       cabin.active = false;
       cabin.getFrame = null;
       cabin.seated = false;
+      // 回到园区模式：垂直状态归零（登舱前可能站在站台上）
+      pos.y = 0;
+      vy = 0;
+      grounded = true;
+      landDip = 0;
     },
     // 调试/测试钩子：舱本地坐标与坐站态（非舱内模式返回 null）
     cabinLocal() {
@@ -239,6 +389,10 @@ export function createPlayer(camera, input, park) {
     teleport(x, z) {
       pos.x = x;
       pos.z = z;
+      pos.y = 0;
+      vy = 0;
+      grounded = true;
+      landDip = 0;
     },
     setView(y, p) {
       yaw = y;

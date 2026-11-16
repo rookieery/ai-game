@@ -175,11 +175,19 @@ def look_at(ob, target):
     d = Vector(target) - ob.location
     ob.rotation_euler = d.to_track_quat("-Z", "Y").to_euler()
 
-COLLIDERS = []   # (x, y, r) blender 坐标, 导出时转 app 坐标
+COLLIDERS = []   # (x, y, r[, h]) blender 坐标, 导出时转 app 坐标
+COLLIDER_RECTS = []  # (x, y, hw, hd) blender 坐标 — 轴对齐盒墙(可推挤), 用于贴近邻件的建筑
 POIS = []        # (x, y, label)
 
-def collider(x, y, r):
-    COLLIDERS.append({"x": round(x, 2), "y": round(y, 2), "r": round(r, 2)})
+def collider(x, y, r, h=None):
+    """h = 顶面高度（blender z, 可选）：有 h 的圆顶面可站立（跳跃/台阶吸附）,
+    无 h 的圆为无限高阻挡。app 侧语义见 src/player/controller.js groundAt()"""
+    COLLIDERS.append({"x": round(x, 2), "y": round(y, 2), "r": round(r, 2), "h": h})
+
+def collider_rect(x, y, hw, hd):
+    """轴对齐盒墙（半宽/半深）：圆形罩会封掉紧邻可站物（如亭旁木桶）的上空时改用"""
+    COLLIDER_RECTS.append({"x": round(x, 2), "y": round(y, 2),
+                           "hw": round(hw, 2), "hd": round(hd, 2)})
 
 # ---------------------------------------------------------------- build ----
 bpy.ops.wm.read_factory_settings(use_empty=True)
@@ -463,16 +471,17 @@ for i, (sx, sy, c, _label) in enumerate(stall_defs):
             mat=(m_orange if c == HEX["orange"] else m_green if c == HEX["green"] else m_red))
     add_cyl(f"PE_StallPost{i}L", 0.05, 1.5, (sx - 1.25, sy - 1.15, 2.05), mat=m_iron, verts=6)
     add_cyl(f"PE_StallPost{i}R", 0.05, 1.5, (sx + 1.25, sy - 1.15, 2.05), mat=m_iron, verts=6)
-    collider(sx, sy, 2.0)
+    # 亭体用精确盒墙而非罩圆: r2.0 罩圆会把亭旁木桶(top 0.955 可站)上空整体封死
+    collider_rect(sx, sy, 1.35, 1.0)
     # 亭边木桶 + 干草
     add_cyl(f"PE_Barrel{i}", 0.42, 0.95, (sx + 2.0, sy + 0.6, 0.48), mat=m_wood, verts=12)
-    collider(sx + 2.0, sy + 0.6, 0.6)
+    collider(sx + 2.0, sy + 0.6, 0.6, h=0.955)  # 桶顶可站 (0.48+0.95/2)
 
 # 干草堆 x3 (南瓜坐上面)
 for i, (hx, hy) in enumerate(((26.0, -36.0), (12.5, -11.2), (-11.8, -11.5))):
     add_box(f"PE_Hay{i}", (1.35, 1.0, 0.75), (hx, hy, 0.37), rot=(0, 0, random.uniform(0, 1.5)),
             mat=m_straw)
-    collider(hx, hy, 1.0)
+    collider(hx, hy, 1.0, h=0.745)  # 垛顶可站 (0.37+0.75/2)
 
 # 长椅 x6 (主路+广场)
 bench_spots = [(5.6, -31.0, 90), (-5.6, -45.0, 90), (5.6, -59.0, 90),
@@ -487,7 +496,7 @@ for i, (bx, by, rotz) in enumerate(bench_spots):
         ly_ = by + lx * sin(rz)
         add_box(f"PE_BenchLeg{i}_{lx}", (0.08, 0.4, 0.58), (lx_, ly_, 0.29),
                 rot=(0, 0, rz), mat=m_iron)
-    collider(bx, by, 0.9)
+    collider(bx, by, 0.9, h=0.665)  # 座面可站 (0.62+0.09/2)
 
 # ---------------- 旋转木马剪影 (东北, 占位) ----------------
 mx, my = 45.0, 18.0
@@ -504,7 +513,11 @@ for k in range(10):
     th = k * 2 * pi / 10
     add_sphere(f"PE_CarDot{k}", 0.09, (mx + 4.6 * cos(th), my + 4.6 * sin(th), 5.6),
                mat=m_dot[k % 4], seg=8, ring=5)
-collider(mx, my, 5.2)
+collider(mx, my, 4.5, h=0.555)  # 平台盘顶面可站 (0.28+0.55/2), 中柱/座椅另挡
+collider(mx, my, 0.26)          # 中柱 (顶上有锥顶, 不可越)
+for k in range(6):              # 座椅 (顶上正中是吊杆, 挡掉避免站上穿镜头)
+    th = k * pi / 3
+    collider(mx + 3.3 * cos(th), my + 3.3 * sin(th), 0.35)
 POIS.append((mx, my, "carousel_silhouette"))
 
 # ---------------- 过山车剪影 (远东北, 占位) ----------------
@@ -626,7 +639,15 @@ manifest = {
     "spawn": {"x": 0.0, "z": 80.0},
     "boarding": {"x": 0.0, "z": 16.4},
     "pois": [{"x": round(x, 2), "z": round(-y, 2), "label": lb} for x, y, lb in POIS],
-    "circles": [{"x": c["x"], "z": round(-c["y"], 2), "r": c["r"]} for c in COLLIDERS],
+    "rects": [
+        {"x": r_["x"], "z": round(-r_["y"], 2), "hw": r_["hw"], "hd": r_["hd"]}
+        for r_ in COLLIDER_RECTS
+    ],
+    "circles": [
+        ({"x": c["x"], "z": round(-c["y"], 2), "r": c["r"],
+          **({"h": round(c["h"], 3)} if c["h"] is not None else {})})
+        for c in COLLIDERS
+    ],
 }
 (OUT / "colliders.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=1),
                                     encoding="utf-8")

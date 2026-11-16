@@ -111,6 +111,8 @@ async function boot() {
     hud.transition(() => {
       player.exitCabin();
       ferris.disembark();
+      // 统一送回地面登舱点（站台登舱后避免落在站台投影内；淡入淡出掩盖位移）
+      player.teleport(park?.boarding?.x ?? 0, park?.boarding?.z ?? 16.4);
       hud.hidePlaque();
       game.state = "walk";
     });
@@ -128,12 +130,14 @@ async function boot() {
     input.requestLock(); // 用户手势内申请指针锁定
     audio.ensure();      // 音频图需用户手势启动
     game.state = "walk";
-    hud.toast("欢迎来到幽夜游乐场");
+    hud.toast("欢迎来到幽夜游乐场 · 空格跳跃");
   });
 
   // 玩家每帧：园区行走或舱内走动（舱内相机由玩家控制器挂舱，ferris.update 先行）
   updates.push({
     update(dt) {
+      // 站台安全联锁：站在登舱站台（脚高 > 1.4）时轮体缓停吸附舱位
+      ferris.setHold(game.state === "walk" && player.pos.y > 1.4);
       player.update(dt);
       interact.update();
     },

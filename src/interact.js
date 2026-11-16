@@ -41,7 +41,12 @@ export function createInteract({ input, player, park, hud, getState, onBoard, on
       active = null;
       let label = "";
 
-      if (dist2(p.x, p.z, boarding.x, boarding.z) < 2.6) {
+      // 登舱锚点二选一：地面登舱点；或站台停靠舱旁（脚高 > 1.4 ⇒ 在站台上，
+      // 舱位吸附在轮面最低点 = 世界原点附近，锚点取停靠舱侧后 1.6m）
+      const onPlat = p.y > 1.4;
+      const bx = onPlat ? 0 : boarding.x;
+      const bz = onPlat ? 1.6 : boarding.z;
+      if (dist2(p.x, p.z, bx, bz) < 2.6) {
         active = { run: onBoard };
         label = "乘坐摩天轮";
       } else {

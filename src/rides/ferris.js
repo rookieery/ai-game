@@ -80,6 +80,9 @@ export function createFerrisWheel(gltfRoot) {
   };
 
   const _v = new THREE.Vector3();
+  const _d = new THREE.Vector3();
+  const _down = new THREE.Vector3();
+  const _cr = new THREE.Vector3();
   let rideCabIdx = -1;
   let cabLight = null;
 
@@ -94,14 +97,41 @@ export function createFerrisWheel(gltfRoot) {
     return best;
   }
 
+  // ---------- 站台安全联锁 ----------
+  // 有人站在登舱站台时轮体缓停，并把最近的舱吸附到最低点（站台可站立行走 +
+  // 停靠舱旁 E 登舱）；避免底舱持续掠过站台行人头顶。离开站台后恢复旋转。
+  let holdWanted = false;
+  let snapTheta = null; // 停靠目标角（非 null 时 theta 向它缓动）
+
+  // 最低舱相对「轮面正下方」的角度偏差（rad, 绕 spinAxis；spinAxis 必为水平轴）
+  function bottomOffset() {
+    const i = nearestBottomCabin();
+    if (i < 0) return 0;
+    const hub = wheel.getWorldPosition(_v);
+    const p = cabins[i].getWorldPosition(_d);
+    const d = _d.sub(hub);
+    d.addScaledVector(spinAxis, -d.dot(spinAxis)); // 投影到轮面
+    if (d.lengthSq() < 1e-6) return 0;
+    d.normalize();
+    _down.set(0, -1, 0); // 轴水平 ⇒ 世界 -Y 即轮面「正下」
+    _cr.crossVectors(_down, d);
+    return Math.atan2(_cr.dot(spinAxis), _down.dot(d));
+  }
+
   return {
     state,
     cabinRoots: cabins,
     wheelRoot: wheel,
     update(dt) {
       if (!wheel) return;
-      const omega = (2 * Math.PI) / (state.riding ? state.ridePeriod : state.idlePeriod);
-      state.theta = (state.theta + dt * omega) % (Math.PI * 2);
+      if (snapTheta !== null) {
+        // 停靠缓动（初速与待机转速同量级, 无跳变感）; 收敛阈值内硬吸附
+        state.theta += (snapTheta - state.theta) * Math.min(1, dt * 2.2);
+        if (Math.abs(snapTheta - state.theta) < 1e-3) state.theta = snapTheta;
+      } else {
+        const omega = (2 * Math.PI) / (state.riding ? state.ridePeriod : state.idlePeriod);
+        state.theta = (state.theta + dt * omega) % (Math.PI * 2);
+      }
 
       // 轮体：绕世界轮轴旋转 -> 反解为本地四元数
       _wq.setFromAxisAngle(spinAxis, state.theta).multiply(wheelRestWorld);
@@ -132,6 +162,13 @@ export function createFerrisWheel(gltfRoot) {
       state.riding = false;
       rideCabIdx = -1;
       if (cabLight) cabLight.removeFromParent();
+    },
+    // 站台占用联锁（由 main.js 每帧按玩家脚高驱动）
+    setHold(h) {
+      if (!wheel) return;
+      if (h && !holdWanted) snapTheta = state.theta - bottomOffset();
+      if (!h) snapTheta = null;
+      holdWanted = h;
     },
     // 应用设置面板（百分比 -> 实际参数）
     applySettings(s) {
