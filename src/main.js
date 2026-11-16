@@ -137,10 +137,12 @@ renderer.setAnimationLoop(() => {
   postfx.render();
 });
 
-// 调试钩子（截图/排错）
+// 调试钩子（截图/排错/性能核对）
 window.__game = {
   get state() { return game.state; },
   get player() { return player; },
   get ferris() { return ferris; },
   get interact() { return interact; },
+  renderer,
+  scene,
 };

@@ -720,6 +720,40 @@ finalize_curves(wheel)
 for root, _ in cabin_roots:
     finalize_curves(root)
 
+# 按材质分组合并 (压 draw call; 动画节点 FW_Wheel / FW_CabinRoot_i 不动)
+def under_root(ob, root_name):
+    """祖先链匹配: 全等或 '前缀_' (FW_CabinRoot 匹配 FW_CabinRoot_0..15)"""
+    p = ob.parent
+    while p:
+        if p.name == root_name or p.name.startswith(root_name + "_"):
+            return True
+        p = p.parent
+    return False
+
+def join_group(pred, prefix):
+    groups = {}
+    meshes = [ob for ob in bpy.context.scene.objects
+              if ob.type == "MESH" and pred(ob)]
+    for mat_name, obs in groups.items():
+        # 关键: 每组合并前必须清空选择——join 会吞掉所有已选中对象,
+        # 上组合并结果保持选中, 不清空会把别的组滚雪球并进来
+        bpy.ops.object.select_all(action="DESELECT")
+        for ob in obs:
+            ob.select_set(True)
+        bpy.context.view_layer.objects.active = obs[0]
+        if len(obs) > 1:
+            bpy.ops.object.join()
+        obs[0].name = f"{prefix}_{mat_name}"
+    print(f"JOIN {prefix}: {len(groups)} groups, {sum(len(v) for v in groups.values())} objs")
+
+bpy.ops.object.select_all(action="DESELECT")
+join_group(lambda ob: ob.parent is None, "FW_S")                      # 静组 (站台/支架)
+join_group(lambda ob: under_root(ob, "FW_Wheel") and not under_root(ob, "FW_CabinRoot"),
+           "FW_W")                                                    # 轮体结构
+for i in range(P["cabins"]):                                          # 每舱
+    join_group(lambda ob, i=i: under_root(ob, f"FW_CabinRoot_{i}"), f"FW_C{i}")
+bpy.ops.object.select_all(action="DESELECT")
+
 # save source + export glb -----------------------------------------------------
 bpy.ops.wm.save_as_mainfile(filepath=str(OUT / "ferris_wheel.blend"))
 print("BLEND_SAVED")

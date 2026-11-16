@@ -574,6 +574,8 @@ for ob in list(bpy.context.scene.objects):
     groups.setdefault(mat, []).append(ob)
 print(f"JOIN groups={len(groups)}")
 for mat_name, obs in groups.items():
+    # 关键: 每组合并前清空选择, 否则 join 会吞掉上组选中结果滚雪球
+    bpy.ops.object.select_all(action="DESELECT")
     for ob in obs:
         ob.select_set(True)
     bpy.context.view_layer.objects.active = obs[0]
