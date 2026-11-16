@@ -7,9 +7,8 @@ const root = resolve(import.meta.dirname, "..");
 
 const MAP = [
   ["model/ferris_wheel/ferris_wheel.glb", "public/assets/models/ferris_wheel.glb"],
-  // P2 产出后启用：
-  // ["model/park_env/park_env.glb", "public/assets/models/park_env.glb"],
-  // ["model/park_env/colliders.json", "public/assets/models/park_colliders.json"],
+  ["model/park_env/park_env.glb", "public/assets/models/park_env.glb"],
+  ["model/park_env/colliders.json", "public/assets/models/colliders.json"],
 ];
 
 for (const [src, dst] of MAP) {
