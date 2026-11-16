@@ -8,6 +8,7 @@ import { createAudio } from "./core/audio.js";
 import { loadGLB, createLoadingManager } from "./park/loader.js";
 import { createFerrisWheel } from "./rides/ferris.js";
 import { createPostFX } from "./fx/postfx.js";
+import { createMist } from "./fx/mist.js";
 import { createHUD } from "./ui/hud.js";
 import { createSettings } from "./core/config.js";
 import { createSettingsPanel } from "./ui/settings.js";
@@ -16,6 +17,7 @@ const canvas = document.getElementById("game-canvas");
 
 const { renderer, scene, camera } = createScene(canvas);
 const world = createWorld(scene);
+const mist = createMist(scene, world);
 const postfx = createPostFX(renderer, scene, camera);
 const input = createInput(canvas);
 const hud = createHUD();
@@ -41,6 +43,7 @@ window.__settings = { store: settings, ui: settingsUI }; // 截图/排错钩子�
 
 function applyAllSettings() {
   world.applySettings(settings.values);
+  mist.applySettings(settings.values);
   postfx.applySettings(settings.values);
   if (ferris) ferris.applySettings(settings.values);
 }
@@ -52,7 +55,7 @@ const manager = createLoadingManager({
   onLoad: () => hud.setReady(),
 });
 
-const updates = [world];
+const updates = [world, mist];
 
 async function boot() {
   // 碰撞与玩法锚点

@@ -1,4 +1,4 @@
-// 世界氛围：极光天穹 / 星空 / 月亮 / 雾 / 地面雾片 / 广场暖光
+// 世界氛围：极光天穹 / 星空 / 月亮 / 场景雾 / 广场暖光（地面雾潭在 fx/mist.js）
 import * as THREE from "three";
 
 const AURORA_FRAG = /* glsl */ `
@@ -65,7 +65,7 @@ export function createWorld(scene) {
     moon: 0.85, hemi: 0.55,
     plaza1: 90, plaza2: 70, gate: 55,
     fog: 0.0085, aurora: 0.85,
-    starOpacity: 0.9, mistOpacity: 0.10,
+    starOpacity: 0.9,
   };
 
   // 月光 + 环境
@@ -134,30 +134,8 @@ export function createWorld(scene) {
   moonGlow.position.copy(moonDisc.position);
   scene.add(moonGlow);
 
-  // 地面雾片（缓慢漂移；共享单材质便于整体调透明度）
-  const mistMat = new THREE.MeshBasicMaterial({
-    map: glowTex, transparent: true, opacity: BASE.mistOpacity,
-    depthWrite: false, side: THREE.DoubleSide,
-  });
-  const mists = [];
-  for (let i = 0; i < 9; i++) {
-    const m = new THREE.Mesh(new THREE.PlaneGeometry(55, 20), mistMat);
-    const th = (i / 9) * Math.PI * 2;
-    const rr = 18 + (i % 4) * 14;
-    m.position.set(rr * Math.cos(th), 1.0 + (i % 3) * 0.5, rr * Math.sin(th));
-    m.rotation.y = Math.random() * Math.PI;
-    m.rotation.x = Math.random() * 0.2 - 0.1;
-    mists.push(m);
-    scene.add(m);
-  }
-
   function update(dt, elapsed) {
     skyUniforms.uTime.value = elapsed;
-    for (let i = 0; i < mists.length; i++) {
-      const m = mists[i];
-      m.position.x += Math.sin(elapsed * 0.05 + i * 2.1) * dt * 0.6;
-      m.position.z += Math.cos(elapsed * 0.04 + i * 1.7) * dt * 0.6;
-    }
   }
 
   // 应用设置面板（百分比 -> 实际参数）
@@ -171,7 +149,6 @@ export function createWorld(scene) {
     scene.fog.density = BASE.fog * pct("fogDensity");
     skyUniforms.uAurora.value = BASE.aurora * pct("auroraLight");
     starMat.opacity = Math.min(1, BASE.starOpacity * pct("starBrightness"));
-    mistMat.opacity = BASE.mistOpacity * pct("mistDensity");
     const n = Math.round(Math.min(3000, Math.max(200, s.starCount)));
     if (n !== curStarCount) {
       const old = stars.geometry;
@@ -181,5 +158,5 @@ export function createWorld(scene) {
     }
   }
 
-  return { update, moon, applySettings };
+  return { update, moon, applySettings, plazaLights: [plaza1, plaza2, gate] };
 }
