@@ -1,0 +1,62 @@
+// 交互系统：距离检测 -> 灵摆提示 -> E 触发（登舱 / 打卡收集）
+export function createInteract({ input, player, park, hud, getState, onBoard, onCollect, audio }) {
+  const boarding = park?.boarding ?? { x: 0, z: 16.4 };
+  const pois = (park?.pois ?? []).filter((p) => String(p.label).startsWith("pumpkin"));
+  const collected = new Set();
+  let active = null; // { label, run }
+
+  const dist2 = (ax, az, bx, bz) => Math.hypot(ax - bx, az - bz);
+
+  function collect(poi) {
+    if (collected.has(poi.label)) return;
+    collected.add(poi.label);
+    hud.setStars(collected.size, pois.length);
+    audio.chime(collected.size);
+    if (collected.size === pois.length) hud.toast("星图圆满 · 幽夜向你低语 ✦");
+    else hud.toast(`收下了第 ${collected.size} 盏南瓜灯`);
+    if (onCollect) onCollect(poi, collected.size, pois.length);
+  }
+
+  input.onPress("KeyE", () => {
+    if (getState() !== "walk" || !active) return;
+    active.run();
+  });
+
+  return {
+    collectedCount: () => collected.size,
+    poiTotal: () => pois.length,
+    debugCollect(n) {
+      for (const p of pois) {
+        if (collected.size >= n) break;
+        collect(p);
+      }
+    },
+    update() {
+      if (getState() !== "walk") {
+        hud.hidePrompt();
+        active = null;
+        return;
+      }
+      const p = player.pos;
+      active = null;
+      let label = "";
+
+      if (dist2(p.x, p.z, boarding.x, boarding.z) < 2.6) {
+        active = { run: onBoard };
+        label = "乘坐摩天轮";
+      } else {
+        for (const poi of pois) {
+          if (collected.has(poi.label)) continue;
+          if (dist2(p.x, p.z, poi.x, poi.z) < 2.2) {
+            active = { run: () => collect(poi) };
+            label = `收集南瓜灯（${collected.size + 1}/${pois.length}）`;
+            break;
+          }
+        }
+      }
+
+      if (active) hud.showPrompt(label);
+      else hud.hidePrompt();
+    },
+  };
+}

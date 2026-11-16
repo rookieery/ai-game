@@ -134,7 +134,11 @@ export function createHUD() {
   const veil = el("div", "");
   veil.id = "fade-veil";
 
-  hudRoot.append(keysBar, starMap, moonToggle, prompt, plaque, veil);
+  const lookHint = el("div", "look-hint", "点击画面 · 锁定视角");
+  const toastEl = el("div", "toast");
+  let toastTimer = null;
+
+  hudRoot.append(keysBar, starMap, moonToggle, prompt, plaque, lookHint, toastEl, veil);
 
   // ---------- 公开 API ----------
   let enterCb = null;
@@ -184,5 +188,14 @@ export function createHUD() {
     // 声音
     onMuteChange(cb) { onMute = cb; },
     isMuted: () => moonToggle.classList.contains("off"),
+    // 视角锁定提示
+    setLookHint(v) { lookHint.classList.toggle("show", v); },
+    // 顶部横幅
+    toast(text) {
+      toastEl.textContent = text;
+      toastEl.classList.add("show");
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => toastEl.classList.remove("show"), 2600);
+    },
   };
 }

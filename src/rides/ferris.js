@@ -37,6 +37,16 @@ export function createFerrisWheel(gltfRoot) {
 
   if (!wheel) console.warn("[ferris] FW_Wheel 节点未找到");
 
+  // 近距离贴脸的轮缘灯管辉光偏强, 运行时轻收 (远景观感由 Bloom 兜底)
+  gltfRoot.traverse((o) => {
+    const mats = Array.isArray(o.material) ? o.material : (o.material ? [o.material] : []);
+    for (const m of mats) {
+      if (/^FW_Rim(Amber|Violet)$/.test(m.name) && m.emissiveIntensity != null) {
+        m.emissiveIntensity *= 0.8;
+      }
+    }
+  });
+
   gltfRoot.updateWorldMatrix(true, true);
 
   // 基准姿态（theta=0 时刻）与旋转轴（几何检测）
@@ -51,9 +61,25 @@ export function createFerrisWheel(gltfRoot) {
 
   const state = {
     theta: 0,
-    speed: (2 * Math.PI) / 24, // 待机转速：24s/圈
+    speed: (2 * Math.PI) / 24,  // 待机转速：24s/圈
+    rideSpeed: (2 * Math.PI) / 75, // 乘坐转速：75s/圈（约 1.5 分钟一圈）
     riding: false,
   };
+
+  const _v = new THREE.Vector3();
+  let rideCabIdx = -1;
+  let cabLight = null;
+
+  // 找到最低点附近的舱（登舱位置）
+  function nearestBottomCabin() {
+    let best = -1;
+    let by = Infinity;
+    for (let i = 0; i < cabins.length; i++) {
+      cabins[i].getWorldPosition(_v);
+      if (_v.y < by) { by = _v.y; best = i; }
+    }
+    return best;
+  }
 
   return {
     state,
@@ -73,6 +99,33 @@ export function createFerrisWheel(gltfRoot) {
         c.parent.getWorldQuaternion(_pq); // 内部会刷新祖先矩阵，含轮体
         c.quaternion.copy(_inv.copy(_pq).invert()).multiply(cabinRest[i]);
       }
+    },
+    // 登舱：锁定最低点舱位，切慢速旋转，挂舱内暖光（glTF 灯偏弱，运行时补一盏）
+    board() {
+      if (!wheel) return;
+      state.riding = true;
+      rideCabIdx = nearestBottomCabin();
+      state.speed = state.rideSpeed;
+      if (!cabLight) {
+        cabLight = new THREE.PointLight("#ffe9c4", 16, 7, 2);
+      }
+      cabLight.position.set(0, -1.25, 0);
+      cabins[rideCabIdx].add(cabLight);
+    },
+    // 下客：恢复待机转速
+    disembark() {
+      state.riding = false;
+      rideCabIdx = -1;
+      state.speed = (2 * Math.PI) / 24;
+      if (cabLight) cabLight.removeFromParent();
+    },
+    // 乘坐中：把相机放进舱内第一人称坐姿（舱体保持水平，偏移即世界偏移）
+    applyRideCamera(camera) {
+      if (!state.riding || rideCabIdx < 0) return;
+      const c = cabins[rideCabIdx];
+      c.updateWorldMatrix(true, false);
+      c.getWorldPosition(_v);
+      camera.position.set(_v.x + 0.45, _v.y + 1.16, _v.z - 0.20);
     },
   };
 }

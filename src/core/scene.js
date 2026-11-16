@@ -11,7 +11,7 @@ export function createScene(canvas) {
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.1;
+  renderer.toneMappingExposure = 0.95;
 
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(
@@ -33,12 +33,14 @@ export function createScene(canvas) {
 }
 
 // 主循环：dt 秒；callbacks 为 { update(dt, elapsed) } 数组
-export function startLoop(renderer, scene, camera, callbacks) {
+// renderFn 可选（后处理管线传入 composer.render）
+export function startLoop(renderer, scene, camera, callbacks, renderFn) {
   const clock = new THREE.Clock();
   renderer.setAnimationLoop(() => {
     const dt = Math.min(clock.getDelta(), 0.1);
     const elapsed = clock.elapsedTime;
     for (const cb of callbacks) cb.update(dt, elapsed);
-    renderer.render(scene, camera);
+    if (renderFn) renderFn();
+    else renderer.render(scene, camera);
   });
 }
