@@ -23,7 +23,7 @@ P = {
     "wheel_radius": 16.0,
     "rim_chord_a_r": 16.0,      # 轮缘外弦
     "rim_chord_b_r": 15.25,     # 轮缘内弦 (桁架双弦杆)
-    "rim_half_gap": 1.25,       # 轮缘平面 y = +/- gap
+    "rim_half_gap": 2.2,        # 轮缘平面 y = +/- gap (2.2: 桁架距舱侧窗 >=1.4m, 避免贴窗穿帮)
     "inner_ring_r": 9.6,
     "hub_z": 20.1,
     "platform_r": 9.0,
@@ -39,7 +39,7 @@ P = {
     "leg_top_x": 1.1,
     "leg_top_y": 2.2,
     "res_still": (1600, 900),
-    "glass_alpha": 0.34,
+    "glass_alpha": 0.20,        # 0.34 -> 0.20: 舱内看外部结构不再被染成贴脸暗板
     "render_video": False,      # 迭代期 False, 定稿 True
 }
 
@@ -300,12 +300,14 @@ for i in range(12):
     add_sphere(f"FW_BollardTop{i}", 0.1, (x, y, P["platform_h"] + 0.56),
                mat=m_dot[i % len(m_dot)], seg=12, ring=8)
 
-# 雨棚 (canopy): 6 柱六角布置 + 四棱锥尖顶 + 周圈吊灯笼
-for i in range(6):
-    th = i * pi / 3
-    cx_, cy_ = 7.2 * cos(th), 7.2 * sin(th)
-    add_cyl(f"FW_CanopyCol{i}", 0.14, 6.0 - P["platform_h"],
-            (cx_, cy_, (6.0 + P["platform_h"]) / 2), mat=m_iron, verts=12)
+# 雨棚 (canopy): 4 角柱(棚顶四角正下方 ±6.222) + 四棱锥尖顶 + 周圈吊灯笼
+# 原六角环布在 (±3.6,±6.2) 的近/后两对正好卡在「排队->舱位」走廊和舱窗视野里(穿帮柱),
+# 角柱半径 8.8 < 平台 9.0 仍在台面上, 视线全部避开
+for sx in (1, -1):
+    for sy in (1, -1):
+        cx_, cy_ = sx * 6.222, sy * 6.222
+        add_cyl(f"FW_CanopyCol{sx}_{sy}", 0.14, 6.0 - P["platform_h"],
+                (cx_, cy_, (6.0 + P["platform_h"]) / 2), mat=m_iron, verts=12)
 add_cone("FW_CanopyRoof", 8.8, 1.5, (0, 0, 6.75), mat=m_metal_d, verts=4,
          rot=(0, 0, radians(45)))
 add_torus("FW_CanopyEave", 6.55, 0.07, (0, 0, 6.06), mat=m_edge_c, ms=64, ns=8)
@@ -389,7 +391,7 @@ def wheel_child(ob):
     link_col(ob, col_wheel)
 
 # axle
-ob = add_cyl("FW_Axle", 0.34, 4.4, (0, 0, HZ), rot=(radians(90), 0, 0), mat=m_metal, verts=16)
+ob = add_cyl("FW_Axle", 0.34, 2 * G, (0, 0, HZ), rot=(radians(90), 0, 0), mat=m_metal, verts=16)
 wheel_child(ob)
 
 # 轮缘桁架: 每侧双弦杆 (外弦发光色, 内弦金属) + 之字斜撑
@@ -582,7 +584,8 @@ for i in range(P["cabins"]):
             cabin_part(ob)
     ob = add_cyl(f"FW_Pole_{i}", 0.045, 1.3, (px, 0, Z(-1.52)), mat=m_metal, verts=10)
     cabin_part(ob)
-    ob = add_torus(f"FW_Rail_{i}", 0.30, 0.03, (px, 0, Z(-1.12)),
+    # 扶手环降到坐姿视线下方 (原 dz-1.12 r0.30 恰在相机眼前 0.16m, 辉光成"穿舱白管")
+    ob = add_torus(f"FW_Rail_{i}", 0.22, 0.03, (px, 0, Z(-1.55)),
                    rot=(radians(90), 0, 0), mat=m_metal, ms=24, ns=6)
     cabin_part(ob)
     # 舱内真实暖光点光源 (自发光面板不产光, 长椅地板需要它照亮)

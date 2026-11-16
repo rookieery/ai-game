@@ -164,6 +164,7 @@ window.__game = {
   get player() { return player; },
   get ferris() { return ferris; },
   get interact() { return interact; },
+  get camera() { return camera; },
   renderer,
   scene,
 };
