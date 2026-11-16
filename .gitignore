@@ -1,0 +1,30 @@
+# ---------- 依赖与构建产物 ----------
+node_modules/
+dist/
+.vite/
+
+# ---------- 同步资产副本 ----------
+# 源头在 model/（Blender 管线产出），克隆后先运行: npm run assets:sync
+public/assets/models/
+
+# ---------- 开发验证产物 ----------
+shots/
+*.log
+
+# ---------- Blender 自动备份 ----------
+*.blend1
+
+# ---------- impeccable 运行时产物 ----------
+# 团队应提交: PRODUCT.md / DESIGN.md / .impeccable/config.json /
+#            .impeccable/surfaces/ / .impeccable/design.json
+# 以下是会话级运行产物，不入库:
+.impeccable/questions/
+.impeccable/mocks/
+.impeccable/review/
+.impeccable/critique/
+.impeccable/config.local.json
+
+# ---------- 系统杂项 ----------
+Thumbs.db
+Desktop.ini
+.DS_Store

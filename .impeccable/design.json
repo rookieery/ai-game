@@ -1,0 +1,198 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-16",
+  "title": "Design System: 幽夜游乐场 — 降神之夜 The Séance",
+  "seededFrom": {
+    "direction": "降神之夜 The Séance",
+    "formSeed": "seed:c54ff40e94394908"
+  },
+  "extensions": {
+    "colorMeta": {
+      "velvet-0": {
+        "role": "neutral",
+        "displayName": "绒布黑紫 · 底",
+        "canonical": "oklch(17% 0.032 292)",
+        "tonalRamp": ["oklch(15% 0.03 292)", "oklch(23% 0.04 292)", "oklch(31% 0.05 292)", "oklch(40% 0.055 292)", "oklch(50% 0.055 292)", "oklch(62% 0.05 292)", "oklch(78% 0.035 292)", "oklch(93% 0.015 292)"]
+      },
+      "velvet-1": {
+        "role": "neutral",
+        "displayName": "绒布黑紫 · 中",
+        "canonical": "oklch(20% 0.038 292)",
+        "tonalRamp": ["oklch(15% 0.03 292)", "oklch(23% 0.04 292)", "oklch(31% 0.05 292)", "oklch(40% 0.055 292)", "oklch(50% 0.055 292)", "oklch(62% 0.05 292)", "oklch(78% 0.035 292)", "oklch(93% 0.015 292)"]
+      },
+      "velvet-2": {
+        "role": "neutral",
+        "displayName": "绒布黑紫 · 亮",
+        "canonical": "oklch(26% 0.05 292)",
+        "tonalRamp": ["oklch(15% 0.03 292)", "oklch(23% 0.04 292)", "oklch(31% 0.05 292)", "oklch(40% 0.055 292)", "oklch(50% 0.055 292)", "oklch(62% 0.05 292)", "oklch(78% 0.035 292)", "oklch(93% 0.015 292)"]
+      },
+      "velvet-glass": {
+        "role": "neutral",
+        "displayName": "绒布玻璃（62% 面板底）",
+        "canonical": "rgba(20, 16, 31, 0.62)",
+        "tonalRamp": ["rgba(20, 16, 31, 0.78)", "rgba(20, 16, 31, 0.66)", "rgba(20, 16, 31, 0.62)", "rgba(20, 16, 31, 0.5)", "rgba(20, 16, 31, 0.4)", "rgba(20, 16, 31, 0.3)", "rgba(20, 16, 31, 0.2)", "rgba(20, 16, 31, 0.1)"]
+      },
+      "gold": {
+        "role": "primary",
+        "displayName": "鎏金",
+        "canonical": "oklch(70% 0.115 88)",
+        "tonalRamp": ["oklch(20% 0.045 88)", "oklch(35% 0.08 88)", "oklch(48% 0.10 88)", "oklch(60% 0.11 88)", "oklch(70% 0.115 88)", "oklch(78% 0.12 88)", "oklch(86% 0.09 88)", "oklch(95% 0.045 88)"]
+      },
+      "gold-bright": {
+        "role": "primary",
+        "displayName": "鎏金 · 亮（焦点/铭牌名/脉冲峰值）",
+        "canonical": "oklch(78% 0.125 88)",
+        "tonalRamp": ["oklch(20% 0.045 88)", "oklch(35% 0.08 88)", "oklch(48% 0.10 88)", "oklch(60% 0.11 88)", "oklch(70% 0.115 88)", "oklch(78% 0.12 88)", "oklch(86% 0.09 88)", "oklch(95% 0.045 88)"]
+      },
+      "gold-dim": {
+        "role": "primary",
+        "displayName": "鎏金 · 暗（次要描线/退后框线）",
+        "canonical": "rgba(201, 162, 39, 0.55)",
+        "tonalRamp": ["oklch(20% 0.045 88)", "oklch(35% 0.08 88)", "oklch(48% 0.10 88)", "oklch(60% 0.11 88)", "oklch(70% 0.115 88)", "oklch(78% 0.12 88)", "oklch(86% 0.09 88)", "oklch(95% 0.045 88)"]
+      },
+      "ivory": {
+        "role": "neutral",
+        "displayName": "显灵板象牙",
+        "canonical": "oklch(91% 0.03 95)",
+        "tonalRamp": ["oklch(25% 0.03 95)", "oklch(40% 0.045 95)", "oklch(55% 0.055 95)", "oklch(68% 0.055 95)", "oklch(78% 0.05 95)", "oklch(85% 0.04 95)", "oklch(91% 0.03 95)", "oklch(97% 0.012 95)"]
+      },
+      "ivory-dim": {
+        "role": "neutral",
+        "displayName": "显灵板象牙 · 暗（标签/提示）",
+        "canonical": "rgba(237, 227, 203, 0.72)",
+        "tonalRamp": ["oklch(25% 0.03 95)", "oklch(40% 0.045 95)", "oklch(55% 0.055 95)", "oklch(68% 0.055 95)", "oklch(78% 0.05 95)", "oklch(85% 0.04 95)", "oklch(91% 0.03 95)", "oklch(97% 0.012 95)"]
+      },
+      "violet": {
+        "role": "tertiary",
+        "displayName": "幽紫（仅 ::selection 底色）",
+        "canonical": "oklch(52% 0.125 300)",
+        "tonalRamp": ["oklch(18% 0.05 300)", "oklch(30% 0.09 300)", "oklch(42% 0.12 300)", "oklch(52% 0.125 300)", "oklch(62% 0.12 300)", "oklch(72% 0.10 300)", "oklch(82% 0.06 300)", "oklch(93% 0.025 300)"]
+      },
+      "spirit": {
+        "role": "secondary",
+        "displayName": "灵火青（进度/活性专属）",
+        "canonical": "oklch(84% 0.07 190)",
+        "tonalRamp": ["oklch(25% 0.045 190)", "oklch(40% 0.065 190)", "oklch(55% 0.075 190)", "oklch(68% 0.075 190)", "oklch(78% 0.07 190)", "oklch(84% 0.07 190)", "oklch(90% 0.05 190)", "oklch(96% 0.02 190)"]
+      }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "显灵板主标题「幽夜游乐场」专属；鎏金 + 26px 零偏移光晕，text-indent 0.3em 找中。" },
+      "headline": { "displayName": "Headline", "purpose": "乘坐铭牌设施名，亮金 0.22em。" },
+      "title": { "displayName": "Title", "purpose": "灵摆提示文案与召灵文案，象牙或灵火青短语。" },
+      "body": { "displayName": "Body", "purpose": "板面拉丁副题与入园提示短语；本系统无段落正文。" },
+      "label": { "displayName": "Label", "purpose": "HUD 常驻文字：键帽、键位标签、星图计数、铭牌提示。" }
+    },
+    "shadows": [
+      { "name": "board-float", "value": "0 30px 80px rgba(0, 0, 0, 0.6)", "purpose": "全场唯一主漂浮影，仅显灵板使用。" },
+      { "name": "object-lift", "value": "drop-shadow(0 10px 24px rgba(0, 0, 0, 0.55))", "purpose": "道具搁影：灵摆指针浮于板面之上时。" },
+      { "name": "pill-float", "value": "0 12px 34px rgba(0, 0, 0, 0.45)", "purpose": "浮牌影：灵摆提示 pill 现身时。" },
+      { "name": "glow-gold-focal", "value": "drop-shadow(0 0 16px rgba(201, 162, 39, 0.55))", "purpose": "焦点金辉（零偏移）：就绪五芒星脉冲 10–22px、开启月相 6px、入园一闪 90px、标题 text-shadow 26px。只给焦点，绝不环境化。" },
+      { "name": "glow-spirit-active", "value": "drop-shadow(0 0 8px rgba(143, 227, 217, 0.7))", "purpose": "活性灵辉（零偏移）：点亮的弧字母 14px / 星图 8px / 灵摆瞳点 18px / 星尘 10px。只给 lit/active/进度状态。" },
+      { "name": "frame-double-gold", "value": "inset 0 0 0 3px rgba(20, 16, 31, 0.62), inset 0 0 0 4px rgba(201, 162, 39, 0.28)", "purpose": "双金线框语法（线稿，非深度）：内圈金线按重要度取 0.28 键位条 / 0.4 铭牌 / 0.45 提示 pill；板面放大为 inset 10px 绒布 + 11.5px 暗金。" }
+    ],
+    "motion": [
+      { "name": "ease-seance", "value": "cubic-bezier(0.22, 0.9, 0.34, 1)", "purpose": "显灵缓动：指针滑行、灵摆摆入、板面与按钮过渡；普通淡变用 ease。" },
+      { "name": "fade-veil-protocol", "value": "420ms in → callback → 120ms out", "purpose": "转场遮罩节拍；入园一闪 0.7s 后同样等 420ms 再回调。" },
+      { "name": "idle-sway", "value": "rotate -3deg ↔ 3deg, 3s ease-in-out infinite alternate", "purpose": "待机微摆语法（灵摆待机 ±3.5°）：道具活着但不动场。" },
+      { "name": "fade-durations", "value": "board 0.9s / slide 0.5s / reveal 0.4–0.5s / keys 0.8s / veil 0.4s", "purpose": "淡变时值表。" },
+      { "name": "reduced-motion", "value": "animation: none; transition-duration: 0.01s", "purpose": "prefers-reduced-motion 降级：动画全关，过渡压至 0.01s。" }
+    ]
+  },
+  "components": [
+      {
+        "name": "五芒星入园按钮",
+        "kind": "button",
+        "refersTo": "button-pentagram",
+        "description": "板底居中的 clip-path 十点星形实体按钮；disabled 半透明，ready 态金辉脉冲 + hover 放大。",
+        "html": "<button class=\"ds-btn-pentagram ready\" aria-label=\"点五芒星入园\"></button>",
+        "css": ".ds-btn-pentagram { width: 62px; height: 60px; border: none; cursor: pointer; background: var(--gold, #c9a227); clip-path: polygon(50% 0, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%); transition: filter 0.35s ease, transform 0.35s var(--ease-seance, cubic-bezier(0.22, 0.9, 0.34, 1)); } .ds-btn-pentagram.ready { animation: ds-star-pulse 2.4s ease-in-out infinite; } .ds-btn-pentagram.ready:hover { transform: scale(1.12); } .ds-btn-pentagram:disabled { opacity: 0.35; cursor: default; filter: none; animation: none; } .ds-btn-pentagram:focus-visible { outline: 2px solid var(--gold-bright, #e3b93e); outline-offset: 4px; } @keyframes ds-star-pulse { 0%, 100% { filter: drop-shadow(0 0 10px rgba(201, 162, 39, 0.4)); } 50% { filter: drop-shadow(0 0 22px rgba(227, 185, 62, 0.75)); } }"
+      },
+      {
+        "name": "月相声音开关",
+        "kind": "button",
+        "refersTo": "button-moon-toggle",
+        "description": "52px 整圆常驻开关，月相 SVG 描线；on 态金描边 + 辉光，off 态暗金 + 斜杠现形。",
+        "html": "<button class=\"ds-moon-toggle on\" type=\"button\" aria-label=\"静音\"><svg viewBox=\"0 0 32 32\" aria-hidden=\"true\"><path class=\"moon-path\" d=\"M22 4 A12 12 0 1 0 22 28 A14.5 14.5 0 0 1 22 4 Z\"/><line class=\"slash\" x1=\"5\" y1=\"27\" x2=\"27\" y2=\"5\"/></svg></button>",
+        "css": ".ds-moon-toggle { width: 52px; height: 52px; display: grid; place-items: center; cursor: pointer; background: rgba(20, 16, 31, 0.62); border: 1px solid var(--gold-dim, rgba(201, 162, 39, 0.55)); border-radius: 50%; transition: border-color 0.3s ease, box-shadow 0.3s ease; } .ds-moon-toggle:hover { border-color: var(--gold-bright, #e3b93e); box-shadow: 0 0 16px rgba(201, 162, 39, 0.3); } .ds-moon-toggle:focus-visible { outline: 2px solid var(--gold-bright, #e3b93e); outline-offset: 4px; } .ds-moon-toggle svg { width: 26px; height: 26px; fill: none; } .ds-moon-toggle .moon-path { stroke: var(--gold, #c9a227); stroke-width: 1.7; transition: filter 0.3s ease; } .ds-moon-toggle.on .moon-path { filter: drop-shadow(0 0 6px rgba(227, 185, 62, 0.8)); } .ds-moon-toggle.off .moon-path { stroke: var(--gold-dim, rgba(201, 162, 39, 0.55)); } .ds-moon-toggle .slash { stroke: var(--gold-dim, rgba(201, 162, 39, 0.55)); stroke-width: 1.7; opacity: 0; transition: opacity 0.3s ease; } .ds-moon-toggle.off .slash { opacity: 1; }"
+      },
+      {
+        "name": "灵摆交互提示",
+        "kind": "custom",
+        "refersTo": "prompt-pill",
+        "description": "40px 胶囊 pill：灵摆 SVG + E 键帽 + 提示文案；现身时灵摆从 -14° 摆入后 ±3.5° 待机微摆。",
+        "html": "<div class=\"ds-spirit-prompt show\"><svg class=\"ds-pendulum\" viewBox=\"0 0 22 30\" aria-hidden=\"true\"><line class=\"chain\" x1=\"11\" y1=\"0\" x2=\"11\" y2=\"16\"/><circle class=\"bob\" cx=\"11\" cy=\"21\" r=\"7\"/><circle class=\"dot\" cx=\"11\" cy=\"21\" r=\"2.6\"/></svg><span class=\"ds-keycap\">E</span><span class=\"ds-prompt-text\">登上摩天轮</span></div>",
+        "css": ".ds-spirit-prompt { display: flex; align-items: center; gap: 14px; padding: 13px 30px 13px 22px; background: rgba(20, 16, 31, 0.78); border: 1px solid var(--gold, #c9a227); box-shadow: inset 0 0 0 3px rgba(20, 16, 31, 0.78), inset 0 0 0 4px rgba(201, 162, 39, 0.45), 0 12px 34px rgba(0, 0, 0, 0.45); border-radius: 40px; font-family: Georgia, 'STZhongsong', 'STSong', 'SimSun', serif; } .ds-pendulum { width: 22px; height: 30px; transform-origin: top center; } .ds-pendulum .chain { stroke: var(--gold, #c9a227); stroke-width: 1.6; fill: none; } .ds-pendulum .bob { fill: var(--ivory, #ede3cb); } .ds-pendulum .dot { fill: var(--spirit, #8fe3d9); } .ds-spirit-prompt.show .ds-pendulum { animation: ds-pendulum-in 0.3s var(--ease-seance, cubic-bezier(0.22, 0.9, 0.34, 1)) 1, ds-pendulum-idle 3s ease-in-out 0.3s infinite alternate; } .ds-keycap { display: inline-block; min-width: 34px; text-align: center; padding: 4px 10px; font-size: 22px; color: var(--ivory, #ede3cb); background: rgba(201, 162, 39, 0.1); border: 1px solid var(--gold-dim, rgba(201, 162, 39, 0.55)); border-radius: 4px; } .ds-prompt-text { font-size: 26px; letter-spacing: 0.14em; color: var(--ivory, #ede3cb); white-space: nowrap; } @keyframes ds-pendulum-in { from { rotate: -14deg; } to { rotate: 0deg; } } @keyframes ds-pendulum-idle { from { rotate: -3.5deg; } to { rotate: 3.5deg; } }"
+      },
+      {
+        "name": "键位说明条",
+        "kind": "nav",
+        "refersTo": "panel-hud",
+        "description": "常驻退后键位条：velvet 玻璃底 + 暗金描边双框（内圈 0.28），键帽金染底。",
+        "html": "<div class=\"ds-keys-bar\"><span class=\"ds-keycap\">W A S D</span><span class=\"ds-key-label\">移动</span><span class=\"ds-keycap\">E</span><span class=\"ds-key-label\">互动</span><span class=\"ds-keycap\">Shift</span><span class=\"ds-key-label\">疾走</span></div>",
+        "css": ".ds-keys-bar { display: flex; gap: 10px; align-items: center; padding: 10px 16px; background: rgba(20, 16, 31, 0.62); border: 1px solid var(--gold-dim, rgba(201, 162, 39, 0.55)); box-shadow: inset 0 0 0 3px rgba(20, 16, 31, 0.62), inset 0 0 0 4px rgba(201, 162, 39, 0.28); border-radius: 6px; font-family: Georgia, 'STZhongsong', 'STSong', 'SimSun', serif; } .ds-keycap { display: inline-block; min-width: 34px; text-align: center; padding: 4px 10px; font-size: 22px; color: var(--ivory, #ede3cb); background: rgba(201, 162, 39, 0.1); border: 1px solid var(--gold-dim, rgba(201, 162, 39, 0.55)); border-radius: 4px; } .ds-key-label { font-size: 22px; color: var(--ivory-dim, rgba(237, 227, 203, 0.72)); letter-spacing: 0.12em; margin-right: 10px; }"
+      },
+      {
+        "name": "打卡星图",
+        "kind": "chip",
+        "refersTo": "panel-hud",
+        "description": "一排描线星 + 金色计数；已收的星转灵火青填充 + 8px 灵辉（单线框，无双金线）。",
+        "html": "<div class=\"ds-star-map\"><svg class=\"lit\" viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M12 2 L14.4 9.6 L22 9.6 L15.8 14.2 L18.2 21.8 L12 17 L5.8 21.8 L8.2 14.2 L2 9.6 L9.6 9.6 Z\"/></svg><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M12 2 L14.4 9.6 L22 9.6 L15.8 14.2 L18.2 21.8 L12 17 L5.8 21.8 L8.2 14.2 L2 9.6 L9.6 9.6 Z\"/></svg><svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><path d=\"M12 2 L14.4 9.6 L22 9.6 L15.8 14.2 L18.2 21.8 L12 17 L5.8 21.8 L8.2 14.2 L2 9.6 L9.6 9.6 Z\"/></svg><span class=\"ds-star-count\">1 / 3</span></div>",
+        "css": ".ds-star-map { display: flex; align-items: center; gap: 9px; padding: 10px 14px; background: rgba(20, 16, 31, 0.62); border: 1px solid var(--gold-dim, rgba(201, 162, 39, 0.55)); border-radius: 6px; font-family: Georgia, 'STZhongsong', 'STSong', 'SimSun', serif; } .ds-star-map svg { width: 22px; height: 22px; fill: none; stroke: var(--gold-dim, rgba(201, 162, 39, 0.55)); stroke-width: 1.4; transition: fill 0.4s ease, stroke 0.4s ease, filter 0.4s ease; } .ds-star-map svg.lit { fill: var(--spirit, #8fe3d9); stroke: var(--spirit, #8fe3d9); filter: drop-shadow(0 0 8px rgba(143, 227, 217, 0.7)); } .ds-star-count { font-size: 22px; color: var(--gold, #c9a227); letter-spacing: 0.1em; margin-left: 6px; }"
+      },
+      {
+        "name": "乘坐铭牌",
+        "kind": "card",
+        "refersTo": "panel-plaque",
+        "description": "左上现身铭牌：全金描边双框（内圈 0.4），亮金设施名 + 暗象牙提示。",
+        "html": "<div class=\"ds-ride-plaque\"><div class=\"ds-plaque-name\">摩天轮</div><div class=\"ds-plaque-hint\">随时按 E 离开</div></div>",
+        "css": ".ds-ride-plaque { padding: 14px 20px; background: rgba(20, 16, 31, 0.66); border: 1px solid var(--gold, #c9a227); box-shadow: inset 0 0 0 3px rgba(20, 16, 31, 0.66), inset 0 0 0 4px rgba(201, 162, 39, 0.4); border-radius: 4px; font-family: Georgia, 'STZhongsong', 'STSong', 'SimSun', serif; } .ds-plaque-name { font-size: 28px; letter-spacing: 0.22em; color: var(--gold-bright, #e3b93e); margin-bottom: 6px; } .ds-plaque-hint { font-size: 22px; letter-spacing: 0.1em; color: var(--ivory-dim, rgba(237, 227, 203, 0.72)); }"
+      },
+      {
+        "name": "显灵板框语法（签名）",
+        "kind": "card",
+        "refersTo": null,
+        "description": "显灵板的双金线框 + 绒布渐变 + 唯一主浮影（演示按板面比例缩小；生产板面 min(980px, 92vw)、980/640、标题最大 94px）。",
+        "html": "<div class=\"ds-seance-frame\"><div class=\"ds-frame-title\">幽夜游乐场</div><div class=\"ds-frame-sub\">HOLLOW NIGHT CARNIVAL</div><div class=\"ds-frame-divider\"></div></div>",
+        "css": ".ds-seance-frame { width: min(480px, 92%); padding: 56px 32px; display: flex; flex-direction: column; align-items: center; gap: 14px; text-align: center; border-radius: 26px; background: linear-gradient(160deg, var(--velvet-2, #201936) 0%, #191326 100%); border: 2px solid var(--gold, #c9a227); box-shadow: inset 0 0 0 10px var(--velvet-1, #14101f), inset 0 0 0 11.5px var(--gold-dim, rgba(201, 162, 39, 0.55)), 0 30px 80px rgba(0, 0, 0, 0.6); font-family: Georgia, 'STZhongsong', 'STSong', 'SimSun', serif; } .ds-frame-title { font-size: clamp(32px, 6vw, 44px); font-weight: 600; letter-spacing: 0.3em; text-indent: 0.3em; color: var(--gold, #c9a227); text-shadow: 0 0 26px rgba(201, 162, 39, 0.4); } .ds-frame-sub { font-size: 13px; letter-spacing: 0.62em; text-indent: 0.62em; color: var(--ivory, #ede3cb); opacity: 0.85; } .ds-frame-divider { width: 60%; height: 1px; background: linear-gradient(90deg, transparent, var(--gold, #c9a227), transparent); }"
+      }
+    ],
+    "narrative": {
+      "northStar": "绒布与鎏金的通灵道具",
+      "overview": "整个 DOM 界面是一场午夜降神会桌面上的道具阵列：加载是一块铺开的显灵板（字母弧 + 灵摆指针 + 五芒星入园键），园中交互由灵摆指向，打卡是逐一点亮的星图，声音是月相表盘。UI 不是\"半透明卡片 + 发光描边\"的品类默认 HUD 拼盘，而是平时退后、只在关键节点现身的通灵道具——3D 乐园是主角，道具为它服务。材质立场：绒布黑紫的放射状桌面上，一切可见之物都是平的金色线稿与象牙实体——月相、星芒、灵摆皆由 SVG path 描线画出，五芒星与指针由 clip-path 剪出；零位图、零字体文件、零外部素材；辉光只作为\"焦点之火\"出现（全部零偏移），从不作为环境氛围。字面立场：全站一副衬线嗓（Georgia / STZhongsong / STSong / SimSun 栈），层级只靠字号、宽字距与颜色区分，不换字体、不加字重；文案全部中文，桌面 1080p 优先，无移动断点。",
+      "keyCharacteristics": [
+        "平的金色线稿世界：双金线 inset 框 + SVG 描线符号，无 CSS 浮雕 / 斜面",
+        "零偏移辉光严格留给焦点与活性元素，绝不环境化",
+        "灵火青 = 进度 / 活性专属色；velvet 玻璃面板退后衬底",
+        "一副衬线嗓，宽字距 0.1–0.62em 定层级",
+        "全中文文案；零图片、零字体资产",
+        "尊重 prefers-reduced-motion（动画全关，过渡压至 0.01s）"
+      ],
+      "rules": [
+        { "name": "金线为骨 Rule", "body": "金色只做结构线与标题，象牙只做正文与可交互文字，灵火青只做进度与活性——这条三分法直接写在样式表头部，任何新组件先归位再动手。", "section": "colors" },
+        { "name": "灵火不常亮 Rule", "body": "灵火青与它的辉光只允许出现在 lit / active / 进度状态；常亮的青色即违例。", "section": "colors" },
+        { "name": "辉光只给焦点 Rule", "body": "零偏移辉光（0 0 Npx）严格保留给焦点 / 活性元素：就绪的五芒星、点亮的星、开启的月相、点亮的弧字母。环境永远无光。", "section": "colors" },
+        { "name": "宽字距 Rule", "body": "展示与标签文字一律 0.1em 起步的 letter-spacing；居中排的宽字距文本必须配等值 text-indent 找中（标题 0.3em/0.3em、副题 0.62em/0.62em、入园提示 0.3em/0.3em），否则视觉偏心。", "section": "typography" },
+        { "name": "单声部 Rule", "body": "全站一个衬线栈；层级只准用字号、字距、颜色（金 / 亮金 / 象牙 / 暗象牙）表达，不得引入第二字体或第三档字重。", "section": "typography" },
+        { "name": "平铺 Rule", "body": "表面默认是平的；全系统只允许显灵板一块\"浮\"起来，其余道具至多带搁影。inset box-shadow 只用于金线框（线稿语法），不得当作深度手段。", "section": "elevation" },
+        { "name": "双金线 Rule", "body": "现身的指示性浮层（铭牌、提示 pill、键位条）用\"描边 + 深色隔离层 + 内圈金线\"的双框语法，内圈金线按重要度取 0.28 / 0.4 / 0.45；常驻退后件（星图、月相开关）只留单线。", "section": "shapes" }
+      ],
+      "dos": [
+        "Do 先归位再动手：金 = 结构线 / 标题、象牙 = 正文 / 可交互、灵火青 = 进度 / 活性（样式表头部契约），新组件三选一。",
+        "Do 用双金线框公式（1px 描边 + 3px 底色隔离层 + 4px 内圈金线）包任何现身浮层；内圈金线按重要度取 0.28 / 0.4 / 0.45。",
+        "Do 符号全部手绘：SVG path 描线（1.4–1.7 描宽）或 clip-path 剪影；图标 22–34px。",
+        "Do 辉光零偏移且只给焦点 / 活性（0 0 6–26px）；待机微摆语法 ±3° / 3s alternate。",
+        "Do 居中宽字距文本配等值 text-indent 找中。",
+        "Do 保留 prefers-reduced-motion 降级与 :focus-visible 亮金 2px / 4px 焦点环。",
+        "Do 全中文文案；拉丁仅作板面副题与字母弧装饰。"
+      ],
+      "donts": [
+        "Don't 环境辉光 / 常亮辉光：零偏移光只属于焦点与活性元素；静态装饰不得发光。",
+        "Don't 品类默认的半透明白卡片 + 发光描边 HUD 拼盘（方向契约明确拒绝）；面板一律 velvet 玻璃底。",
+        "Don't 引入图片、字体或音频文件——零外部素材是产品立场；符号用 SVG / clip-path。",
+        "Don't 用字符当图标（字符星、字符月）；亦禁图标字体。",
+        "Don't 为状态引入第二活动色；灵火青是唯一的\"活\"色，幽紫只许做选区底。",
+        "Don't 做移动端断点或触控适配（桌面键鼠，明确不做）。",
+        "Don't 引入第二字体族或 400 / 600 以外的字重。"
+      ]
+    }
+}

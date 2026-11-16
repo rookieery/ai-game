@@ -1,0 +1,20 @@
+{
+  "name": "hollow-night-carnival",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "幽夜游乐场 — 万圣节惊魂夜主题第一人称乐园 (Three.js)",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "assets:sync": "node scripts/sync-assets.mjs"
+  },
+  "dependencies": {
+    "three": "^0.187.0",
+    "vite": "^8.3.8"
+  },
+  "devDependencies": {
+    "playwright": "^1.65.1"
+  }
+}

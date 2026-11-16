@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>幽夜游乐场 · Hollow Night Carnival</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='6' fill='%23c9a227'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="/src/ui/style.css" />
+</head>
+<body>
+  <div id="app">
+    <canvas id="game-canvas"></canvas>
+
+    <!-- 加载屏：显灵板（构图契约 = .impeccable/questions/html/seance.html） -->
+    <div id="loading-screen" role="dialog" aria-label="幽夜游乐场 加载中">
+      <div class="velvet-veil" aria-hidden="true"></div>
+
+      <div class="board" id="seance-board">
+        <!-- 角部月相装饰（手绘 SVG，非字符） -->
+        <svg class="board-moon left" viewBox="0 0 32 32" aria-hidden="true">
+          <path d="M22 4 A12 12 0 1 0 22 28 A14.5 14.5 0 0 1 22 4 Z" />
+        </svg>
+        <svg class="board-moon right" viewBox="0 0 32 32" aria-hidden="true">
+          <path d="M22 4 A12 12 0 1 0 22 28 A14.5 14.5 0 0 1 22 4 Z" transform="rotate(90 16 16)" />
+        </svg>
+
+        <!-- 字母弧 -->
+        <div class="arc-row" id="board-arc" aria-hidden="true">
+          <span>A</span><span>B</span><span>C</span><span class="hi">幽</span><span class="hi">夜</span><span>F</span><span>G</span><span class="hi">游</span><span class="hi">乐</span><span class="hi">场</span><span>K</span><span>L</span><span>M</span><span>N</span><span>O</span><span>P</span>
+        </div>
+
+        <div class="board-corner left">显灵中</div>
+        <div class="board-corner right" id="load-pct" aria-live="polite">0%</div>
+
+        <div class="board-center">
+          <h1 class="board-title">幽夜游乐场</h1>
+          <div class="board-sub">HOLLOW NIGHT CARNIVAL</div>
+          <div class="gold-divider" aria-hidden="true"></div>
+          <div class="summon-line" id="summon-line">灵摆引路 · 唤你入园</div>
+        </div>
+
+        <!-- 灵摆指针（进度载体） -->
+        <div class="planchette" id="planchette" aria-hidden="true">
+          <div class="pl-body"></div>
+          <div class="pl-eye"></div>
+          <div class="pl-glow"></div>
+        </div>
+
+        <svg class="spark spark-a" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 1 L14 10 L23 12 L14 14 L12 23 L10 14 L1 12 L10 10 Z" />
+        </svg>
+        <svg class="spark spark-b" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M12 1 L14 10 L23 12 L14 14 L12 23 L10 14 L1 12 L10 10 Z" />
+        </svg>
+
+        <button class="star-btn" id="enter-btn" aria-label="点五芒星入园" disabled></button>
+        <div class="enter-hint" id="enter-hint">点五芒星 · 入园</div>
+      </div>
+    </div>
+
+    <!-- HUD 容器（组件由 src/ui/hud.js 构建） -->
+    <div id="hud"></div>
+  </div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

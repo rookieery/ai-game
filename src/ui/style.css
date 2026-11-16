@@ -1,0 +1,546 @@
+/* ============================================================
+   幽夜游乐场 — 「降神之夜 The Séance」UI 设计系统
+   契约: .impeccable/surfaces/index-html.md (方向契约)
+   金=结构线/标题 · 象牙=正文/可交互主体 · 灵火青=进度/活性
+   ============================================================ */
+
+:root {
+  /* 绒布底三级 */
+  --velvet-0: #0b0813;
+  --velvet-1: #14101f;
+  --velvet-2: #201936;
+  /* 金与象牙 */
+  --gold: #c9a227;
+  --gold-bright: #e3b93e;
+  --gold-dim: rgba(201, 162, 39, 0.55);
+  --ivory: #ede3cb;
+  --ivory-dim: rgba(237, 227, 203, 0.72);
+  /* 点缀 */
+  --violet: #7a4fa8;
+  --spirit: #8fe3d9;
+
+  --font-serif: Georgia, "STZhongsong", "STSong", "SimSun", serif;
+  --ease-seance: cubic-bezier(0.22, 0.9, 0.34, 1);
+
+  /* 浏览器原生面主题化 */
+  color-scheme: dark;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body, #app {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--velvet-0);
+  font-family: var(--font-serif);
+  color: var(--ivory);
+}
+
+::selection {
+  background: rgba(122, 79, 168, 0.55);
+  color: var(--ivory);
+}
+
+:focus-visible {
+  outline: 2px solid var(--gold-bright);
+  outline-offset: 4px;
+}
+
+#game-canvas { display: block; width: 100%; height: 100%; }
+
+#hud {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 50;
+}
+
+/* ============================================================
+   加载屏 · 显灵板
+   ============================================================ */
+
+#loading-screen {
+  position: absolute;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  transition: opacity 0.9s var(--ease-seance);
+}
+
+#loading-screen.hidden { opacity: 0; pointer-events: none; }
+#loading-screen.gone { visibility: hidden; } /* 淡出后移出无障碍树，五芒星不再可聚焦 */
+
+.velvet-veil {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 85% 75% at 50% 46%,
+    var(--velvet-2) 0%, var(--velvet-1) 58%, var(--velvet-0) 100%);
+}
+
+.velvet-veil::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0.3;
+  background-image: repeating-radial-gradient(circle at 30% 20%,
+    rgba(201, 162, 39, 0.03) 0 2px, transparent 2px 6px);
+}
+
+.board {
+  position: relative;
+  width: min(980px, 92vw);
+  aspect-ratio: 980 / 640;
+  border-radius: 26px;
+  background: linear-gradient(160deg, var(--velvet-2) 0%, #191326 100%);
+  border: 2px solid var(--gold);
+  box-shadow:
+    inset 0 0 0 10px var(--velvet-1),
+    inset 0 0 0 11.5px var(--gold-dim),
+    0 30px 80px rgba(0, 0, 0, 0.6);
+}
+
+.board-moon {
+  position: absolute;
+  width: 34px;
+  height: 34px;
+  top: 52px;
+  fill: none;
+  stroke: var(--gold-dim);
+  stroke-width: 1.6;
+}
+.board-moon.left  { left: 56px; }
+.board-moon.right { right: 56px; }
+
+/* 字母弧 */
+.arc-row {
+  position: absolute;
+  top: 9.5%;
+  left: 0;
+  right: 0;
+  text-align: center;
+}
+
+.arc-row span {
+  display: inline-block;
+  font-size: 26px;
+  color: var(--gold-dim);
+  margin: 0 0.55em;
+  transition: color 0.5s ease, text-shadow 0.5s ease;
+}
+
+.arc-row span.hi { color: var(--gold); }
+
+/* 进度掠过时逐字点亮 */
+.arc-row span.lit {
+  color: var(--ivory);
+  text-shadow: 0 0 14px rgba(143, 227, 217, 0.6);
+}
+
+.board-corner {
+  position: absolute;
+  bottom: 17%;
+  font-size: 27px;
+  letter-spacing: 0.28em;
+  color: var(--gold);
+  opacity: 0.78;
+}
+.board-corner.left  { left: 6.5%; }
+.board-corner.right { right: 6.5%; }
+
+.board-center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 22px;
+  text-align: center;
+}
+
+.board-title {
+  font-family: var(--font-serif);
+  font-size: clamp(56px, 9.2vw, 94px);
+  font-weight: 600;
+  letter-spacing: 0.3em;
+  text-indent: 0.3em;
+  color: var(--gold);
+  text-shadow: 0 0 26px rgba(201, 162, 39, 0.4), 0 2px 0 rgba(0, 0, 0, 0.6);
+}
+
+.board-sub {
+  font-size: 24px;
+  letter-spacing: 0.62em;
+  text-indent: 0.62em;
+  color: var(--ivory);
+  opacity: 0.85;
+}
+
+.gold-divider {
+  width: 340px;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--gold), transparent);
+}
+
+.summon-line {
+  font-size: 26px;
+  letter-spacing: 0.18em;
+  color: var(--spirit);
+  text-shadow: 0 0 12px rgba(143, 227, 217, 0.5);
+}
+
+/* 灵摆指针：沿字母弧滑行（显灵板隐喻——指针指向哪个字母，哪个字母点亮） */
+.planchette {
+  position: absolute;
+  left: 12%;
+  top: 18%;
+  width: clamp(96px, 12.5%, 124px);
+  aspect-ratio: 130 / 150;
+  transform: translate(0, -50%);
+  transition: left 0.5s var(--ease-seance);
+  filter: drop-shadow(0 10px 24px rgba(0, 0, 0, 0.55));
+  z-index: 2;
+}
+
+.pl-body {
+  position: absolute;
+  inset: 0;
+  background: var(--ivory);
+  clip-path: polygon(50% 0, 88% 34%, 78% 92%, 50% 100%, 22% 92%, 12% 34%);
+}
+
+.pl-eye {
+  position: absolute;
+  left: 50%;
+  top: 44%;
+  transform: translate(-50%, -50%);
+  width: 30%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--velvet-1);
+}
+
+.pl-glow {
+  position: absolute;
+  left: 50%;
+  top: 44%;
+  transform: translate(-50%, -50%);
+  width: 14%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: var(--spirit);
+  box-shadow: 0 0 18px 6px rgba(143, 227, 217, 0.55);
+}
+
+/* 灵摆待机微摆（内层不与位移冲突） */
+.pl-body, .pl-eye, .pl-glow { animation: sway 3s ease-in-out infinite alternate; }
+
+@keyframes sway {
+  from { rotate: -3deg; }
+  to   { rotate: 3deg; }
+}
+
+.spark {
+  position: absolute;
+  width: 26px;
+  height: 26px;
+  fill: var(--spirit);
+  opacity: 0.75;
+  filter: drop-shadow(0 0 10px rgba(143, 227, 217, 0.6));
+  animation: twinkle 2.8s ease-in-out infinite alternate;
+}
+.spark-a { left: 15%; top: 30%; }
+.spark-b { right: 17%; bottom: 26%; animation-delay: 1.2s; }
+
+@keyframes twinkle {
+  from { opacity: 0.35; }
+  to   { opacity: 0.85; }
+}
+
+/* 五芒星入园按钮 */
+.star-btn {
+  position: absolute;
+  left: 50%;
+  bottom: -30px;
+  transform: translateX(-50%);
+  width: 62px;
+  height: 60px;
+  border: none;
+  background: var(--gold);
+  cursor: pointer;
+  clip-path: polygon(50% 0, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%);
+  transition: filter 0.35s ease, transform 0.35s var(--ease-seance);
+}
+
+.star-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+  filter: none;
+}
+
+.star-btn.ready {
+  filter: drop-shadow(0 0 16px rgba(201, 162, 39, 0.55));
+  animation: star-pulse 2.4s ease-in-out infinite;
+}
+
+.star-btn.ready:hover { transform: translateX(-50%) scale(1.12); }
+
+@keyframes star-pulse {
+  0%, 100% { filter: drop-shadow(0 0 10px rgba(201, 162, 39, 0.4)); }
+  50%      { filter: drop-shadow(0 0 22px rgba(227, 185, 62, 0.75)); }
+}
+
+/* 入园就绪的一闪 */
+.board.flash { animation: flash 0.7s ease-out 1; }
+
+@keyframes flash {
+  0%   { box-shadow: inset 0 0 0 10px var(--velvet-1), inset 0 0 0 11.5px var(--gold-dim), 0 30px 80px rgba(0, 0, 0, 0.6); }
+  35%  { box-shadow: inset 0 0 0 10px var(--velvet-1), inset 0 0 0 11.5px var(--gold-bright), 0 30px 80px rgba(0, 0, 0, 0.6), 0 0 90px 20px rgba(201, 162, 39, 0.4); }
+  100% { box-shadow: inset 0 0 0 10px var(--velvet-1), inset 0 0 0 11.5px var(--gold-dim), 0 30px 80px rgba(0, 0, 0, 0.6); }
+}
+
+.enter-hint {
+  position: absolute;
+  left: 50%;
+  bottom: -64px;
+  transform: translateX(-50%);
+  font-size: 24px;
+  letter-spacing: 0.3em;
+  text-indent: 0.3em;
+  color: var(--ivory);
+  opacity: 0;
+  transition: opacity 0.6s ease;
+  white-space: nowrap;
+}
+
+.enter-hint.show { opacity: 0.9; }
+
+/* ============================================================
+   HUD 组件
+   ============================================================ */
+
+/* 键位说明条 */
+.keys-bar {
+  position: absolute;
+  left: 28px;
+  bottom: 26px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 16px;
+  background: rgba(20, 16, 31, 0.62);
+  border: 1px solid var(--gold-dim);
+  box-shadow: inset 0 0 0 3px rgba(20, 16, 31, 0.62), inset 0 0 0 4px rgba(201, 162, 39, 0.28);
+  border-radius: 6px;
+  opacity: 0; /* 入园前隐藏（.show 驱动） */
+  transition: opacity 0.8s ease;
+}
+
+.keys-bar.show { opacity: 1; }
+.keys-bar.show.dim { opacity: 0.4; } /* 入园 6s 后减淡，hover/Alt 恢复 */
+
+.keycap {
+  display: inline-block;
+  min-width: 34px;
+  text-align: center;
+  padding: 4px 10px;
+  font-size: 22px;
+  color: var(--ivory);
+  background: rgba(201, 162, 39, 0.1);
+  border: 1px solid var(--gold-dim);
+  border-radius: 4px;
+}
+
+.keys-bar .key-label {
+  font-size: 22px;
+  color: var(--ivory-dim);
+  letter-spacing: 0.12em;
+  margin-right: 10px;
+}
+
+/* 交互提示（灵摆指向 pill） */
+.spirit-prompt {
+  position: absolute;
+  left: 50%;
+  bottom: 110px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 13px 30px 13px 22px;
+  background: rgba(20, 16, 31, 0.78);
+  border: 1px solid var(--gold);
+  box-shadow: inset 0 0 0 3px rgba(20, 16, 31, 0.78), inset 0 0 0 4px rgba(201, 162, 39, 0.45),
+    0 12px 34px rgba(0, 0, 0, 0.45);
+  border-radius: 40px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.spirit-prompt.show { opacity: 1; }
+
+.spirit-prompt.show .pendulum {
+  animation: pendulum-in 0.3s var(--ease-seance) 1, pendulum-idle 3s ease-in-out 0.3s infinite alternate;
+}
+
+@keyframes pendulum-in {
+  from { rotate: -14deg; }
+  to   { rotate: 0deg; }
+}
+
+@keyframes pendulum-idle {
+  from { rotate: -3.5deg; }
+  to   { rotate: 3.5deg; }
+}
+
+.pendulum {
+  width: 22px;
+  height: 30px;
+  transform-origin: top center;
+}
+
+.pendulum .chain { stroke: var(--gold); stroke-width: 1.6; fill: none; }
+.pendulum .bob { fill: var(--ivory); }
+.pendulum .dot { fill: var(--spirit); }
+
+.spirit-prompt .prompt-text {
+  font-size: 26px;
+  letter-spacing: 0.14em;
+  color: var(--ivory);
+  white-space: nowrap;
+}
+
+/* 打卡星图 */
+.star-map {
+  position: absolute;
+  left: 28px;
+  bottom: 96px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 14px;
+  background: rgba(20, 16, 31, 0.62);
+  border: 1px solid var(--gold-dim);
+  border-radius: 6px;
+  opacity: 0;
+  transition: opacity 0.5s ease;
+}
+
+.star-map.show { opacity: 1; }
+
+.star-map svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: var(--gold-dim);
+  stroke-width: 1.4;
+  transition: fill 0.4s ease, stroke 0.4s ease, filter 0.4s ease;
+}
+
+.star-map svg.lit {
+  fill: var(--spirit);
+  stroke: var(--spirit);
+  filter: drop-shadow(0 0 8px rgba(143, 227, 217, 0.7));
+}
+
+.star-map .star-count {
+  font-size: 22px;
+  color: var(--gold);
+  letter-spacing: 0.1em;
+  margin-left: 6px;
+}
+
+/* 月相声音开关 */
+.moon-toggle {
+  position: absolute;
+  right: 28px;
+  bottom: 26px;
+  width: 52px;
+  height: 52px;
+  display: grid;
+  place-items: center;
+  pointer-events: auto;
+  cursor: pointer;
+  background: rgba(20, 16, 31, 0.62);
+  border: 1px solid var(--gold-dim);
+  border-radius: 50%;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.moon-toggle:hover {
+  border-color: var(--gold-bright);
+  box-shadow: 0 0 16px rgba(201, 162, 39, 0.3);
+}
+
+.moon-toggle svg { width: 26px; height: 26px; }
+
+.moon-toggle .moon-path {
+  fill: none;
+  stroke: var(--gold);
+  stroke-width: 1.7;
+  transition: filter 0.3s ease;
+}
+
+.moon-toggle.on .moon-path { filter: drop-shadow(0 0 6px rgba(227, 185, 62, 0.8)); }
+.moon-toggle.off .moon-path { stroke: var(--gold-dim); }
+.moon-toggle .slash {
+  stroke: var(--gold-dim);
+  stroke-width: 1.7;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+.moon-toggle.off .slash { opacity: 1; }
+
+/* 乘坐铭牌 */
+.ride-plaque {
+  position: absolute;
+  left: 28px;
+  top: 28px;
+  padding: 14px 20px;
+  background: rgba(20, 16, 31, 0.66);
+  border: 1px solid var(--gold);
+  box-shadow: inset 0 0 0 3px rgba(20, 16, 31, 0.66), inset 0 0 0 4px rgba(201, 162, 39, 0.4);
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 0.5s ease;
+}
+
+.ride-plaque.show { opacity: 1; }
+
+.ride-plaque .plaque-name {
+  font-size: 28px;
+  letter-spacing: 0.22em;
+  color: var(--gold-bright);
+  margin-bottom: 6px;
+}
+
+.ride-plaque .plaque-hint {
+  font-size: 22px;
+  letter-spacing: 0.1em;
+  color: var(--ivory-dim);
+}
+
+/* 转场遮罩 */
+#fade-veil {
+  position: absolute;
+  inset: 0;
+  background: var(--velvet-1);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.4s ease;
+  z-index: 90;
+}
+
+#fade-veil.active { opacity: 1; }
+
+/* 减动效偏好 */
+@media (prefers-reduced-motion: reduce) {
+  .pl-body, .pl-eye, .pl-glow, .spark,
+  .star-btn.ready,
+  .spirit-prompt.show .pendulum {
+    animation: none;
+  }
+  #loading-screen, #fade-veil, .planchette { transition-duration: 0.01s; }
+}
