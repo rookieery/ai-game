@@ -58,13 +58,14 @@ function makeMistTexture() {
 
 export function createWorld(scene) {
   scene.background = new THREE.Color("#060812");
-  scene.fog = new THREE.FogExp2("#0a0c1e", 0.0085);
+  scene.fog = new THREE.FogExp2("#0a0c1e", 0.0055); // v3 扩园 r150: 降密度保摩天轮顶俯瞰全园
 
   // 亮度基准（applySettings 以此换算百分比）
   const BASE = {
     moon: 0.85, hemi: 0.55,
     plaza1: 90, plaza2: 70, gate: 55,
-    fog: 0.0085, aurora: 0.85,
+    bay: 30, north: 42, east: 26,   // v3 分区灯: 幽灵港 / 北过山车 / 东南秘境
+    fog: 0.0055, aurora: 0.85,
     starOpacity: 0.9,
   };
 
@@ -75,21 +76,30 @@ export function createWorld(scene) {
   const hemi = new THREE.HemisphereLight("#2a3050", "#141024", BASE.hemi);
   scene.add(hemi);
 
-  // 广场暖光（灯串/南瓜的"实际照明"）
-  const plaza1 = new THREE.PointLight("#ff9a5c", BASE.plaza1, 80, 1.7);
+  // 广场暖光（灯串/南瓜的"实际照明"）+ 三盏分区灯（随扩园外推的光域）
+  const plaza1 = new THREE.PointLight("#ff9a5c", BASE.plaza1, 130, 1.7);
   plaza1.position.set(12, 7, 12);
   scene.add(plaza1);
-  const plaza2 = new THREE.PointLight("#ff9a5c", BASE.plaza2, 70, 1.7);
+  const plaza2 = new THREE.PointLight("#ff9a5c", BASE.plaza2, 120, 1.7);
   plaza2.position.set(-12, 7, -14);
   scene.add(plaza2);
-  const gate = new THREE.PointLight("#ffc46b", BASE.gate, 60, 1.7);
-  gate.position.set(0, 7, 66);
+  const gate = new THREE.PointLight("#ffc46b", BASE.gate, 70, 1.7);
+  gate.position.set(0, 7, 146); // 大门随围栏外移 r146
   scene.add(gate);
+  const bay = new THREE.PointLight("#7fd8c8", BASE.bay, 95, 1.7);   // 幽灵港: 灵绿
+  bay.position.set(-70, 9, 45);
+  scene.add(bay);
+  const north = new THREE.PointLight("#ff9a5c", BASE.north, 110, 1.7); // 过山车预留区: 暖橙
+  north.position.set(15, 9, -100);
+  scene.add(north);
+  const east = new THREE.PointLight("#9b5bff", BASE.east, 90, 1.7);  // 秘境预留区: 暗紫
+  east.position.set(95, 9, 60);
+  scene.add(east);
 
-  // 极光天穹
+  // 极光天穹（r150 园区 + 420+ 远景: 半径 700）
   const skyUniforms = { uTime: { value: 0 }, uAurora: { value: BASE.aurora } };
   const sky = new THREE.Mesh(
-    new THREE.SphereGeometry(460, 32, 18),
+    new THREE.SphereGeometry(700, 32, 18),
     new THREE.ShaderMaterial({
       side: THREE.BackSide,
       depthWrite: false,
@@ -106,7 +116,7 @@ export function createWorld(scene) {
     for (let i = 0; i < count; i++) {
       const th = Math.random() * Math.PI * 2;
       const ph = Math.acos(Math.random() * 0.92); // 上半球
-      const r = 440;
+      const r = 680;
       pos.push(r * Math.sin(ph) * Math.cos(th), r * Math.cos(ph) + 4, r * Math.sin(ph) * Math.sin(th));
     }
     const geo = new THREE.BufferGeometry();
@@ -118,19 +128,19 @@ export function createWorld(scene) {
   let curStarCount = 1400;
   scene.add(stars);
 
-  // 月亮 + 光晕
+  // 月亮 + 光晕（随天穹放大同步外推）
   const moonDisc = new THREE.Mesh(
-    new THREE.CircleGeometry(13, 32),
+    new THREE.CircleGeometry(20, 32),
     new THREE.MeshBasicMaterial({ color: "#f4efd8", fog: false })
   );
-  moonDisc.position.set(-190, 165, -330);
+  moonDisc.position.set(-295, 255, -510);
   moonDisc.lookAt(0, 0, 0);
   scene.add(moonDisc);
   const glowTex = makeMistTexture();
   const moonGlow = new THREE.Sprite(
     new THREE.SpriteMaterial({ map: glowTex, color: "#d9dcff", transparent: true, opacity: 0.4, fog: false })
   );
-  moonGlow.scale.set(110, 110, 1);
+  moonGlow.scale.set(170, 170, 1);
   moonGlow.position.copy(moonDisc.position);
   scene.add(moonGlow);
 
@@ -146,6 +156,9 @@ export function createWorld(scene) {
     plaza1.intensity = BASE.plaza1 * pct("parkLampLight");
     plaza2.intensity = BASE.plaza2 * pct("parkLampLight");
     gate.intensity = BASE.gate * pct("parkLampLight");
+    bay.intensity = BASE.bay * pct("parkLampLight");
+    north.intensity = BASE.north * pct("parkLampLight");
+    east.intensity = BASE.east * pct("parkLampLight");
     scene.fog.density = BASE.fog * pct("fogDensity");
     skyUniforms.uAurora.value = BASE.aurora * pct("auroraLight");
     starMat.opacity = Math.min(1, BASE.starOpacity * pct("starBrightness"));
@@ -158,5 +171,5 @@ export function createWorld(scene) {
     }
   }
 
-  return { update, moon, applySettings, plazaLights: [plaza1, plaza2, gate] };
+  return { update, moon, applySettings, plazaLights: [plaza1, plaza2, gate, bay, north, east] };
 }

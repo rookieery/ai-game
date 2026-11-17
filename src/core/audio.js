@@ -174,5 +174,51 @@ export function createAudio(hud) {
         osc.stop(t0 + i * 0.09 + 1.0);
       });
     },
+    // 烟花升空啸声: 带通噪声扫频上行 (~1s)
+    fireworkLaunch() {
+      if (!ctx) return;
+      const t = ctx.currentTime;
+      const src = ctx.createBufferSource();
+      src.buffer = noiseBuffer(1.2);
+      const bp = ctx.createBiquadFilter();
+      bp.type = "bandpass";
+      bp.Q.value = 6;
+      bp.frequency.setValueAtTime(500, t);
+      bp.frequency.exponentialRampToValueAtTime(2400, t + 1.0);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.05, t + 0.25);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 1.1);
+      src.connect(bp).connect(g).connect(master);
+      src.start(t);
+      src.stop(t + 1.2);
+    },
+    // 烟花爆裂: 低通噪声扫频下坠 + 低频正弦轰 (vol 按爆点距离衰减)
+    fireworkBurst(vol = 1) {
+      if (!ctx) return;
+      const t = ctx.currentTime;
+      const src = ctx.createBufferSource();
+      src.buffer = noiseBuffer(1.0);
+      const lp = ctx.createBiquadFilter();
+      lp.type = "lowpass";
+      lp.frequency.setValueAtTime(3200, t);
+      lp.frequency.exponentialRampToValueAtTime(160, t + 0.7);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.28 * vol, t);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.85);
+      src.connect(lp).connect(g).connect(master);
+      src.start(t);
+      src.stop(t + 1.0);
+      const osc = ctx.createOscillator();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(110, t);
+      osc.frequency.exponentialRampToValueAtTime(38, t + 0.5);
+      const og = ctx.createGain();
+      og.gain.setValueAtTime(0.22 * vol, t);
+      og.gain.exponentialRampToValueAtTime(0.0001, t + 0.6);
+      osc.connect(og).connect(master);
+      osc.start(t);
+      osc.stop(t + 0.7);
+    },
   };
 }

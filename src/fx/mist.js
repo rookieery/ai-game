@@ -42,13 +42,13 @@ function makePuffAtlas() {
 
 // ---------- 共享 GLSL：灯光暖晕 + 场景夜雾一致混合 ----------
 const LIGHT_TINT_GLSL = /* glsl */ `
-  uniform vec3 uLightPos[5];
-  uniform vec3 uLightCol[5];
-  uniform float uLightR[5];
+  uniform vec3 uLightPos[8];
+  uniform vec3 uLightCol[8];
+  uniform float uLightR[8];
 
   vec3 lightTint(vec3 wp) {
     vec3 acc = vec3(0.0);
-    for (int i = 0; i < 5; i++) {
+    for (int i = 0; i < 8; i++) {
       float d = distance(wp, uLightPos[i]);
       acc += uLightCol[i] * smoothstep(uLightR[i], uLightR[i] * 0.12, d);
     }
@@ -197,23 +197,29 @@ const GROUND_FRAG = /* glsl */ `
   }
 `;
 
-// ---------- 雾潭分布（依据 colliders.json 园区布局；x, z, 潭半径, 团数） ----------
+// ---------- 雾潭分布（v3 r150 扩园; x, z, 潭半径, 团数） ----------
 const CLUSTERS = [
   [33, 41.5, 9, 8],     // 墓园南瓜簇间
   [-29.5, 37, 8, 8],    // 摊位后排
   [12.5, 58, 9, 7],     // 入园径东侧
   [-11, 48, 8, 7],      // 入园径西侧（错位不成镜像）
   [30, -30, 10, 9],     // 东南空地树影间
-  [44, -11.5, 8, 7],    // 旋转木马剪影旁
+  [44, -11.5, 8, 7],    // 旋转木马旁
+  [15, -69, 9, 7],      // 过山车预留区入口
+  [-70, 44, 9, 7],      // 幽灵港湾口
+  [16, 92, 10, 7],      // 南外环灯下
 ];
 
 // 灯染源：live ≥ 0 跟随 world.plazaLights 对应灯的实时强度，-1 为静态南瓜点（随 parkLampLight 总增益）
 const TINT_LIGHTS = [
   { pos: [12, 1.2, 12], color: "#ff9a5c", r: 14, live: 0, base: 90, gain: 0.9 },   // 广场东 ↔ plaza1
   { pos: [-12, 1.2, -14], color: "#ff9a5c", r: 14, live: 1, base: 70, gain: 0.5 }, // 广场西 ↔ plaza2
-  { pos: [0, 1.2, 66], color: "#ffc46b", r: 18, live: 2, base: 55, gain: 0.55 },   // 大门 ↔ gate
+  { pos: [0, 1.2, 146], color: "#ffc46b", r: 20, live: 2, base: 55, gain: 0.55 },  // 大门(v3 r146) ↔ gate
   { pos: [33.5, 1.2, 40.5], color: "#ff9a5c", r: 13, live: -1, gain: 0.9 },        // 墓园南瓜簇
   { pos: [-25.5, 1.2, 30], color: "#ffa53b", r: 12, live: -1, gain: 0.8 },         // 摊位灯
+  { pos: [-70, 1.2, 45], color: "#7fd8c8", r: 14, live: 3, base: 30, gain: 0.8 },  // 幽灵港 ↔ bay
+  { pos: [15, 1.2, -100], color: "#ff9a5c", r: 16, live: 4, base: 42, gain: 0.8 }, // 北过山车 ↔ north
+  { pos: [95, 1.2, 60], color: "#9b5bff", r: 14, live: 5, base: 26, gain: 0.8 },   // 东南秘境 ↔ east
 ];
 
 const BASE = { mist: 0.46 }; // mistDensity 100% 基准（旧 0.10 竖板方案的替代标定）
@@ -286,8 +292,8 @@ export function createMist(scene, world) {
   puffs.frustumCulled = false;
   scene.add(puffs);
 
-  // ----- 贴地雾层：两层错相圆盘 -----
-  const discGeo = new THREE.CircleGeometry(85, 64);
+  // ----- 贴地雾层：两层错相圆盘（v3 半径随扩园 85 -> 150） -----
+  const discGeo = new THREE.CircleGeometry(150, 64);
   const discs = [];
   for (const cfg of [
     { y: 0.45, seed: [0, 0], sign: 1 },

@@ -1,31 +1,42 @@
 # -*- coding: utf-8 -*-
 """
-Park Environment - "幽夜游乐场" Halloween night park (game-ready glTF asset)
+Park Environment v3 - "幽夜游乐场" Halloween night park (game-ready glTF asset)
 Run: blender --background --python park_env.py
 
-布局 (Blender 坐标, +Y=北):
-  - 摩天轮在原点 (轮盘资产独立), 登舱台阶在 -Y 侧
-  - 南入口大门 (0,-84) -> 石板主路 -> 中央广场 (r17.5)
-  - 西侧市集亭 x3 / 东南墓园角落 / 东北旋转木马+过山车剪影 (占位)
-  - 围墙铁艺栅栏 r84 + 维多利亚路灯 x12 + 跨路灯串 ~15 条
-  - 枯树 x15 / 缠灯松树 x5 / 南瓜灯 ~20 / 长椅/木桶/干草
-  - 远景: 山脊剪影环 + 城市灯火点阵
-输出: park_env.glb (按材质合并) + colliders.json (app 坐标) + preview/
+布局 v3 (Blender 坐标, +Y=北, r150 扩园):
+  - 摩天轮在原点 (轮盘资产独立), 登舱台阶在 -Y 侧, 中央广场 r17.5
+  - 南入口大门 (0,-146) -> 石板主路 (7 段, 中途二道门牌楼 y=-60) -> 广场
+  - 路网: 内环 r34 / 外环 r90 / 四条放射支路 (东北过山车 78°, 东南秘境 -32°,
+          西南幽灵港 217.6°, 西北许愿池 147°) + 木马支路 22° / 墓园·市集横路
+  - 预留区 (围挡+敬请期待牌): 北 过山车 x[-30,60] y[70,130];
+          西南 幽灵港(海盗船) x[-88,-52] y[-55,-35]; 东南 秘境 x[78,112] y[-78,-42]
+  - 烟花释放器 (22,-22) / 许愿池 (-57,38) / 石像鬼 x2 / 稻草人 x2 / 花藤拱门 x3
+  - 植被: 枯树 v2 x22 (螺旋/双干/垂枝) / 缠灯松 x12 (高瘦/矮胖/歪脖) / 垂柳 x4
+          草丛 ~600 / 发光蘑菇圈 x8 / 路缘花带 (紫郁金香+橙万寿菊) / 彼岸花 x4 (墓园)
+  - 家具变体: 长椅 x12 (铁艺卷草/木条/南瓜背/简约) / 路灯 x28 (球灯/南瓜顶/双头提灯)
+          木桶加铁箍 / 南瓜灯 x39 (高/扁体形)
+  - 围墙铁艺栅栏 r146 (~380 柱) + 维多利亚路灯 + 灯串 + 彩旗串
+  - 远景: 山脊剪影环 (420-470) + 城市灯火点阵 (300-390)
+输出: park_env.glb (按材质合并) + colliders.json (app 坐标, 含 launcher) + preview/
 """
 import bpy
 import bmesh
 import json
 import random
-from math import radians, pi, cos, sin, atan2
+import time
+from math import radians, pi, cos, sin, atan2, hypot
 from pathlib import Path
 import numpy as np
 from mathutils import Vector
 
 random.seed(11)
+T0 = time.time()
+def tmark(label):
+    print(f"[t={time.time()-T0:7.1f}s] {label}", flush=True)
 
 P = {
-    "park_r": 88.0,
-    "fence_r": 84.0,
+    "park_r": 150.0,
+    "fence_r": 146.0,
     "plaza_r": 17.5,
     "res_still": (1600, 900),
 }
@@ -50,6 +61,13 @@ HEX = {
     "pumpkin":"#C87419",
     "pumpface":"#FFC46B",
     "grass":  "#10151A",
+    "grass2": "#1B2B25",
+    "petv":   "#B26BFF",
+    "peto":   "#FFB347",
+    "mush":   "#C9A7FF",
+    "mushstem":"#D8CFE2",
+    "water":  "#141B33",
+    "cloth":  "#4A3A5A",
 }
 
 def hex_lin(h, a=1.0):
@@ -93,38 +111,69 @@ def smooth(ob):
     for poly in ob.data.polygons:
         poly.use_smooth = True
 
+# ---- 网格直建 helper (bpy.data, 零 bpy.ops): 逐 op 依赖图更新是数千对象时的性能杀手 ----
+def _new_obj(name, verts, faces, mat, sm):
+    me = bpy.data.meshes.new(name)
+    me.from_pydata(verts, [], faces)
+    me.validate(verbose=False)
+    me.update()
+    if mat: me.materials.append(mat)
+    if sm:
+        for p in me.polygons:
+            p.use_smooth = True
+    ob = bpy.data.objects.new(name, me)
+    col.objects.link(ob)
+    return ob
+
 def add_cyl(name, r, depth, loc, rot=(0, 0, 0), mat=None, verts=12, sm=True):
-    bpy.ops.mesh.primitive_cylinder_add(radius=r, depth=depth, vertices=verts,
-                                        location=loc, rotation=rot)
-    ob = bpy.context.active_object
-    ob.name = name
-    if mat: ob.data.materials.append(mat)
-    if sm: smooth(ob)
+    hz = depth / 2
+    vs = []
+    for i in range(verts):
+        a = 2 * pi * i / verts
+        vs.append((r * cos(a), r * sin(a), -hz))
+    for i in range(verts):
+        a = 2 * pi * i / verts
+        vs.append((r * cos(a), r * sin(a), hz))
+    fs = []
+    for i in range(verts):
+        j = (i + 1) % verts
+        fs.append((i, j, verts + j, verts + i))
+    fs.append(tuple(range(verts - 1, -1, -1)))   # 底盖 (-z)
+    fs.append(tuple(range(verts, verts * 2)))    # 顶盖 (+z)
+    ob = _new_obj(name, vs, fs, mat, sm)
+    ob.location = loc
+    ob.rotation_euler = rot
     return ob
 
 def cyl_between(name, p1, p2, r, mat, verts=6, sm=True):
     p1, p2 = Vector(p1), Vector(p2)
     d = p2 - p1
     L = d.length
-    bpy.ops.mesh.primitive_cylinder_add(radius=r, depth=1.0, vertices=verts,
-                                        location=(p1 + p2) / 2)
-    ob = bpy.context.active_object
-    ob.name = name
+    ob = add_cyl(name, r, 1.0, ((p1.x + p2.x) / 2, (p1.y + p2.y) / 2, (p1.z + p2.z) / 2),
+                 (0, 0, 0), mat, verts, sm)
     ob.scale = (1, 1, max(L, 1e-4))
     ob.rotation_euler = d.to_track_quat("Z", "Y").to_euler()
-    if mat: ob.data.materials.append(mat)
-    if sm: smooth(ob)
     return ob
 
 def add_torus(name, R, tube, loc, rot=(0, 0, 0), mat=None, ms=64, ns=8, scale=(1, 1, 1)):
-    bpy.ops.mesh.primitive_torus_add(major_radius=R, minor_radius=tube,
-                                     major_segments=ms, minor_segments=ns,
-                                     location=loc, rotation=rot)
-    ob = bpy.context.active_object
-    ob.name = name
+    vs = []
+    for i in range(ms):
+        a = 2 * pi * i / ms
+        ca, sa = cos(a), sin(a)
+        for j in range(ns):
+            b = 2 * pi * j / ns
+            cb, sb = cos(b), sin(b)
+            vs.append(((R + tube * cb) * ca, (R + tube * cb) * sa, tube * sb))
+    fs = []
+    for i in range(ms):
+        i2 = (i + 1) % ms
+        for j in range(ns):
+            j2 = (j + 1) % ns
+            fs.append((i * ns + j, i2 * ns + j, i2 * ns + j2, i * ns + j2))
+    ob = _new_obj(name, vs, fs, mat, True)
+    ob.location = loc
+    ob.rotation_euler = rot
     ob.scale = scale
-    if mat: ob.data.materials.append(mat)
-    smooth(ob)
     return ob
 
 def torus_gap(ob, gap_half_deg, gap_center_deg):
@@ -145,38 +194,75 @@ def torus_gap(ob, gap_half_deg, gap_center_deg):
     return ob
 
 def add_box(name, size, loc, rot=(0, 0, 0), mat=None):
-    bpy.ops.mesh.primitive_cube_add(size=1.0, location=loc, rotation=rot)
-    ob = bpy.context.active_object
-    ob.name = name
+    vs = [(-0.5, -0.5, -0.5), (0.5, -0.5, -0.5), (0.5, 0.5, -0.5), (-0.5, 0.5, -0.5),
+          (-0.5, -0.5, 0.5), (0.5, -0.5, 0.5), (0.5, 0.5, 0.5), (-0.5, 0.5, 0.5)]
+    fs = [(0, 3, 2, 1), (4, 5, 6, 7), (0, 1, 5, 4), (1, 2, 6, 5), (2, 3, 7, 6), (3, 0, 4, 7)]
+    ob = _new_obj(name, vs, fs, mat, False)
+    ob.location = loc
+    ob.rotation_euler = rot
     ob.scale = size
-    if mat: ob.data.materials.append(mat)
     return ob
 
 def add_cone(name, r, depth, loc, mat=None, verts=4, rot=(0, 0, 0)):
-    bpy.ops.mesh.primitive_cone_add(radius1=r, depth=depth, vertices=verts,
-                                    location=loc, rotation=rot)
-    ob = bpy.context.active_object
-    ob.name = name
-    if mat: ob.data.materials.append(mat)
-    smooth(ob)
+    hz = depth / 2
+    vs = []
+    for i in range(verts):
+        a = 2 * pi * i / verts
+        vs.append((r * cos(a), r * sin(a), -hz))
+    vs.append((0, 0, hz))   # 锥尖 (+z)
+    fs = []
+    for i in range(verts):
+        j = (i + 1) % verts
+        fs.append((i, j, verts))
+    fs.append(tuple(range(verts - 1, -1, -1)))   # 底盖
+    ob = _new_obj(name, vs, fs, mat, True)
+    ob.location = loc
+    ob.rotation_euler = rot
     return ob
 
 def add_sphere(name, r, loc, mat=None, seg=10, ring=6, scale=(1, 1, 1)):
-    bpy.ops.mesh.primitive_uv_sphere_add(radius=r, segments=seg, ring_count=ring,
-                                         location=loc)
-    ob = bpy.context.active_object
-    ob.name = name
+    vs = [(0, 0, r)]   # 顶极
+    for j in range(1, ring):
+        phi = pi * j / ring
+        sp, cp = sin(phi), cos(phi)
+        for i in range(seg):
+            th = 2 * pi * i / seg
+            vs.append((r * sp * cos(th), r * sp * sin(th), r * cp))
+    vs.append((0, 0, -r))   # 底极
+    top_i = 0
+    bot_i = len(vs) - 1
+    fs = []
+    for i in range(seg):
+        i2 = (i + 1) % seg
+        fs.append((top_i, 1 + i, 1 + i2))                     # 顶三角带
+    for j in range(ring - 2):
+        row0 = 1 + j * seg
+        row1 = row0 + seg
+        for i in range(seg):
+            i2 = (i + 1) % seg
+            fs.append((row0 + i, row1 + i, row1 + i2, row0 + i2))
+    last_row = 1 + (ring - 2) * seg
+    for i in range(seg):
+        i2 = (i + 1) % seg
+        fs.append((bot_i, last_row + i2, last_row + i))       # 底三角带
+    ob = _new_obj(name, vs, fs, mat, True)
+    ob.location = loc
     ob.scale = scale
-    if mat: ob.data.materials.append(mat)
-    smooth(ob)
     return ob
 
 def look_at(ob, target):
     d = Vector(target) - ob.location
     ob.rotation_euler = d.to_track_quat("-Z", "Y").to_euler()
 
+def seg_dist(px, py, ax, ay, bx, by):
+    """点到线段距离 (路径排除用)"""
+    abx, aby = bx - ax, by - ay
+    L2 = abx * abx + aby * aby
+    t = 0.0 if L2 < 1e-9 else max(0.0, min(1.0, ((px - ax) * abx + (py - ay) * aby) / L2))
+    return hypot(px - (ax + abx * t), py - (ay + aby * t))
+
 COLLIDERS = []   # (x, y, r[, h]) blender 坐标, 导出时转 app 坐标
-COLLIDER_RECTS = []  # (x, y, hw, hd) blender 坐标 — 轴对齐盒墙(可推挤), 用于贴近邻件的建筑
+COLLIDER_RECTS = []  # (x, y, hw, hd) blender 坐标 — 轴对齐盒墙(可推挤)
 POIS = []        # (x, y, label)
 
 def collider(x, y, r, h=None):
@@ -196,15 +282,18 @@ col = bpy.data.collections.new("ParkEnv")
 sc.collection.children.link(col)
 
 DOTS = [HEX["warm"], HEX["orange"], HEX["violet"], HEX["green"]]
+tmark("materials ready")
 
 m_ground  = make_mat("PE_Ground", HEX["ground"], rough=0.95)
 m_grass   = make_mat("PE_Grass", HEX["grass"], rough=0.95)
+m_grass2  = make_mat("PE_GrassTuft", HEX["grass2"], rough=1.0)
 m_path    = make_mat("PE_Path", HEX["path"], rough=0.8, metal=0.05)
 m_iron    = make_mat("PE_Iron", HEX["iron"], rough=0.55, metal=0.8)
 m_metal_d = make_mat("PE_MetalDark", HEX["metal_d"], rough=0.6, metal=0.7)
 m_stone   = make_mat("PE_Stone", HEX["stone"], rough=0.85)
 m_wood    = make_mat("PE_Wood", HEX["wood"], rough=0.85)
 m_straw   = make_mat("PE_Straw", HEX["straw"], rough=0.9)
+m_cloth   = make_mat("PE_Cloth", HEX["cloth"], rough=0.95)
 m_ridge   = make_mat("PE_Ridge", HEX["ridge"], rough=1.0)
 m_warm    = make_mat("PE_EmitWarm", HEX["warm"], emit=HEX["warm"], strength=2.6)
 m_orange  = make_mat("PE_EmitOrange", HEX["orange"], emit=HEX["orange"], strength=2.4)
@@ -212,19 +301,66 @@ m_violet  = make_mat("PE_EmitViolet", HEX["violet"], emit=HEX["violet"], strengt
 m_green   = make_mat("PE_EmitGreen", HEX["green"], emit=HEX["green"], strength=2.2)
 m_red     = make_mat("PE_EmitRed", HEX["red"], emit=HEX["red"], strength=2.2)
 m_dot     = [make_mat(f"PE_Dot{i}", c, emit=c, strength=2.6) for i, c in enumerate(DOTS)]
+m_balloon = [make_mat(f"PE_Balloon{i}", c, emit=c, strength=1.1) for i, c in enumerate(DOTS)]  # 近景不糊 bloom
 m_pump    = make_mat("PE_Pumpkin", HEX["pumpkin"], rough=0.5, emit=HEX["pumpkin"], strength=0.5)
 m_pumpface= make_mat("PE_PumpFace", HEX["pumpface"], emit=HEX["pumpface"], strength=3.0)
 m_stem    = make_mat("PE_Stem", "#3E5230", rough=0.8)
 m_trunk   = make_mat("PE_Trunk", "#2E2620", rough=0.9)
 m_sign_g  = make_mat("PE_SignGate", HEX["violet"], emit=HEX["violet"], strength=1.8)
+m_petal_v = make_mat("PE_PetalV", HEX["petv"], rough=0.6, emit=HEX["petv"], strength=0.5)
+m_petal_o = make_mat("PE_PetalO", HEX["peto"], rough=0.6, emit=HEX["peto"], strength=0.5)
+m_mush    = make_mat("PE_MushCap", HEX["mush"], rough=0.55, emit=HEX["mush"], strength=1.6)
+m_mushstem= make_mat("PE_MushStem", HEX["mushstem"], rough=0.8)
+m_water   = make_mat("PE_WellWater", HEX["water"], rough=0.25, metal=0.4,
+                     emit="#4A3A8A", strength=0.8)
 
-def at(name, ob):
-    ob.name = name
-    return ob
+# ------------------------------------------------------------ 布局锚点 ----
+PLAZA_R = P["plaza_r"]
+RING_IN = 34.0          # 内环
+RING_OUT = 90.0         # 外环
+# 放射支路: (角° blender, r_from, r_to)
+SPOKES = [
+    (78.0,   30.0, 70.0),    # 东北 -> 过山车预留区
+    (-32.3,  30.0, 95.0),    # 东南 -> 秘境预留区
+    (217.6,  30.0, 58.0),    # 西南 -> 幽灵港 (对准东缘缺口 y[-43,-37])
+    (146.8,  30.0, 67.0),    # 西北 -> 许愿池
+]
+CAR_SPUR = (21.8, 19.0, 33.0)   # 木马支路
+ZONE_COAST = (-30, 60, 70, 130)   # x0,x1,y0,y1
+ZONE_BAY   = (-88, -52, -55, -35)
+ZONE_THIRD = (78, 112, -78, -42)
+LAUNCHER = (22.0, -22.0)
+WELL = (-57.0, 38.0)
+
+def on_path(x, y, margin=0.0):
+    """是否落在路面/广场/预留区/设施禁布区 (margin 外扩)"""
+    r = hypot(x, y)
+    if r < PLAZA_R + 1.0 + margin:                      return True
+    if abs(r - RING_IN) < 2.7 + margin:                 return True
+    if abs(r - RING_OUT) < 2.8 + margin:                return True
+    if abs(x) < 2.4 + margin and -147.5 < y < -17.0:    return True   # 主路
+    for ang, r0, r1 in SPOKES:
+        a = radians(ang)
+        ax, ay = r0 * cos(a), r0 * sin(a)
+        bx, by = r1 * cos(a), r1 * sin(a)
+        if seg_dist(x, y, ax, ay, bx, by) < 1.5 + margin: return True
+    a = radians(CAR_SPUR[0])
+    if seg_dist(x, y, CAR_SPUR[1] * cos(a), CAR_SPUR[1] * sin(a),
+                CAR_SPUR[2] * cos(a), CAR_SPUR[2] * sin(a)) < 1.5 + margin: return True
+    if seg_dist(x, y, 0, -40, 34, -40) < 1.5 + margin:  return True    # 墓园横路
+    if seg_dist(x, y, -31.5, -32, -0.5, -32) < 1.5 + margin: return True  # 市集横路
+    for x0, x1, y0, y1 in (ZONE_COAST, ZONE_BAY, ZONE_THIRD):
+        if x0 - margin < x < x1 + margin and y0 - margin < y < y1 + margin: return True
+    if hypot(x - 45, y - 18) < 13.5 + margin:           return True   # 木马
+    if hypot(x - 34, y + 41) < 9.5 + margin:            return True   # 墓园草皮
+    if hypot(x - LAUNCHER[0], y - LAUNCHER[1]) < 2.4 + margin: return True
+    if hypot(x - WELL[0], y - WELL[1]) < 2.8 + margin:  return True
+    if abs(r - P["fence_r"]) < 2.2 + margin:            return True   # 围墙
+    return False
 
 # ---------------- 地面 / 广场 / 道路 ----------------
 add_cyl("PE_GroundDisc", P["park_r"], 0.2, (0, 0, -0.15), mat=m_ground, verts=64)
-add_cyl("PE_PlazaDisc", P["plaza_r"], 0.1, (0, 0, -0.02), mat=m_path, verts=64)
+add_cyl("PE_PlazaDisc", PLAZA_R, 0.1, (0, 0, -0.02), mat=m_path, verts=64)
 # 广场双发光环: 南向 ±13° 断弧 —— 摩天轮登舱台阶占据南向走廊 (r9~16.2, 半宽 2.2),
 # 全圆环会从台阶中段下方穿过/与末级台阶相交, 制造台阶悬浮错觉 (v2.3)
 add_torus("PE_PlazaRing1", 15.5, 0.14, (0, 0, 0.07), mat=m_orange, ms=96, ns=6, scale=(1, 1, 0.12))
@@ -232,58 +368,119 @@ torus_gap(bpy.data.objects["PE_PlazaRing1"], gap_half_deg=13.0, gap_center_deg=2
 add_torus("PE_PlazaRing2", 13.0, 0.10, (0, 0, 0.07), mat=m_violet, ms=96, ns=6, scale=(1, 1, 0.12))
 torus_gap(bpy.data.objects["PE_PlazaRing2"], gap_half_deg=13.0, gap_center_deg=270.0)
 
-# 主路 (南入口 -> 广场), 分 4 段
-for k, yc in enumerate((-27.5, -45.0, -62.5, -78.0)):
-    add_box(f"PE_MainPath{k}", (4.8, 18.5, 0.12), (0, yc, -0.02), mat=m_path)
-# 环路
-add_torus("PE_LoopPath", 34.0, 1.9, (0, 0, -0.04), mat=m_path, ms=96, ns=10, scale=(1, 1, 0.05))
+# 主路 (南入口 -> 广场), 7 段
+for k in range(7):
+    add_box(f"PE_MainPath{k}", (4.8, 18.5, 0.12), (0, -27.5 - k * 18.4, -0.02), mat=m_path)
+# 环路 (内 + 外)
+add_torus("PE_LoopPathIn", RING_IN, 1.9, (0, 0, -0.04), mat=m_path, ms=96, ns=10, scale=(1, 1, 0.05))
+add_torus("PE_LoopPathOut", RING_OUT, 2.0, (0, 0, -0.04), mat=m_path, ms=128, ns=10, scale=(1, 1, 0.05))
+# 放射支路
+for i, (ang, r0, r1) in enumerate(SPOKES):
+    a = radians(ang)
+    add_box(f"PE_Spoke{i}", (r1 - r0 + 4.0, 3.0, 0.12),
+            ((r0 + r1) / 2 * cos(a), (r0 + r1) / 2 * sin(a), -0.02),
+            rot=(0, 0, a), mat=m_path)
+a = radians(CAR_SPUR[0])
+add_box("PE_SpokeCarousel", (CAR_SPUR[2] - CAR_SPUR[1] + 4.0, 3.0, 0.12),
+        ((CAR_SPUR[1] + CAR_SPUR[2]) / 2 * cos(a), (CAR_SPUR[1] + CAR_SPUR[2]) / 2 * sin(a), -0.02),
+        rot=(0, 0, a), mat=m_path)
 # 支路: 墓园 (东) / 市集 (西)
 add_box("PE_PathGrave", (33.0, 3.0, 0.12), (17.0, -40.0, -0.02), mat=m_path)
 add_box("PE_PathStall", (31.0, 3.0, 0.12), (-16.0, -32.0, -0.02), mat=m_path)
 # 路缘草皮环 (广场外圈草地色带, 打破纯黑)
-add_torus("PE_GrassBand", 24.0, 3.2, (0, 0, -0.06), mat=m_grass, ms=96, ns=10, scale=(1, 1, 0.06))
-add_torus("PE_GrassBand2", 44.0, 5.0, (0, 0, -0.06), mat=m_grass, ms=96, ns=10, scale=(1, 1, 0.06))
+for i, (rr, w) in enumerate(((24.0, 3.2), (44.0, 5.0), (68.0, 6.0))):
+    add_torus(f"PE_GrassBand{i}", rr, w, (0, 0, -0.06), mat=m_grass, ms=96, ns=10, scale=(1, 1, 0.06))
 
-# ---------------- 入口大门 ----------------
-gx = 3.4
-for sx in (1, -1):
-    add_box(f"PE_GatePillar{sx}", (1.7, 1.7, 7.6), (sx * gx, -84.0, 3.8), mat=m_stone)
-    add_cone(f"PE_GateTip{sx}", 1.15, 1.3, (sx * gx, -84.0, 8.15), mat=m_metal_d, verts=4,
-             rot=(0, 0, radians(45)))
-    add_sphere(f"PE_GateLamp{sx}", 0.26, (sx * gx, -84.0, 8.95), mat=m_warm, seg=12, ring=8)
-    collider(sx * gx, -84.0, 1.2)
-add_box("PE_GateArch", (8.9, 1.1, 1.0), (0, -84.0, 7.0), mat=m_stone)
-add_box("PE_GateSign", (4.4, 0.22, 1.5), (0, -84.0, 5.6), mat=m_sign_g)
-for k in range(3):
-    add_sphere(f"PE_GateDot{k}", 0.14, (-1.3 + k * 1.3, -84.0, 6.4),
-               mat=m_dot[k % 4], seg=10, ring=6)
-POIS.append((0, -80.0, "entrance"))
+tmark("ground/paths done")
 
-# ---------------- 围墙铁艺栅栏 ----------------
-n_post = 220
+# ---------------- 入口大门 (南 r146) ----------------
+def park_gate(name, gx, gy, scale=1.0):
+    """石造牌楼: 双柱 + 尖顶 + 门楣 + 发光招牌 + 彩点 (scale=1 主门, 0.9 二道门)"""
+    s = scale
+    px = 3.4 * s
+    for sx in (1, -1):
+        add_box(f"{name}_Pillar{sx}", (1.7 * s, 1.7 * s, 7.6 * s), (gx + sx * px, gy, 3.8 * s), mat=m_stone)
+        add_cone(f"{name}_Tip{sx}", 1.15 * s, 1.3 * s, (gx + sx * px, gy, 8.15 * s), mat=m_metal_d,
+                 verts=4, rot=(0, 0, radians(45)))
+        add_sphere(f"{name}_Lamp{sx}", 0.26 * s, (gx + sx * px, gy, 8.95 * s), mat=m_warm, seg=12, ring=8)
+        collider(gx + sx * px, gy, 1.2 * s)
+    add_box(f"{name}_Arch", (8.9 * s, 1.1 * s, 1.0 * s), (gx, gy, 7.0 * s), mat=m_stone)
+    add_box(f"{name}_Sign", (4.4 * s, 0.22 * s, 1.5 * s), (gx, gy, 5.6 * s), mat=m_sign_g)
+    for k in range(3):
+        add_sphere(f"{name}_Dot{k}", 0.14 * s, (gx - 1.3 * s + k * 1.3 * s, gy, 6.4 * s),
+                   mat=m_dot[k % 4], seg=10, ring=6)
+
+park_gate("PE_Gate", 0, -146.0, 1.0)
+POIS.append((0, -142.0, "entrance"))
+
+# 二道门 (主路中途 y=-60)
+park_gate("PE_Gate2", 0, -60.0, 0.88)
+
+# ---------------- 围墙铁艺栅栏 r146 ----------------
+n_post = 380
 for k in range(n_post):
     th = k * 2 * pi / n_post
     x, y = P["fence_r"] * cos(th), P["fence_r"] * sin(th)
-    if y < -82.0 and abs(x) < 5.0:   # 大门开口
+    if y < -143.0 and abs(x) < 5.0:   # 大门开口
         continue
     add_box(f"PE_FencePost{k}", (0.15, 0.15, 2.5), (x, y, 1.25), mat=m_iron)
     add_cone(f"PE_FenceTip{k}", 0.10, 0.4, (x, y, 2.68), mat=m_iron, verts=6)
 for rz in (1.15, 1.95):
-    add_torus(f"PE_FenceRail{rz}", P["fence_r"], 0.055, (0, 0, rz), mat=m_iron, ms=160, ns=6)
+    add_torus(f"PE_FenceRail{rz}", P["fence_r"], 0.055, (0, 0, rz), mat=m_iron, ms=256, ns=6)
 
-# ---------------- 维多利亚路灯 x12 ----------------
-lamp_positions = []
-for k in range(4):
-    lamp_positions.append((4.4, -24.0 - k * 14.0))
-    lamp_positions.append((-4.4, -24.0 - k * 14.0))
-for th in (radians(45), radians(135), radians(225), radians(315)):
-    lamp_positions.append((15.0 * cos(th), 15.0 * sin(th)))
+tmark("gate/fence done")
 
-for i, (lx, ly) in enumerate(lamp_positions):
+# ---------------- 维多利亚路灯 x28 (三种款式) ----------------
+def pumpkin_face(name, x, y, z, ry, s=1.0):
+    """南瓜脸: 两眼三角 + 三段嘴 (自发光), 朝向 ry"""
+    fx = 0.34 * s
+    ca, sa = cos(ry), sin(ry)
+    def face_pos(off_x, off_z):
+        return (x + ca * fx, y + sa * fx, z + off_z * s)
+    for ex in (-0.11, 0.11):
+        px_, py_, pz_ = face_pos(ex, 0.34)
+        add_cone(f"{name}_eye{ex}", 0.095 * s, 0.14 * s, (px_, py_, pz_),
+                 mat=m_pumpface, verts=3,
+                 rot=(radians(90), 0, ry + radians(90)))
+    for mk in (-0.1, 0.0, 0.1):
+        px_, py_, pz_ = face_pos(mk, 0.12)
+        add_box(f"{name}_mouth{mk}", (0.11 * s, 0.09 * s, 0.08 * s),
+                (px_, py_, pz_), rot=(0, 0, ry), mat=m_pumpface)
+
+lamp_positions = []   # (x, y, face_ry) face_ry = 灯头朝向
+for k in range(8):                        # 主路双侧 16
+    lamp_positions.append((4.4, -24.0 - k * 14.0, pi))
+    lamp_positions.append((-4.4, -24.0 - k * 14.0, 0.0))
+for th in (radians(45), radians(135), radians(225), radians(315)):   # 广场对角 4
+    lamp_positions.append((15.0 * cos(th), 15.0 * sin(th), th + pi))
+for k in range(8):                        # 外环 8 (朝向园心)
+    th = radians(22.5 + k * 45.0)
+    lx, ly = 96.0 * cos(th), 96.0 * sin(th)
+    lamp_positions.append((lx, ly, atan2(-ly, -lx)))
+
+for i, (lx, ly, fry) in enumerate(lamp_positions):
+    variant = i % 3
     add_cyl(f"PE_LampBase{i}", 0.24, 0.5, (lx, ly, 0.25), mat=m_iron, verts=10)
     add_cyl(f"PE_LampPole{i}", 0.08, 3.3, (lx, ly, 2.0), mat=m_iron, verts=8)
-    add_sphere(f"PE_LampGlass{i}", 0.27, (lx, ly, 3.75), mat=m_warm, seg=12, ring=8)
-    add_cone(f"PE_LampCap{i}", 0.34, 0.35, (lx, ly, 4.12), mat=m_metal_d, verts=6)
+    if variant == 0:      # 经典球灯
+        add_sphere(f"PE_LampGlass{i}", 0.27, (lx, ly, 3.75), mat=m_warm, seg=12, ring=8)
+        add_cone(f"PE_LampCap{i}", 0.34, 0.35, (lx, ly, 4.12), mat=m_metal_d, verts=6)
+    elif variant == 1:    # 南瓜顶灯
+        add_sphere(f"PE_LampPump{i}", 0.30, (lx, ly, 3.72), mat=m_pump,
+                   seg=12, ring=8, scale=(1.0, 1.0, 0.72))
+        add_cyl(f"PE_LampStem{i}", 0.05, 0.14, (lx, ly, 4.02), mat=m_stem, verts=6)
+        # 脸基面取 center-0.17: 眼落在 center+0.04 (不糊顶缘)
+        pumpkin_face(f"PE_LampFace{i}", lx, ly, 3.55, fry, s=0.62)
+    else:                 # 双头提灯
+        add_box(f"PE_LampArm{i}", (0.9, 0.07, 0.07), (lx, ly, 3.6),
+                rot=(0, 0, fry + pi / 2), mat=m_iron)
+        for sx in (-1, 1):
+            hx = lx + sx * 0.4 * cos(fry + pi / 2)
+            hy = ly + sx * 0.4 * sin(fry + pi / 2)
+            add_cyl(f"PE_LampHang{i}_{sx}", 0.015, 0.22, (hx, hy, 3.45), mat=m_iron, verts=5)
+            add_box(f"PE_LampBox{i}_{sx}", (0.17, 0.17, 0.24), (hx, hy, 3.2), mat=m_warm)
+            add_cone(f"PE_LampBoxCap{i}_{sx}", 0.15, 0.12, (hx, hy, 3.4), mat=m_metal_d, verts=4)
+        add_sphere(f"PE_LampGlass{i}", 0.2, (lx, ly, 3.85), mat=m_warm, seg=10, ring=6)
     collider(lx, ly, 0.4)
 
 # ---------------- 跨路灯串 ----------------
@@ -299,130 +496,313 @@ def string_lights(name, p1, p2, sag=0.55, step=0.55):
         pt.z -= sag * 4 * t * (1 - t)
         if prev is not None:
             cyl_between(f"{name}_c{k}", prev, pt, 0.015, m_iron, verts=5)
-        if k % 1 == 0:
-            add_sphere(f"{name}_b{k}", 0.055, (pt.x, pt.y, pt.z - 0.09),
-                       mat=m_dot[k % 4], seg=8, ring=5)
+        add_sphere(f"{name}_b{k}", 0.055, (pt.x, pt.y, pt.z - 0.09),
+                   mat=m_dot[k % 4], seg=8, ring=5)
+        prev = pt
+
+def bunting(name, p1, p2, sag=0.6, step=0.5):
+    """悬链彩旗串: 三角旗循环四色."""
+    p1, p2 = Vector(p1), Vector(p2)
+    L = (p2 - p1).length
+    n = max(int(L / step), 3)
+    prev = None
+    for k in range(n + 1):
+        t = k / n
+        pt = p1.lerp(p2, t)
+        pt.z -= sag * 4 * t * (1 - t)
+        if prev is not None:
+            cyl_between(f"{name}_c{k}", prev, pt, 0.012, m_iron, verts=5)
+        if k > 0 and k < n:
+            add_cone(f"{name}_f{k}", 0.15, 0.05, (pt.x, pt.y, pt.z - 0.14),
+                     mat=m_dot[k % 4], verts=3, rot=(radians(180), 0, random.uniform(0, pi)))
         prev = pt
 
 runs = []
-# 主路灯杆之间 (双侧)
-for k in range(3):
+for k in range(7):   # 主路灯杆之间 (双侧)
     runs.append(((4.4, -24.0 - k * 14.0, 3.6), (4.4, -38.0 - k * 14.0, 3.6)))
     runs.append(((-4.4, -24.0 - k * 14.0, 3.6), (-4.4, -38.0 - k * 14.0, 3.6)))
-# 大门 -> 第一对灯杆
-runs.append(((3.4, -84.0, 7.2), (4.4, -66.0, 3.6)))
-runs.append(((-3.4, -84.0, 7.2), (-4.4, -66.0, 3.6)))
-# 路灯 -> 广场灯 (斜拉)
-runs.append(((4.4, -24.0, 3.6), (10.6, -10.6, 3.6)))
+runs.append(((3.4, -146.0, 7.2), (4.4, -122.0, 3.6)))    # 大门 -> 最近灯杆
+runs.append(((-3.4, -146.0, 7.2), (-4.4, -122.0, 3.6)))
+runs.append(((4.4, -24.0, 3.6), (10.6, -10.6, 3.6)))     # 路灯 -> 广场灯 (斜拉)
 runs.append(((-4.4, -24.0, 3.6), (-10.6, -10.6, 3.6)))
-# 广场对角
-runs.append(((10.6, -10.6, 3.6), (10.6, 10.6, 3.6)))
+runs.append(((10.6, -10.6, 3.6), (10.6, 10.6, 3.6)))     # 广场对角
 runs.append(((-10.6, -10.6, 3.6), (-10.6, 10.6, 3.6)))
-# 市集上空 / 墓园 / 旋转木马
-runs.append(((-24.0, -26.0, 3.2), (-40.0, -30.0, 3.2)))
-runs.append(((26.0, -34.0, 3.2), (40.0, -44.0, 3.2)))
-runs.append(((41.0, 14.0, 4.2), (49.0, 22.0, 4.2)))
-for i, (a, b) in enumerate(runs):
-    string_lights(f"PE_Str{i}", a, b)
+runs.append(((-24.0, -26.0, 3.2), (-40.0, -30.0, 3.2)))  # 市集上空
+runs.append(((26.0, -34.0, 3.2), (40.0, -44.0, 3.2)))    # 墓园
+runs.append(((41.0, 14.0, 4.2), (49.0, 22.0, 4.2)))      # 旋转木马
+for i, (a_, b_) in enumerate(runs):
+    string_lights(f"PE_Str{i}", a_, b_)
 
-# ---------------- 枯树 x15 (递归分枝) ----------------
-def spooky_tree(name, x, y, scale=1.0):
-    h = 2.8 * scale
+# 主路横跨彩旗 (每对灯杆之间) x8 + 外环灯间彩旗弦 x8
+bun_i = 0
+for k in range(8):
+    yy = -24.0 - k * 14.0
+    bunting(f"PE_Bun{bun_i}", (-4.4, yy, 3.6), (4.4, yy, 3.6), sag=0.7, step=0.5)
+    bun_i += 1
+ring_lamps = [(96.0 * cos(radians(22.5 + k * 45)), 96.0 * sin(radians(22.5 + k * 45)))
+              for k in range(8)]
+for k in range(8):
+    ax, ay = ring_lamps[k]
+    bx, by = ring_lamps[(k + 1) % 8]
+    bunting(f"PE_Bun{bun_i}", (ax, ay, 3.6), (bx, by, 3.6), sag=2.2, step=0.85)
+    bun_i += 1
+
+tmark("lamps/strings/bunting done")
+
+# ---------------- 气球束 x5 ----------------
+def balloon_bunch(name, x, y, z0=0.0):
+    add_box(f"{name}_w", (0.22, 0.22, 0.3), (x, y, z0 + 0.15), mat=m_wood)   # 配重木座
+    tops = []
+    for k in range(5):
+        bx = x + random.uniform(-0.45, 0.45)
+        by = y + random.uniform(-0.45, 0.45)
+        bz = z0 + random.uniform(1.9, 2.6)
+        add_sphere(f"{name}_b{k}", 0.26, (bx, by, bz), mat=m_balloon[k % 4],
+                   seg=10, ring=7, scale=(1.0, 1.0, 1.25))
+        cyl_between(f"{name}_s{k}", (x, y, z0 + 0.3), (bx, by, bz - 0.3), 0.012, m_iron, verts=4)
+        tops.append((bx, by, bz))
+    return tops
+
+for i, (bx, by) in enumerate(((5.5, -143.5), (-5.5, -143.5),
+                              (-22.5, -25.5), (-39.5, -35.0), (23.5, -20.5))):
+    balloon_bunch(f"PE_Balloon{i}", bx, by)
+    collider(bx, by, 0.45)
+
+# ---------------- 枯树 v2 x22 (螺旋/双干/垂枝, 递归分枝 + 根部外扩) ----------------
+def branch(name, base, dirv, length, radius, depth, phase=0.0, weep=False):
+    end = base + dirv * length
+    cyl_between(name, base, end, radius, m_trunk, verts=5)
+    if depth == 0:
+        return
+    n = 2 if depth <= 1 else random.randint(2, 3)
+    for k in range(n):
+        ang = phase + k * 2.1 + random.uniform(-0.4, 0.4)
+        tilt = random.uniform(0.5, 0.9)
+        nd = (dirv + Vector((cos(ang) * tilt, sin(ang) * tilt,
+                             random.uniform(-0.25, 0.7)))).normalized()
+        if weep and depth <= 1:
+            nd = (nd + Vector((0, 0, -1.0))).normalized()
+        branch(f"{name}_{k}", end, nd, length * random.uniform(0.6, 0.75),
+               radius * 0.55, depth - 1, phase + 1.7, weep)
+
+def spooky_tree(name, x, y, scale=1.0, variant=None):
+    variant = variant or random.choice(("spiral", "fork", "weep"))
+    h = 2.9 * scale
     r0 = 0.30 * scale
-    add_cyl(f"{name}_trunk", r0, h, (x, y, h / 2), mat=m_trunk, verts=7)
+    # 根部外扩
+    for rf in range(3):
+        a = random.uniform(0, 2 * pi)
+        d = Vector((cos(a) * 0.9, sin(a) * 0.9, -0.3)).normalized()
+        cyl_between(f"{name}_root{rf}", Vector((x, y, 0.4 * scale)),
+                    Vector((x, y, 0.4 * scale)) + d * (0.75 * scale),
+                    0.13 * scale, m_trunk, verts=5)
     top = Vector((x, y, h))
-    dirs = []
-    for b in range(3):
-        ang = random.uniform(0, 2 * pi)
-        tilt = random.uniform(0.6, 1.1)
-        d = Vector((cos(ang) * tilt, sin(ang) * tilt, 1.0)).normalized()
-        dirs.append(d)
-    for b, d in enumerate(dirs):
-        blen = 1.7 * scale
-        mid = top + d * (blen * 0.5)
-        end = top + d * blen
-        cyl_between(f"{name}_b{b}", top, end, 0.09 * scale, m_trunk, verts=5)
-        for s in range(2):
-            ang2 = random.uniform(0, 2 * pi)
-            d2 = (d + Vector((cos(ang2) * 0.7, sin(ang2) * 0.7, 0.9))).normalized()
-            e2 = end + d2 * (1.05 * scale)
-            cyl_between(f"{name}_b{b}s{s}", end, e2, 0.045 * scale, m_trunk, verts=5)
+    if variant == "fork":     # 双干
+        mid = Vector((x, y, h * 0.5))
+        cyl_between(f"{name}_trunk", (x, y, 0), mid, r0, m_trunk, verts=7)
+        for t in range(2):
+            a = random.uniform(0, 2 * pi)
+            d = Vector((cos(a) * 0.5, sin(a) * 0.5, 1.0)).normalized()
+            base = mid + d * (h * 0.1)
+            top2 = base + d * (h * 0.62)
+            cyl_between(f"{name}_trk{t}", base, top2, r0 * 0.75, m_trunk, verts=6)
+            branch(f"{name}_b{t}", top2, d, 1.5 * scale, 0.09 * scale, 2, random.uniform(0, pi))
+    else:
+        lean = 0.18 if variant == "spiral" else 0.05
+        a0 = random.uniform(0, 2 * pi)
+        trunk_dir = Vector((cos(a0) * lean, sin(a0) * lean, 1.0)).normalized()
+        base = Vector((x, y, 0))
+        mid = base + trunk_dir * (h * 0.55)
+        cyl_between(f"{name}_trunk", base, mid, r0, m_trunk, verts=7)
+        top = mid + trunk_dir * (h * 0.45)
+        cyl_between(f"{name}_trunk2", mid, top, r0 * 0.7, m_trunk, verts=6)
+        branch(f"{name}_b", top, trunk_dir, 1.8 * scale, 0.1 * scale, 3,
+               random.uniform(0, pi), weep=(variant == "weep"))
+    collider(x, y, 0.65)
 
-tree_spots = []
-while len(tree_spots) < 15:
-    ang = random.uniform(0, 2 * pi)
-    rr = random.uniform(26, 74)
-    x, y = rr * cos(ang), rr * sin(ang)
-    if abs(y + 40) < 8 and x > 8:      continue   # 墓园区
-    if abs(y + 30) < 7 and x < -8:     continue   # 市集区
-    if abs(x) < 7 and y < -18:         continue   # 主路
-    if any((tx - x) ** 2 + (ty - y) ** 2 < 64 for tx, ty in tree_spots):
-        continue
-    tree_spots.append((x, y))
-for i, (x, y) in enumerate(tree_spots):
-    spooky_tree(f"PE_Tree{i}", x, y, scale=random.uniform(0.85, 1.35))
-    collider(x, y, 0.6)
-
-# ---------------- 缠灯松树 x5 (广场外圈) ----------------
-for i in range(5):
-    th = i * 2 * pi / 5 + 0.4
-    x, y = 21.5 * cos(th), 21.5 * sin(th)
-    for li, (cr, cz) in enumerate(((1.7, 1.4), (1.25, 2.6), (0.8, 3.7))):
-        add_cone(f"PE_Pine{i}_{li}", cr, 1.7, (x, y, cz + 0.6), mat=m_trunk, verts=8)
-    add_cyl(f"PE_PineTrunk{i}", 0.14, 1.2, (x, y, 0.6), mat=m_trunk, verts=6)
-    for k in range(9):
-        th2 = k * 2 * pi / 9
-        dx, dy = 1.45 * cos(th2 + i), 1.45 * sin(th2 + i)
-        add_sphere(f"PE_PineDot{i}_{k}", 0.07, (x + dx, y + dy, 1.6 + (k % 3) * 0.9),
-                   mat=m_dot[k % 4], seg=8, ring=5)
+# ---------------- 缠灯松树 (高瘦/矮胖/歪脖) ----------------
+def pine_tree(name, x, y, variant="tall", lit=True):
+    s = 1.0
+    if variant == "tall":
+        layers = ((2.0, 1.6), (1.6, 2.6), (1.2, 3.6), (0.85, 4.5), (0.5, 5.3))
+    elif variant == "fat":
+        layers = ((2.6, 1.4), (2.0, 2.4), (1.3, 3.3), (0.7, 4.1))
+    else:   # crooked
+        layers = ((2.1, 1.5), (1.6, 2.5), (1.1, 3.4), (0.6, 4.2))
+    lean_a = random.uniform(0, 2 * pi)
+    lean = 0.22 if variant == "crooked" else 0.0
+    add_cyl(f"{name}_trunk", 0.15, 1.4, (x, y, 0.7), mat=m_trunk, verts=6)
+    for li, (cr, cz) in enumerate(layers):
+        ox = lean * cz * cos(lean_a)
+        oy = lean * cz * sin(lean_a)
+        add_cone(f"{name}_{li}", cr * s, 1.8, (x + ox, y + oy, cz + 0.4), mat=m_trunk, verts=8)
+    if lit:
+        for k in range(10):
+            th2 = k * 2 * pi / 10
+            li = k % len(layers)
+            cr, cz = layers[li]
+            rr_ = cr * 0.82
+            ox = lean * cz * cos(lean_a)
+            oy = lean * cz * sin(lean_a)
+            add_sphere(f"{name}_dot{k}", 0.07,
+                       (x + ox + rr_ * cos(th2), y + oy + rr_ * sin(th2), cz + 0.75),
+                       mat=m_dot[k % 4], seg=8, ring=5)
     collider(x, y, 1.0)
 
-# ---------------- 南瓜灯 ~20 ----------------
-def jack_o_lantern(name, x, y, z=0.0, ry=0.0, s=1.0):
-    body = add_sphere(f"{name}_body", 0.34 * s, (x, y, z + 0.26 * s), mat=m_pump,
-                      seg=12, ring=8, scale=(1.0, 1.0, 0.78))
-    body.rotation_euler.z = ry
-    add_cyl(f"{name}_stem", 0.05 * s, 0.16 * s, (x, y, z + 0.56 * s), mat=m_stem, verts=6)
-    # 脸 (朝向 ry): 两眼三角 + 三段嘴, 自发光, 略凸出球面
-    fx = 0.34 * s
-    ca, sa = cos(ry), sin(ry)
-    def face_pos(off_x, off_z):
-        return (x + ca * fx, y + sa * fx, z + off_z * s)
-    for ex in (-0.11, 0.11):
-        px_, py_, pz_ = face_pos(ex, 0.34)
-        add_cone(f"{name}_eye{ex}", 0.095 * s, 0.14 * s, (px_, py_, pz_),
-                 mat=m_pumpface, verts=3,
-                 rot=(radians(90), 0, ry + radians(90)))
-    for mk in (-0.1, 0.0, 0.1):
-        px_, py_, pz_ = face_pos(mk, 0.12)
-        add_box(f"{name}_mouth{mk}", (0.11 * s, 0.09 * s, 0.08 * s),
-                (px_, py_, pz_), rot=(0, 0, ry), mat=m_pumpface)
+# ---------------- 垂柳 x4 ----------------
+def willow_tree(name, x, y, scale=1.0):
+    h = 3.2 * scale
+    add_cyl(f"{name}_trunk", 0.22 * scale, h, (x, y, h / 2), mat=m_trunk, verts=7)
+    crown = Vector((x, y, h * 0.92))
+    for b in range(3):   # 顶部上翘短枝
+        a = random.uniform(0, 2 * pi)
+        d = Vector((cos(a), sin(a), 0.9)).normalized()
+        cyl_between(f"{name}_up{b}", crown, crown + d * (1.1 * scale), 0.05 * scale, m_trunk, verts=5)
+    for s_ in range(16):   # 下垂发丝枝
+        a = random.uniform(0, 2 * pi)
+        rr_ = random.uniform(0.15, 0.55) * scale
+        p = crown + Vector((cos(a) * rr_, sin(a) * rr_, 0))
+        d = Vector((cos(a) * 0.55, sin(a) * 0.55, 0.25)).normalized()
+        for seg in range(3):
+            ln = random.uniform(0.7, 1.0) * scale
+            nxt = p + d * ln
+            cyl_between(f"{name}_w{s_}_{seg}", p, nxt, 0.035 - seg * 0.008, m_trunk, verts=4)
+            d = (d + Vector((0, 0, -0.85))).normalized()
+            p = nxt
+    collider(x, y, 0.8)
 
-pump_spots = []
+# ---------------- 南瓜灯 x39 (高/扁体形) ----------------
+def jack_o_lantern(name, x, y, z=0.0, ry=0.0, s=1.0, shape=None):
+    shape = shape or random.choice(("round", "round", "tall", "flat"))
+    sz = {"round": 0.78, "tall": 1.0, "flat": 0.6}[shape]
+    # 球心 z = 半纵轴 0.34*s*sz -> 底面恰好贴地; 蒂在顶面 0.68*sz 处
+    body = add_sphere(f"{name}_body", 0.34 * s, (x, y, z + 0.34 * s * sz),
+                      mat=m_pump, seg=12, ring=8, scale=(1.0, 1.0, sz))
+    body.rotation_euler.z = ry
+    add_cyl(f"{name}_stem", 0.05 * s, 0.16 * s, (x, y, z + (0.68 * sz + 0.04) * s),
+            mat=m_stem, verts=6)
+    pumpkin_face(f"{name}_face", x, y, z + max(0.05, 0.34 * sz - 0.24) * s, ry, s=s * 0.9)
+
 pump_plan = [
-    (2.9, -21.0, 0.0), (-3.1, -23.5, 0.0), (3.0, -35.0, 0.0), (-2.9, -37.5, 0.0),
-    (2.8, -49.0, 0.0), (-3.2, -51.5, 0.0), (2.9, -63.0, 0.0), (-3.0, -65.5, 0.0),
-    (1.2, -81.5, 0.0), (-1.4, -81.5, 0.0),
-    (12.0, -12.0, 0.0), (-12.0, -12.0, 0.0), (13.5, 8.0, 0.0), (-13.0, 6.0, 0.0),
-    (30.5, -36.5, 0.0), (24.0, -43.0, 0.0),
-    (-22.0, -28.5, 0.0), (-29.0, -33.0, 0.0),
-    (16.5, 13.0, 0.0), (-16.0, 14.0, 0.0),
+    # 主路纵列
+    (2.9, -21.0), (-3.1, -23.5), (3.0, -35.0), (-2.9, -37.5),
+    (2.8, -49.0), (-3.2, -51.5), (2.9, -63.0), (-3.0, -65.5),
+    (1.2, -81.5), (-1.4, -81.5),
+    (2.9, -93.0), (-3.1, -95.5), (2.9, -107.0), (-3.2, -109.5),
+    (2.8, -121.0), (-3.2, -123.5), (2.9, -135.0), (-3.0, -137.5),
+    # 广场两翼
+    (12.0, -12.0), (-12.0, -12.0), (13.5, 8.0), (-13.0, 6.0),
+    (16.5, 13.0), (-16.0, 14.0),
+    # 墓园/市集
+    (30.5, -36.5), (24.0, -43.0), (-22.0, -28.5), (-29.0, -33.0),
+    # 新分区入口
+    (13.5, 68.5), (18.5, 67.0),           # 过山车
+    (-50.0, -38.5), (-54.5, -41.5),       # 幽灵港
+    (79.0, -52.5), (81.5, -56.0),         # 秘境
+    (18.8, -18.4), (24.5, -24.5),         # 烟花释放器
+    (-55.2, 35.2),                        # 许愿池
+    # 外环
+    (91.6, 16.2), (-16.2, 91.6), (-91.6, -16.2), (16.2, -91.6),
 ]
-for i, (x, y, _) in enumerate(pump_plan):
-    ry = random.uniform(0, 2 * pi)
-    jack_o_lantern(f"PE_Pump{i}", x, y, 0.0, ry=ry, s=random.uniform(0.9, 1.25))
+pump_spots = []
+for i, (x, y) in enumerate(pump_plan):
+    jack_o_lantern(f"PE_Pump{i}", x, y, 0.0, ry=random.uniform(0, 2 * pi),
+                   s=random.uniform(0.9, 1.25))
     pump_spots.append((x, y))
     collider(x, y, 0.55)
-# 打卡点: 5 个南瓜簇 (app 坐标在导出时换算)
+
+# 打卡点: 10 个南瓜簇 (app 坐标在导出时换算)
 POIS.extend([
-    (pump_plan[2][0], pump_plan[2][1], "pumpkin_path_s"),
-    (pump_plan[10][0], pump_plan[10][1], "pumpkin_plaza_e"),
-    (pump_plan[11][0], pump_plan[11][1], "pumpkin_plaza_w"),
-    (pump_plan[14][0], pump_plan[14][1], "pumpkin_grave"),
-    (pump_plan[16][0], pump_plan[16][1], "pumpkin_stall"),
+    (3.0, -35.0, "pumpkin_path_s"),
+    (12.0, -12.0, "pumpkin_plaza_e"),
+    (-12.0, -12.0, "pumpkin_plaza_w"),
+    (30.5, -36.5, "pumpkin_grave"),
+    (-22.0, -28.5, "pumpkin_stall"),
+    (13.5, 68.5, "pumpkin_coast"),
+    (-50.0, -38.5, "pumpkin_bay"),
+    (79.0, -52.5, "pumpkin_east"),
+    (-55.2, 35.2, "pumpkin_well"),
+    (16.2, -91.6, "pumpkin_field"),
 ])
 
-# ---------------- 墓园角落 (东) ----------------
+# ---------------- 草丛 ~600 ----------------
+tufts = []
+tries = 0
+while len(tufts) < 600 and tries < 4000:
+    tries += 1
+    ang = random.uniform(0, 2 * pi)
+    rr = 138.0 * random.random() ** 0.72   # 靠外略密
+    x, y = rr * cos(ang), rr * sin(ang)
+    if on_path(x, y, 1.6):
+        continue
+    ok = True
+    for px_, py_ in pump_spots:
+        if (px_ - x) ** 2 + (py_ - y) ** 2 < 2.2 ** 2:
+            ok = False
+            break
+    if not ok:
+        continue
+    tufts.append((x, y))
+for i, (x, y) in enumerate(tufts):
+    n_b = random.randint(3, 5)
+    for b in range(n_b):
+        a = random.uniform(0, 2 * pi)
+        tilt = random.uniform(0.25, 0.55)
+        d = Vector((cos(a) * tilt, sin(a) * tilt, 1.0)).normalized()
+        blen = random.uniform(0.3, 0.55)
+        base = Vector((x, y, 0))
+        cyl_between(f"PE_Tuft{i}_{b}", base, base + d * blen, 0.028, m_grass2, verts=3)
+
+# ---------------- 发光蘑菇圈 x8 ----------------
+mush_circles = [(30, -38), (38, -44), (60, 45), (-15, -70), (-75, 10),
+                (30, -80), (75, -20), (-40, 80)]
+for ci, (cx, cy) in enumerate(mush_circles):
+    n_m = random.randint(5, 8)
+    ring_r = random.uniform(0.8, 1.3)
+    for k in range(n_m):
+        a = k * 2 * pi / n_m + random.uniform(-0.2, 0.2)
+        mx = cx + ring_r * cos(a) + random.uniform(-0.15, 0.15)
+        my = cy + ring_r * sin(a) + random.uniform(-0.15, 0.15)
+        ms_ = random.uniform(0.7, 1.3)
+        add_cyl(f"PE_Mush{ci}_{k}_st", 0.05 * ms_, 0.26 * ms_, (mx, my, 0.13 * ms_),
+                mat=m_mushstem, verts=6)
+        add_sphere(f"PE_Mush{ci}_{k}_cap", 0.17 * ms_, (mx, my, 0.3 * ms_),
+                   mat=m_mush, seg=10, ring=6, scale=(1.0, 1.0, 0.6))
+    collider(cx, cy, ring_r + 0.5)
+
+# ---------------- 路缘花带 (紫郁金香 + 橙万寿菊) ----------------
+def flower(name, x, y, violet=True, s=1.0):
+    add_cyl(f"{name}_st", 0.02, 0.34 * s, (x, y, 0.17 * s), mat=m_stem, verts=4)
+    add_sphere(f"{name}_hd", 0.095 * s, (x, y, 0.36 * s),
+               mat=(m_petal_v if violet else m_petal_o), seg=8, ring=5,
+               scale=(1.0, 1.0, 0.6))
+    add_sphere(f"{name}_ct", 0.045 * s, (x, y, 0.44 * s), mat=m_dot[0], seg=6, ring=4)
+
+flower_spots = []
+row = 0
+for yy in [(-30.0 - k * 5.5) for k in range(21)]:
+    for sx in (1, -1):
+        cx = sx * 3.5 + random.uniform(-0.25, 0.25)
+        cy = yy + random.uniform(-0.5, 0.5)
+        violet = (row + (sx > 0)) % 2 == 0
+        for f in range(4):
+            fx = cx + random.uniform(-0.4, 0.4)
+            fy = cy + random.uniform(-0.4, 0.4)
+            flower(f"PE_Flower{row}_{sx}_{f}", fx, fy, violet,
+                   s=random.uniform(0.8, 1.2))
+        flower_spots.append((cx, cy))
+    row += 1
+# 广场外圈花床 x6
+for k, th in enumerate((radians(10), radians(70), radians(130),
+                        radians(190), radians(310), radians(350))):
+    cx, cy = 20.8 * cos(th), 20.8 * sin(th)
+    for f in range(5):
+        fx = cx + random.uniform(-0.5, 0.5)
+        fy = cy + random.uniform(-0.5, 0.5)
+        flower(f"PE_FlowerPlaza{k}_{f}", fx, fy, f % 2 == 0, s=random.uniform(0.9, 1.25))
+    flower_spots.append((cx, cy))
+
+# ---------------- 墓园角落 (东) + 彼岸花 x4 ----------------
 gx0, gy0 = 34.0, -41.0
 add_cyl("PE_GravePatch", 8.5, 0.08, (gx0, gy0, -0.03), mat=m_grass, verts=32)
 stone_off = [(-3.2, 1.8, 6, 0.0), (-1.6, -2.2, -7, 8.0), (0.2, 2.6, 4, -6.0),
@@ -435,29 +815,39 @@ for i, (ox, oy, tilt, rotz) in enumerate(stone_off):
     add_cyl(f"PE_GraveCap{i}", 0.36, 0.2, (x, y, 1.05), rot=(radians(90), 0, radians(rotz)),
             mat=m_stone, verts=12)
     collider(x, y, 0.75)
-# 十字架 x2
 for i, (ox, oy) in enumerate(((-2.6, 3.4), (3.2, -3.4))):
     x, y = gx0 + ox, gy0 + oy
     add_box(f"PE_CrossV{i}", (0.16, 0.14, 1.5), (x, y, 0.75), mat=m_wood)
     add_box(f"PE_CrossH{i}", (0.7, 0.14, 0.16), (x, y, 1.05), mat=m_wood)
     collider(x, y, 0.5)
-# 墓园矮栅栏 (背面弧)
 for k in range(10):
     th = radians(-80 + k * 16)
     fx, fy = gx0 + 8.2 * cos(th), gy0 + 8.2 * sin(th) - 2.0
     add_box(f"PE_GFence{k}", (0.12, 0.12, 1.1), (fx, fy, 0.55), mat=m_iron)
 add_cyl("PE_GraveLantern", 0.16, 0.5, (gx0, gy0 + 4.6, 0.35), mat=m_iron, verts=8)
 add_sphere("PE_GraveFlame", 0.12, (gx0, gy0 + 4.6, 0.72), mat=m_violet, seg=10, ring=6)
-spooky_tree("PE_GraveTree", gx0 + 5.4, gy0 + 3.2, scale=1.2)
+spooky_tree("PE_GraveTree", gx0 + 5.4, gy0 + 3.2, scale=1.2, variant="weep")
 collider(gx0 + 5.4, gy0 + 3.2, 0.7)
 
-# ---------------- 市集亭 x3 (西) ----------------
+# 彼岸花丛 x4 (墓园, 暗红发光)
+for ci, (cx, cy) in enumerate(((31.0, -43.0), (36.0, -38.0), (33.0, -46.0), (38.0, -42.0))):
+    for f in range(7):
+        fx = cx + random.uniform(-0.7, 0.7)
+        fy = cy + random.uniform(-0.7, 0.7)
+        add_cyl(f"PE_Higan{ci}_{f}_st", 0.015, 0.42, (fx, fy, 0.21), mat=m_stem, verts=4)
+        add_sphere(f"PE_Higan{ci}_{f}_hd", 0.05, (fx, fy, 0.46), mat=m_red, seg=6, ring=4)
+        for st in range(4):   # 向上花蕊
+            a = f + st * pi / 2
+            add_cyl(f"PE_Higan{ci}_{f}_sp{st}", 0.008, 0.16,
+                    (fx + 0.02 * cos(a), fy + 0.02 * sin(a), 0.54), mat=m_red, verts=3)
+    collider(cx, cy, 1.0)
+
+# ---------------- 市集亭 x3 (西) + 新摊车 x2 ----------------
 stall_defs = [(-25.0, -27.5, HEX["orange"], "treats"),
               (-31.5, -30.5, HEX["green"], "candy"),
               (-38.0, -33.5, HEX["red"], "brew")]
 for i, (sx, sy, c, _label) in enumerate(stall_defs):
     add_box(f"PE_StallBody{i}", (2.7, 2.0, 2.3), (sx, sy, 1.15), mat=m_wood)
-    # 条纹雨棚 (斜面 + 交替色条): 暖白与亭色相间
     sign_mats = {HEX["orange"]: m_orange, HEX["green"]: m_green, HEX["red"]: m_red}
     aw_z = 2.75
     for st in range(7):
@@ -471,70 +861,410 @@ for i, (sx, sy, c, _label) in enumerate(stall_defs):
             mat=(m_orange if c == HEX["orange"] else m_green if c == HEX["green"] else m_red))
     add_cyl(f"PE_StallPost{i}L", 0.05, 1.5, (sx - 1.25, sy - 1.15, 2.05), mat=m_iron, verts=6)
     add_cyl(f"PE_StallPost{i}R", 0.05, 1.5, (sx + 1.25, sy - 1.15, 2.05), mat=m_iron, verts=6)
-    # 亭体用精确盒墙而非罩圆: r2.0 罩圆会把亭旁木桶(top 0.955 可站)上空整体封死
     collider_rect(sx, sy, 1.35, 1.0)
-    # 亭边木桶 + 干草
-    add_cyl(f"PE_Barrel{i}", 0.42, 0.95, (sx + 2.0, sy + 0.6, 0.48), mat=m_wood, verts=12)
-    collider(sx + 2.0, sy + 0.6, 0.6, h=0.955)  # 桶顶可站 (0.48+0.95/2)
 
-# 干草堆 x3 (南瓜坐上面)
+def barrel(name, x, y, z=0.0):
+    """木桶 v2: 桶身 + 上下铁箍 + 板缝棱"""
+    add_cyl(f"{name}_body", 0.42, 0.95, (x, y, z + 0.48), mat=m_wood, verts=12)
+    for hz in (z + 0.2, z + 0.76):
+        add_torus(f"{name}_hoop{hz:.2f}", 0.43, 0.03, (x, y, hz), mat=m_iron, ms=24, ns=5)
+    for k in range(8):
+        a = k * pi / 4
+        cyl_between(f"{name}_stave{k}", (x + 0.42 * cos(a) * 0.99, y + 0.42 * sin(a) * 0.99, z + 0.02),
+                    (x + 0.42 * cos(a) * 0.99, y + 0.42 * sin(a) * 0.99, z + 0.94),
+                    0.02, m_metal_d, verts=3)
+    collider(x, y, 0.6, h=z + 0.955)
+
+for i, (sx, sy, _c, _l) in enumerate(stall_defs):
+    barrel(f"PE_Barrel{i}", sx + 2.0, sy + 0.6)
+
+# 爆米花车 (车轮 + 玻璃罩 + 条纹棚)
+px_, py_ = -19.5, -28.8
+add_box("PE_CartPop_body", (1.9, 1.1, 0.9), (px_, py_, 0.75), mat=m_wood)
+add_box("PE_CartPop_counter", (1.9, 0.24, 0.08), (px_, py_ - 0.55, 1.24), mat=m_wood)
+for wx_i, wx in enumerate((-0.7, 0.7)):
+    add_cyl(f"PE_CartPop_wheel{wx_i}", 0.32, 0.1, (px_ + wx, py_ + 0.62, 0.32),
+            rot=(radians(90), 0, 0), mat=m_iron, verts=10)
+    add_cyl(f"PE_CartPop_hub{wx_i}", 0.08, 0.14, (px_ + wx, py_ + 0.62, 0.32),
+            rot=(radians(90), 0, 0), mat=m_metal_d, verts=6)
+for st in range(5):   # 迷你条纹棚
+    add_box(f"PE_CartPop_awn{st}", (0.34, 1.3, 0.05), (px_ - 0.68 + st * 0.34, py_ + 0.1, 2.0),
+            rot=(radians(-10), 0, 0), mat=(m_warm if st % 2 == 0 else m_red))
+add_cyl("PE_CartPop_postL", 0.04, 1.1, (px_ - 0.85, py_ + 0.6, 1.5), mat=m_iron, verts=5)
+add_cyl("PE_CartPop_postR", 0.04, 1.1, (px_ + 0.85, py_ + 0.6, 1.5), mat=m_iron, verts=5)
+add_sphere("PE_CartPop_glass", 0.42, (px_, py_ - 0.1, 1.62), mat=m_mushstem,
+           seg=10, ring=6, scale=(1.0, 0.7, 0.75))
+for pk in range(6):   # 爆米花堆
+    add_sphere(f"PE_CartPop_puff{pk}", 0.09,
+               (px_ + random.uniform(-0.35, 0.35), py_ - 0.1 + random.uniform(-0.15, 0.15), 1.42),
+               mat=m_warm, seg=6, ring=4)
+collider_rect(px_, py_, 1.05, 0.85)
+collider(px_ + 0.7, py_ + 0.62, 0.45, h=0.64)   # 车轮旁可跨? 轮子不可站, 仅阻挡
+
+# 苹果糖摊 (斜面顶棚 + 糖苹果架 + 底桶)
+ax_, ay_ = -35.2, -27.8
+add_box("PE_CartApple_body", (1.6, 1.0, 0.85), (ax_, ay_, 0.72), mat=m_wood)
+add_box("PE_CartApple_roof", (1.9, 1.2, 0.07), (ax_, ay_ + 0.08, 1.9),
+        rot=(radians(12), 0, 0), mat=m_red)
+add_cyl("PE_CartApple_postL", 0.04, 1.3, (ax_ - 0.7, ay_ + 0.45, 1.35), mat=m_iron, verts=5)
+add_cyl("PE_CartApple_postR", 0.04, 1.3, (ax_ + 0.7, ay_ + 0.45, 1.35), mat=m_iron, verts=5)
+for ap in range(6):   # 糖苹果: 竹签 + 红糖壳
+    apx = ax_ - 0.5 + (ap % 3) * 0.5
+    apy = ay_ - 0.28 + (ap // 3) * 0.36
+    add_cyl(f"PE_CartApple_stick{ap}", 0.015, 0.22, (apx, apy, 1.36), mat=m_wood, verts=4)
+    add_sphere(f"PE_CartApple_ball{ap}", 0.11, (apx, apy, 1.5), mat=m_red, seg=8, ring=5)
+barrel("PE_CartApple_barrel", ax_ + 1.15, ay_ + 0.5)
+collider_rect(ax_, ay_, 0.9, 0.75)
+
+# ---------------- 干草堆 x3 ----------------
 for i, (hx, hy) in enumerate(((26.0, -36.0), (12.5, -11.2), (-11.8, -11.5))):
     add_box(f"PE_Hay{i}", (1.35, 1.0, 0.75), (hx, hy, 0.37), rot=(0, 0, random.uniform(0, 1.5)),
             mat=m_straw)
-    collider(hx, hy, 1.0, h=0.745)  # 垛顶可站 (0.37+0.75/2)
+    for st in range(4):   # 草束层次
+        a = st * pi / 2 + 0.4
+        add_box(f"PE_HaySt{i}", (0.5, 0.3, 0.2),
+                (hx + 0.45 * cos(a), hy + 0.35 * sin(a), 0.62),
+                rot=(0, radians(18), a), mat=m_straw)
+    collider(hx, hy, 1.0, h=0.745)
 
-# 长椅 x6 (主路+广场)
+# ---------------- 长椅 x12 (四种款式) ----------------
+def bench(name, bx, by, rotz_deg, variant=None):
+    variant = variant or random.choice(("iron", "slat", "pumpkin", "plain"))
+    rz = radians(rotz_deg)
+    sinr, cosr = sin(rz), cos(rz)
+    def local(ox, oy):
+        return (bx + ox * cosr - oy * sinr, by + ox * sinr + oy * cosr)
+    if variant == "iron":      # 铁艺卷草纹: 铁架 + 木条座面
+        for lx in (-0.75, 0.75):
+            lx_, ly_ = local(lx, 0)
+            add_cyl(f"{name}_leg{lx}", 0.05, 0.6, (lx_, ly_, 0.3), rot=(0, 0, rz), mat=m_iron, verts=6)
+            add_torus(f"{name}_scroll{lx}", 0.13, 0.028, (lx_, ly_, 0.62),
+                      rot=(radians(90), 0, rz), mat=m_iron, ms=16, ns=5)   # 扶手涡卷
+        for sl in range(3):
+            lx_, ly_ = local(0, -0.15 + sl * 0.15)
+            add_box(f"{name}_seat{sl}", (1.7, 0.13, 0.05), (lx_, ly_, 0.63), rot=(0, 0, rz), mat=m_wood)
+        for bl in range(3):
+            lx_, ly_ = local(0, 0.28 - bl * 0.0)
+            add_box(f"{name}_back{bl}", (1.7, 0.05, 0.11), (lx_, ly_, 0.78 + bl * 0.17),
+                    rot=(radians(-8), 0, rz), mat=m_iron)
+    elif variant == "slat":    # 木条椅: 分条座面 + 分条靠背
+        for sl in range(5):
+            lx_, ly_ = local(0, -0.18 + sl * 0.09)
+            add_box(f"{name}_seat{sl}", (1.7, 0.07, 0.045), (lx_, ly_, 0.62), rot=(0, 0, rz), mat=m_wood)
+        for bl in range(3):
+            lx_, ly_ = local(0, 0.3)
+            add_box(f"{name}_back{bl}", (1.7, 0.06, 0.12), (lx_, ly_, 0.82 + bl * 0.18),
+                    rot=(radians(-10), 0, rz), mat=m_wood)
+        for lx in (-0.7, 0.7):
+            lx_, ly_ = local(lx, 0.05)
+            add_box(f"{name}_frame{lx}", (0.07, 0.55, 0.6), (lx_, ly_, 0.31), rot=(0, 0, rz), mat=m_wood)
+    elif variant == "pumpkin":  # 南瓜靠背椅: 圆靠背 + 藤蔓腿
+        for lx in (-0.55, 0.55):
+            for ly in (-0.15, 0.15):
+                lx_, ly_ = local(lx, ly)
+                add_torus(f"{name}_vine{lx}{ly}", 0.09, 0.03, (lx_, ly_, 0.3),
+                          rot=(radians(90), 0, rz + (1 if lx > 0 else -1) * 0.3),
+                          mat=m_stem, ms=10, ns=5)
+        for sl in range(3):
+            lx_, ly_ = local(0, -0.15 + sl * 0.15)
+            add_box(f"{name}_seat{sl}", (1.5, 0.13, 0.05), (lx_, ly_, 0.62), rot=(0, 0, rz), mat=m_wood)
+        lx_, ly_ = local(0, 0.3)
+        back_ob = add_sphere(f"{name}_back", 0.42, (lx_, ly_, 1.0), mat=m_pump,
+                             seg=12, ring=8, scale=(2.6, 0.35, 1.5))
+        back_ob.rotation_euler.z = rz   # 靠背宽轴随座椅朝向
+        add_cyl(f"{name}_stem", 0.04, 0.14, (lx_, ly_, 1.62), rot=(0, 0, rz), mat=m_stem, verts=5)
+    else:                       # 简约款 (原版)
+        sx0, sy0 = local(0, 0)
+        add_box(f"{name}_seat", (1.7, 0.45, 0.09), (sx0, sy0, 0.62), rot=(0, 0, rz), mat=m_wood)
+        bx2, by2 = local(0, -0.22)   # 背板沿 -local-y 后移 (与 v2 原版一致)
+        add_box(f"{name}_back", (1.7, 0.08, 0.5), (bx2, by2, 0.92), rot=(0, 0, rz), mat=m_wood)
+        for lx in (-0.7, 0.7):
+            lx_, ly_ = local(lx, 0)
+            add_box(f"{name}_leg{lx}", (0.08, 0.4, 0.58), (lx_, ly_, 0.29), rot=(0, 0, rz), mat=m_iron)
+    collider(bx, by, 0.9, h=0.665)
+
 bench_spots = [(5.6, -31.0, 90), (-5.6, -45.0, 90), (5.6, -59.0, 90),
-               (9.5, -9.5, 45), (-9.5, 9.5, 225), (13.0, 0.0, -90)]
+               (9.5, -9.5, 45), (-9.5, 9.5, 225), (13.0, 0.0, -90),
+               (4.6, -72.0, 90), (-4.6, -102.0, 90), (4.6, -128.0, 90),
+               (60.0, 60.0, 135), (-67.2, 67.2, 225), (39.5, -45.5, 120)]
 for i, (bx, by, rotz) in enumerate(bench_spots):
-    rz = radians(rotz)
-    add_box(f"PE_BenchSeat{i}", (1.7, 0.45, 0.09), (bx, by, 0.62), rot=(0, 0, rz), mat=m_wood)
-    add_box(f"PE_BenchBack{i}", (1.7, 0.08, 0.5), (bx + 0.22 * sin(rz), by - 0.22 * cos(rz), 0.92),
-            rot=(0, 0, rz), mat=m_wood)
-    for lx in (-0.7, 0.7):
-        lx_ = bx + lx * cos(rz)
-        ly_ = by + lx * sin(rz)
-        add_box(f"PE_BenchLeg{i}_{lx}", (0.08, 0.4, 0.58), (lx_, ly_, 0.29),
-                rot=(0, 0, rz), mat=m_iron)
-    collider(bx, by, 0.9, h=0.665)  # 座面可站 (0.62+0.09/2)
+    bench(f"PE_Bench{i}", bx, by, rotz)
 
-# ---------------- 旋转木马 (东北) ----------------
-# 真实资产 = model/carousel/carousel.glb, app 侧由 main.js 摆到 (45, 0, -18)。
-# 本文件不再生成占位几何 (2026-11-17 起以 glb 替代; park_env.blend 中 PE_Car* 已删除重导出)。
-# 碰撞约定: 平台/中柱/台阶圆在 colliders.json 手工维护 (勿重跑本文件, 随机件会漂移);
-#           骑乘位/铜杆为旋转件, 由 src/rides/carousel.js 每帧动态驱动碰撞圆。
-mx, my = 45.0, 18.0
-POIS.append((mx, my, "carousel"))
+# ---------------- 烟花释放器 (22,-22) ----------------
+lx_, ly_ = LAUNCHER
+add_box("PE_Launcher_skid", (2.2, 1.3, 0.18), (lx_, ly_, 0.09), mat=m_wood)
+for k, (tx, ty, tilt_y) in enumerate(((-0.55, 0.1, -12), (0.0, -0.08, -12), (0.55, 0.1, -12))):
+    add_cyl(f"PE_Launcher_tube{k}", 0.17, 0.75, (lx_ + tx, ly_ + ty, 0.55),
+            rot=(radians(tilt_y), 0, 0), mat=m_metal_d, verts=12)
+    add_torus(f"PE_Launcher_muzzle{k}", 0.17, 0.03, (lx_ + tx, ly_ + ty + 0.16, 0.9),
+              rot=(radians(tilt_y * 0.4), 0, 0), mat=m_iron, ms=16, ns=5)
+    add_sphere(f"PE_Launcher_fuse{k}", 0.05, (lx_ + tx, ly_ + ty + 0.16, 0.95),
+               mat=m_warm, seg=6, ring=5)
+add_box("PE_Launcher_crate", (0.55, 0.5, 0.5), (lx_ + 1.35, ly_ - 0.45, 0.25), mat=m_wood)
+add_box("PE_Launcher_crate2", (0.45, 0.45, 0.4), (lx_ + 1.3, ly_ - 0.4, 0.7),
+        rot=(0, 0, radians(18)), mat=m_wood)
+jack_o_lantern("PE_Launcher_pump", lx_ - 1.25, ly_ - 0.5, 0.0, ry=radians(200), s=0.85)
+add_sphere("PE_Launcher_sign", 0.12, (lx_ + 1.35, ly_ - 0.45, 1.05), mat=m_orange, seg=8, ring=5)
+collider_rect(lx_, ly_, 1.15, 0.7)
+collider(lx_ + 1.35, ly_ - 0.45, 0.45, h=0.5)
+POIS.append((lx_, ly_, "launcher"))
 
-# ---------------- 过山车剪影 (远东北, 占位) ----------------
-cpts = []
-for k in range(47):
-    t = k / 46
-    cx_ = 42.0 + t * 42.0
-    cy_ = 32.0 + t * 24.0
-    cz_ = 2.4 + 3.2 * sin(t * 9.0) + t * 2.5
-    cpts.append(Vector((cx_, cy_, cz_)))
-for k in range(46):
-    cyl_between(f"PE_Coast{k}", cpts[k], cpts[k + 1], 0.15, m_metal_d, verts=5)
-for k in range(0, 46, 4):
-    p = cpts[k]
-    add_cyl(f"PE_CoastSup{k}", 0.1, p.z - 0.1, (p.x, p.y, (p.z - 0.1) / 2), mat=m_iron, verts=6)
-    if k % 12 == 0:
-        collider(p.x, p.y, 1.4)
-for k in range(6, 46, 10):
-    add_sphere(f"PE_CoastDot{k}", 0.12, (cpts[k].x, cpts[k].y, cpts[k].z + 0.25),
-               mat=m_dot[2], seg=8, ring=5)
+# ---------------- 许愿池 (西北外环节点) ----------------
+wx, wy = WELL
+add_cyl("PE_Well_base", 1.6, 0.35, (wx, wy, 0.18), mat=m_stone, verts=16)
+add_cyl("PE_Well_wall", 1.35, 0.75, (wx, wy, 0.6), mat=m_stone, verts=16)
+add_torus("PE_Well_rim", 1.38, 0.12, (wx, wy, 0.98), mat=m_stone, ms=32, ns=6)
+add_cyl("PE_Well_water", 1.2, 0.06, (wx, wy, 0.82), mat=m_water, verts=16)
+for sx in (-1, 1):
+    add_cyl(f"PE_Well_post{sx}", 0.09, 1.9, (wx + sx * 1.15, wy, 1.7), mat=m_wood, verts=6)
+add_box("PE_Well_roofL", (1.7, 1.5, 0.08), (wx - 0.55, wy, 2.75), rot=(0, radians(24), 0), mat=m_wood)
+add_box("PE_Well_roofR", (1.7, 1.5, 0.08), (wx + 0.55, wy, 2.75), rot=(0, radians(-24), 0), mat=m_wood)
+add_cyl("PE_Well_rope", 0.02, 0.9, (wx, wy, 2.05), mat=m_straw, verts=4)
+add_cyl("PE_Well_bucket", 0.18, 0.26, (wx, wy, 1.5), mat=m_wood, verts=10)
+add_torus("PE_Well_bucketHoop", 0.18, 0.02, (wx, wy, 1.42), mat=m_iron, ms=16, ns=4)
+add_sphere("PE_Well_wisp", 0.09, (wx, wy + 0.3, 1.15), mat=m_violet, seg=8, ring=5)
+collider(wx, wy, 1.7, h=1.06)   # 池沿可站
 
-# ---------------- 远景: 山脊 + 城市灯火 ----------------
+# ---------------- 石像鬼 x2 ----------------
+def gargoyle(name, x, y, ry=0.0):
+    add_box(f"{name}_ped", (1.1, 1.1, 0.5), (x, y, 0.25), mat=m_stone)
+    add_cyl(f"{name}_pedtop", 0.5, 0.22, (x, y, 0.6), mat=m_stone, verts=8)
+    add_sphere(f"{name}_body", 0.44, (x, y, 1.0), mat=m_stone, seg=12, ring=8,
+               scale=(1.15, 0.9, 0.85))
+    add_sphere(f"{name}_head", 0.26, (x + cos(ry) * 0.3, y + sin(ry) * 0.3, 1.42),
+               mat=m_stone, seg=10, ring=7)
+    hx = x + cos(ry) * 0.52
+    hy = y + sin(ry) * 0.52
+    add_box(f"{name}_snout", (0.2, 0.16, 0.14), (hx, hy, 1.38), rot=(0, 0, ry), mat=m_stone)
+    for hs in (-1, 1):
+        px_ = x + cos(ry) * 0.2 - sin(ry) * hs * 0.16
+        py_ = y + sin(ry) * 0.2 + cos(ry) * hs * 0.16
+        add_cone(f"{name}_horn{hs}", 0.05, 0.24, (px_, py_, 1.62),
+                 mat=m_stone, verts=5, rot=(radians(-15), 0, ry))
+    for ws in (-1, 1):   # 折角翼
+        wx_ = x - sin(ry) * ws * 0.5
+        wy_ = y + cos(ry) * ws * 0.5
+        add_cone(f"{name}_wing{ws}", 0.34, 0.06, (wx_, wy_, 1.25),
+                 mat=m_stone, verts=3,
+                 rot=(radians(55), 0, ry + ws * radians(140)))
+    for es in (-1, 1):
+        px_ = x + cos(ry) * 0.42 - sin(ry) * es * 0.09
+        py_ = y + sin(ry) * 0.42 + cos(ry) * es * 0.09
+        add_sphere(f"{name}_eye{es}", 0.035, (px_, py_, 1.46), mat=m_violet, seg=6, ring=4)
+    collider(x, y, 1.0)
+
+gargoyle("PE_Gargoyle0", 15.0, -20.0, ry=radians(135))
+gargoyle("PE_Gargoyle1", -15.0, -20.0, ry=radians(45))
+
+# ---------------- 稻草人 x2 ----------------
+def scarecrow(name, x, y, ry=0.0):
+    add_cyl(f"{name}_pole", 0.06, 2.0, (x, y, 1.0), mat=m_wood, verts=6)
+    add_box(f"{name}_arms", (1.2, 0.07, 0.07), (x, y, 1.5), rot=(0, 0, ry), mat=m_wood)
+    add_sphere(f"{name}_head", 0.2, (x, y, 2.05), mat=m_straw, seg=10, ring=7)
+    add_cone(f"{name}_hat", 0.3, 0.26, (x, y, 2.28), mat=m_cloth, verts=8)
+    add_cyl(f"{name}_hatbrim", 0.34, 0.03, (x, y, 2.17), mat=m_cloth, verts=10)
+    add_box(f"{name}_body", (0.55, 0.3, 0.75), (x, y, 1.15), rot=(0, 0, ry), mat=m_cloth)
+    for as_ in (-1, 1):   # 袖口草束
+        px_ = x + cos(ry) * as_ * 0.6
+        py_ = y + sin(ry) * as_ * 0.6
+        add_cone(f"{name}_cuff{as_}", 0.09, 0.3, (px_, py_, 1.42),
+                 mat=m_straw, verts=5, rot=(radians(180), 0, 0))
+    collider(x, y, 0.5)
+
+scarecrow("PE_Scarecrow0", 40.0, -47.0, ry=radians(30))
+scarecrow("PE_Scarecrow1", -70.0, 20.0, ry=radians(-60))
+
+# ---------------- 花藤拱门 x3 ----------------
+def vine_arch(name, cx, cy, along_deg):
+    """路径拱门: 半圆藤拱 + 藤叶点 + 3 盏吊灯珠, along_deg = 路径走向"""
+    a = radians(along_deg)
+    ux, uy = cos(a), sin(a)          # 路径方向
+    px_, py_ = -uy, ux               # 垂直方向 (拱跨向)
+    R = 2.8
+    n_seg = 9
+    pts = []
+    for k in range(n_seg + 1):
+        phi = pi * k / n_seg
+        ox, oz = R * cos(phi), R * sin(phi)
+        pts.append((cx + px_ * ox, cy + py_ * ox, oz))
+    for k in range(n_seg):
+        cyl_between(f"{name}_arc{k}", pts[k], pts[k + 1], 0.12, m_wood, verts=5)
+    for k in range(0, n_seg + 1, 2):
+        vx = pts[k][0] + random.uniform(-0.1, 0.1)
+        vy = pts[k][1] + random.uniform(-0.1, 0.1)
+        add_sphere(f"{name}_vine{k}", 0.08, (vx, vy, pts[k][2]), mat=m_stem, seg=6, ring=4)
+    for k in (2, 4, 6):
+        add_sphere(f"{name}_lantern{k}", 0.09,
+                   (pts[k][0], pts[k][1], pts[k][2] - 0.22), mat=m_warm, seg=8, ring=5)
+    for s_ in (-1, 1):
+        collider(cx + px_ * R * s_, cy + py_ * R * s_, 0.3)
+
+vine_arch("PE_Arch0", 0.0, -100.0, 90.0)
+vine_arch("PE_Arch1", 12.0, -40.0, 0.0)
+vine_arch("PE_Arch2", 29.0, 11.8, 21.8)
+
+# ---------------- 方向指示牌 x4 ----------------
+def signpost(name, x, y, arrows):
+    """arrows: [(方向角°, dot索引), ...] 每向一块箭头牌"""
+    add_cyl(f"{name}_post", 0.06, 2.3, (x, y, 1.15), mat=m_wood, verts=6)
+    add_sphere(f"{name}_cap", 0.09, (x, y, 2.34), mat=m_orange, seg=8, ring=5)
+    for i, (ang, dot_i) in enumerate(arrows):
+        a = radians(ang)
+        z = 1.95 - i * 0.42
+        bx = x + cos(a) * 0.45
+        by = y + sin(a) * 0.45
+        add_box(f"{name}_board{i}", (0.85, 0.05, 0.22), (bx, by, z), rot=(0, 0, a), mat=m_wood)
+        tx = x + cos(a) * 0.95
+        ty = y + sin(a) * 0.95
+        add_cone(f"{name}_tip{i}", 0.12, 0.2, (tx, ty, z),
+                 mat=m_wood, verts=4, rot=(0, radians(90), a))   # 锥尖指向箭头方向
+        add_sphere(f"{name}_dot{i}", 0.055, (x + cos(a) * 0.3, y + sin(a) * 0.3, z + 0.16),
+                   mat=m_dot[dot_i], seg=6, ring=4)
+    collider(x, y, 0.35)
+
+signpost("PE_Sign0", 4.2, -30.0, [(0, 3), (90, 2)])          # 东墓园 / 北摩天轮
+signpost("PE_Sign1", -4.2, -75.0, [(213, 1), (147, 0)])      # 幽灵港 / 许愿池
+signpost("PE_Sign2", 2.3, -57.3, [(90, 0), (270, 3)])        # 北园 / 南园
+signpost("PE_Sign3", 19.6, -20.2, [(0, 0)])                  # 烟花释放器(东)
+
+# ---------------- 三大预留区 (围挡 + 敬请期待牌 + 拱门) ----------------
+def zone_fence(name, x0, x1, y0, y1, gap_edge, gap_lo, gap_hi):
+    """预留区围挡: 四边立柱 + 双横杆 (缺口断开) + 碰撞矩形 (缺口分段, 厚 0.28)"""
+    def make_edge(ax0, ay0, ax1, ay1, vertical, ename):
+        L = hypot(ax1 - ax0, ay1 - ay0)
+        n = max(int(L / 3.0), 2)
+        prev = None
+        for k in range(n + 1):
+            t = k / n
+            fx = ax0 + (ax1 - ax0) * t
+            fy = ay0 + (ay1 - ay0) * t
+            in_gap = ename == gap_edge and (
+                (gap_lo < fy < gap_hi) if vertical else (gap_lo < fx < gap_hi))
+            if in_gap:
+                prev = None
+                continue
+            add_box(f"{name}_p_{ename}{k}", (0.16, 0.16, 1.3), (fx, fy, 0.65), mat=m_wood)
+            for rz_ in (0.62, 1.12):
+                if prev is not None:
+                    cyl_between(f"{name}_r_{ename}{k}_{rz_}", (prev[0], prev[1], rz_),
+                                (fx, fy, rz_), 0.05, m_iron, verts=4)
+            prev = (fx, fy)
+        if vertical:
+            if ename == gap_edge:
+                collider_rect(ax0, (ay0 + gap_lo) / 2, 0.28, (gap_lo - ay0) / 2)
+                collider_rect(ax0, (gap_hi + ay1) / 2, 0.28, (ay1 - gap_hi) / 2)
+            else:
+                collider_rect(ax0, (ay0 + ay1) / 2, 0.28, (ay1 - ay0) / 2)
+        else:
+            if ename == gap_edge:
+                collider_rect((ax0 + gap_lo) / 2, ay0, (gap_lo - ax0) / 2, 0.28)
+                collider_rect((gap_hi + ax1) / 2, ay0, (ax1 - gap_hi) / 2, 0.28)
+            else:
+                collider_rect((ax0 + ax1) / 2, ay0, (ax1 - ax0) / 2, 0.28)
+    make_edge(x0, y0, x1, y0, False, "S")
+    make_edge(x0, y1, x1, y1, False, "N")
+    make_edge(x0, y0, x0, y1, True, "W")
+    make_edge(x1, y0, x1, y1, True, "E")
+
+def zone_sign(name, x, y, rot_deg):
+    """预留区招牌: 双柱 + 发光横板 + 三彩点; rot 0 = 板面朝南北, rot 90 = 朝东西"""
+    a = radians(rot_deg)
+    ca, sa = cos(a), sin(a)
+    add_box(f"{name}_board", (3.0, 0.14, 1.1), (x, y, 1.7), rot=(0, 0, a), mat=m_sign_g)
+    for k in range(3):
+        ox = (k - 1) * 1.3
+        add_sphere(f"{name}_sd{k}", 0.1, (x + ca * ox, y + sa * ox, 1.7),
+                   mat=m_dot[k % 4], seg=8, ring=5)
+    for sx_ in (-1, 1):
+        px_ = x + ca * sx_ * 1.7
+        py_ = y + sa * sx_ * 1.7
+        add_cyl(f"{name}_sp{sx_}", 0.08, 2.4, (px_, py_, 1.2), mat=m_wood, verts=6)
+        collider(px_, py_, 0.2)
+
+# 过山车预留区 (北): 南边开口 x∈[11,19], 支路 78° 正对缺口
+zone_fence("PE_ZoneCoast", -30, 60, 70, 130, "S", 11, 19)
+zone_sign("PE_ZoneCoast_sign", 7.5, 68.6, 0)
+vine_arch("PE_ZoneCoast_arch", 15.0, 70.5, 90.0)
+
+# 幽灵港 (西南): 东边开口 y∈[-43,-37], 支路 217.6° 正对缺口
+zone_fence("PE_ZoneBay", -88, -52, -55, -35, "E", -43, -37)
+zone_sign("PE_ZoneBay_sign", -51.8, -33.0, 90)
+
+# 秘境预留区 (东南): 西边开口 y∈[-54,-48], 支路 -32.3° 正对缺口
+zone_fence("PE_ZoneThird", 78, 112, -78, -42, "W", -54, -48)
+zone_sign("PE_ZoneThird_sign", 76.2, -45.5, 90)
+
+tmark(f"props done (grass={len(tufts)} pumps={len(pump_plan)} flowers={len(flower_spots)})")
+
+# ---------------- 园区树木布置 ----------------
+tree_extras = (list(pump_spots) + flower_spots +
+               [(lx, ly) for lx, ly, _fry in lamp_positions] +
+               [(bx, by) for bx, by, _rz in bench_spots] +
+               [(15.0, -20.0), (-15.0, -20.0), (40.0, -47.0), (-70.0, 20.0),
+                (0.0, -146.0), (0.0, -60.0), (0.0, -100.0), (12.0, -40.0),
+                (29.0, 11.8), (15.0, 68.6), (-52.6, -40.0), (77.4, -51.0),
+                (26.0, -36.0), (12.5, -11.2), (-11.8, -11.5),
+                (34.0, -41.0), (-19.5, -28.8), (-35.2, -27.8)])
+
+def blocked(x, y, margin):
+    if on_path(x, y, margin):
+        return True
+    for px_, py_ in tree_extras:
+        if (px_ - x) ** 2 + (py_ - y) ** 2 < (1.8 + margin) ** 2:
+            return True
+    return False
+
+tree_spots = []
+tries = 0
+while len(tree_spots) < 22 and tries < 3000:
+    tries += 1
+    ang = random.uniform(0, 2 * pi)
+    rr = random.uniform(26, 135)
+    x, y = rr * cos(ang), rr * sin(ang)
+    if blocked(x, y, 2.6):
+        continue
+    if any((tx - x) ** 2 + (ty - y) ** 2 < 64 for tx, ty in tree_spots):
+        continue
+    tree_spots.append((x, y))
+for i, (x, y) in enumerate(tree_spots):
+    spooky_tree(f"PE_Tree{i}", x, y, scale=random.uniform(0.9, 1.4))
+
+# 广场外圈缠灯松 x5 (保留原布局) + 外围松 x7
+for i in range(5):
+    th = i * 2 * pi / 5 + 0.4
+    x, y = 21.5 * cos(th), 21.5 * sin(th)
+    pine_tree(f"PE_Pine{i}", x, y, random.choice(("tall", "fat", "crooked")), lit=True)
+outer_pines = []
+tries = 0
+while len(outer_pines) < 7 and tries < 1500:
+    tries += 1
+    ang = random.uniform(0, 2 * pi)
+    rr = random.uniform(100, 128)
+    x, y = rr * cos(ang), rr * sin(ang)
+    if blocked(x, y, 2.6):
+        continue
+    if any((tx - x) ** 2 + (ty - y) ** 2 < 100 for tx, ty in outer_pines):
+        continue
+    outer_pines.append((x, y))
+for i, (x, y) in enumerate(outer_pines):
+    pine_tree(f"PE_PineO{i}", x, y, random.choice(("tall", "fat", "crooked")), lit=True)
+
+# 垂柳 x4
+for i, (x, y) in enumerate(((-45.0, 55.0), (60.0, 20.0), (18.0, 58.0), (-85.0, 15.0))):
+    willow_tree(f"PE_Willow{i}", x, y, scale=random.uniform(0.95, 1.25))
+
+tmark("trees done")
+
+# ---------------- 远景: 山脊 + 城市灯火 (随扩园外推) ----------------
 for i in range(12):
     th = i * 2 * pi / 12 + 0.26
-    rr = random.uniform(240, 285)
-    add_cone(f"PE_Ridge{i}", random.uniform(45, 75), random.uniform(48, 90),
-             (rr * cos(th), rr * sin(th), -3.0), mat=m_ridge, verts=7)
-for i in range(70):
+    rr = random.uniform(420, 470)
+    add_cone(f"PE_Ridge{i}", random.uniform(60, 110), random.uniform(70, 130),
+             (rr * cos(th), rr * sin(th), -6.0), mat=m_ridge, verts=7)
+for i in range(90):
     th = random.uniform(0, 2 * pi)
-    rr = random.uniform(150, 215)
-    add_sphere(f"PE_City{i}", 0.5, (rr * cos(th), rr * sin(th), random.uniform(1.0, 9.0)),
+    rr = random.uniform(300, 390)
+    add_sphere(f"PE_City{i}", 0.8, (rr * cos(th), rr * sin(th), random.uniform(2.0, 14.0)),
                mat=m_dot[random.randrange(4)], seg=6, ring=4)
 
 # ---------------- 灯光 / 相机 / bloom ----------------
@@ -567,9 +1297,9 @@ def add_cam(name, loc, target, lens=35):
     look_at(cam, target)
     return cam
 
-cam_aerial = add_cam("PE_CamAerial", (95, -95, 72), (0, 0, 4), lens=32)
-cam_street = add_cam("PE_CamStreet", (0.0, -46.0, 1.75), (0, 8, 8.0), lens=30)
-cam_corner = add_cam("PE_CamCorner", (22.0, -50.0, 2.2), (36.0, -40.0, 1.2), lens=38)
+cam_aerial = add_cam("PE_CamAerial", (160, -160, 120), (0, 0, 4), lens=28)
+cam_street = add_cam("PE_CamStreet", (0.0, -105.0, 1.75), (0, -45, 5.5), lens=30)
+cam_corner = add_cam("PE_CamCorner", (26.0, -48.0, 2.2), (35.0, -40.0, 1.2), lens=38)
 
 sc.view_settings.view_transform = "Standard"
 sc.view_settings.exposure = 0.35
@@ -586,6 +1316,8 @@ except Exception as e:
     print("BLOOM_FAIL", type(e).__name__, str(e)[:120])
 
 # ---------------- 按材质合并 (压 draw call) ----------------
+n_mesh = sum(1 for ob in bpy.context.scene.objects if ob.type == "MESH")
+tmark(f"scene done ({n_mesh} meshes) -> join")
 bpy.ops.object.select_all(action="DESELECT")
 groups = {}
 for ob in list(bpy.context.scene.objects):
@@ -595,7 +1327,6 @@ for ob in list(bpy.context.scene.objects):
     groups.setdefault(mat, []).append(ob)
 print(f"JOIN groups={len(groups)}")
 for mat_name, obs in groups.items():
-    # 关键: 每组合并前清空选择, 否则 join 会吞掉上组选中结果滚雪球
     bpy.ops.object.select_all(action="DESELECT")
     for ob in obs:
         ob.select_set(True)
@@ -603,7 +1334,7 @@ for mat_name, obs in groups.items():
     if len(obs) > 1:
         bpy.ops.object.join()
     bpy.context.view_layer.objects.active.name = f"PE_{mat_name}"
-print("JOINED")
+tmark(f"joined ({len(groups)} groups)")
 
 # ---------------- 导出 ----------------
 bpy.ops.wm.save_as_mainfile(filepath=str(OUT / "park_env.blend"))
@@ -619,11 +1350,12 @@ print("GLB_EXPORTED")
 
 # colliders.json (转 app 坐标: app_x = blender_x, app_z = -blender_y)
 manifest = {
-    "version": 1,
-    "note": "坐标为 glTF/app 空间 (x, z); 由 park_env.py 自动生成",
-    "boundaryR": 82.5,
-    "spawn": {"x": 0.0, "z": 80.0},
+    "version": 3,
+    "note": "坐标为 glTF/app 空间 (x, z); 由 park_env.py v3 自动生成; h = 顶面高度(可站立), 缺省为无限高阻挡; rects = 轴对齐盒墙(可推挤)",
+    "boundaryR": 144.5,
+    "spawn": {"x": 0.0, "z": 144.0},
     "boarding": {"x": 0.0, "z": 16.4},
+    "launcher": {"x": round(LAUNCHER[0], 2), "z": round(-LAUNCHER[1], 2)},
     "pois": [{"x": round(x, 2), "z": round(-y, 2), "label": lb} for x, y, lb in POIS],
     "rects": [
         {"x": r_["x"], "z": round(-r_["y"], 2), "hw": r_["hw"], "hd": r_["hd"]}
@@ -637,7 +1369,8 @@ manifest = {
 }
 (OUT / "colliders.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=1),
                                     encoding="utf-8")
-print(f"COLLIDERS circles={len(manifest['circles'])} pois={len(manifest['pois'])}")
+print(f"COLLIDERS circles={len(manifest['circles'])} rects={len(manifest['rects'])} pois={len(manifest['pois'])}")
+tmark("colliders written, rendering previews")
 
 # ---------------- 渲染预览 ----------------
 def brightness(path):
@@ -687,4 +1420,5 @@ for ob in bpy.context.scene.objects:
         me.calc_loop_triangles()
         tris += len(me.loop_triangles)
 print(f"SUMMARY tris={tris}")
+tmark("DONE")
 print("DONE")

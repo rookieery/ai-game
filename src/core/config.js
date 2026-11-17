@@ -34,6 +34,13 @@ export const SETTINGS_GROUPS = [
     ],
   },
   {
+    name: "烟花",
+    items: [
+      { key: "fireworkPeriod", label: "自动烟花间隔", min: 10, max: 120, step: 5, def: 30, fmt: (v) => `${v} 秒/轮` },
+      { key: "fireworkBright", label: "烟花亮度", min: 0, max: 200, step: 5, def: 100, fmt: pct }, // 粒子亮度 + 爆裂闪光联动
+    ],
+  },
+  {
     name: "画面",
     items: [
       { key: "bloomStrength", label: "辉光强度", min: 0, max: 200, step: 5, def: 100, fmt: pct }, // 基准 0.30

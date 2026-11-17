@@ -10,6 +10,8 @@ import { createFerrisWheel } from "./rides/ferris.js";
 import { createCarousel } from "./rides/carousel.js";
 import { createPostFX } from "./fx/postfx.js";
 import { createMist } from "./fx/mist.js";
+import { createFireworks } from "./fx/fireworks.js";
+import { createWisps } from "./fx/wisps.js";
 import { createHUD } from "./ui/hud.js";
 import { createSettings } from "./core/config.js";
 import { createSettingsPanel } from "./ui/settings.js";
@@ -24,6 +26,9 @@ const input = createInput(canvas);
 const hud = createHUD();
 const audio = createAudio(hud);
 window.__hud = hud; // 截图验证钩子（开发用）
+// 烟花（origin = 烟花释放器管口, blender (22,-22) -> app (22,22)）+ 幽灵火
+const fireworks = createFireworks(scene, { origin: { x: 22, y: 0, z: 22 }, camera, audio, renderer });
+const wisps = createWisps(scene);
 
 // ---------- 游戏状态 ----------
 const game = { state: "boot", ride: null }; // boot -> walk -> boarding -> riding -> exiting -> walk; ride = ferris|carousel
@@ -47,6 +52,8 @@ function applyAllSettings() {
   world.applySettings(settings.values);
   mist.applySettings(settings.values);
   postfx.applySettings(settings.values);
+  fireworks.applySettings(settings.values);
+  wisps.applySettings(settings.values);
   if (ferris) ferris.applySettings(settings.values);
   if (carousel) carousel.applySettings(settings.values);
 }
@@ -58,7 +65,7 @@ const manager = createLoadingManager({
   onLoad: () => hud.setReady(),
 });
 
-const updates = [world, mist];
+const updates = [world, mist, fireworks, wisps];
 
 async function boot() {
   // 碰撞与玩法锚点
@@ -100,7 +107,7 @@ async function boot() {
   // 交互
   interact = createInteract({
     input, hud, audio,
-    player, park,
+    player, park, fireworks,
     getState: () => game.state,
     onBoard() {
       if (game.state !== "walk") return;
@@ -156,6 +163,12 @@ async function boot() {
       hud.hidePlaque();
       game.state = "walk";
     });
+  });
+
+  // 烟花释放器：靠近时按 F 手动齐射（interact.update 提供 near 判定与提示）
+  input.onPress("KeyF", () => {
+    if (game.state !== "walk" || !interact.nearLauncher()) return;
+    fireworks.manualVolley();
   });
 
   // 指针锁定（面板打开时不出「点击画面」提示，避免与抽屉重叠）
