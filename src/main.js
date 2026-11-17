@@ -54,6 +54,7 @@ function applyAllSettings() {
   postfx.applySettings(settings.values);
   fireworks.applySettings(settings.values);
   wisps.applySettings(settings.values);
+  if (player) player.applySettings(settings.values);
   if (ferris) ferris.applySettings(settings.values);
   if (carousel) carousel.applySettings(settings.values);
 }
@@ -79,6 +80,7 @@ async function boot() {
   fireworks.setLaunchers(park?.launchers); // 6 站发射器 { id, kind, x, z, dx, dz, mz }
 
   player = createPlayer(camera, input, park);
+  player.applySettings(settings.values); // 恢复持久化步速（applyAllSettings 初次执行时 player 尚未创建）
 
   // 资产
   hud.setLoadingProgress(0.3); // 布场

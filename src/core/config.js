@@ -1,7 +1,7 @@
 // 设置注册表 + 持久化存储
 // 约定：
 //   · 灯光/强度类配置存「百分比整数」(100 = 当前基准值)，各系统用自己的基准换算
-//   · 周期类存秒，数量类存颗
+//   · 周期类存秒，数量类存颗，速度类存米/秒
 //   · 几何类参数（舱数量/南瓜灯数量）烘焙在 glb 中，运行时不可调，故不注册
 
 export const SETTINGS_GROUPS = [
@@ -23,6 +23,7 @@ export const SETTINGS_GROUPS = [
   {
     name: "园区",
     items: [
+      { key: "walkSpeed", label: "步行速度", min: 2, max: 16, step: 1, def: 4, fmt: (v) => `${v} 米/秒` }, // 疾走 = 步速 ×1.8
       { key: "parkLampLight", label: "园区照明亮度", min: 0, max: 200, step: 5, def: 100, fmt: pct },
       { key: "pumpkinGlow", label: "南瓜灯发光亮度", min: 0, max: 200, step: 5, def: 100, fmt: pct },
       { key: "moonLight", label: "月光与环境光", min: 0, max: 200, step: 5, def: 100, fmt: pct },

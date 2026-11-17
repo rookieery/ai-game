@@ -18,7 +18,10 @@ export function createScene(canvas) {
     60,
     window.innerWidth / window.innerHeight,
     0.1,
-    800
+    // 2000: 须大于「天穹半径 700 + 相机离园心最大偏移 ~150」(world.js 穹顶)。
+    // v3 扩园后门口 z146 朝北看天穹最远 ~828m, 旧值 800 会裁掉天穹远端,
+    // 在门口视角留下硬边多边形黑洞 (2026-11-17 排查, 见 git log)
+    2000
   );
   camera.position.set(30, 9, 42);
   camera.lookAt(0, 14, 0);

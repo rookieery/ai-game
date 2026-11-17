@@ -9,8 +9,8 @@ import * as THREE from "three";
 
 const EYE = 1.65;      // 眼高（园区）
 const PR = 0.38;       // 玩家碰撞半径（园区）
-const WALK = 4.0;
-const SPRINT = 7.2;
+const WALK_BASE = 4.0;   // 默认步速（米/秒, 设置面板「步行速度」可调 2-16）
+const SPRINT_RATIO = 1.8; // 疾走 = 步速 ×1.8（保持原 4.0/7.2 比例）
 
 // 垂直运动（园区跳跃/台阶）：平台顶面支撑 + 解析式重力积分
 const GRAV = 20;       // 重力加速度
@@ -227,6 +227,10 @@ export function createPlayer(camera, input, park) {
     camera.position.copy(fr.pos).add(_mf);
   }
 
+  // 园区步速（设置面板可调; 疾走按固定比例放大）
+  let walkSpeed = WALK_BASE;
+  let sprintSpeed = WALK_BASE * SPRINT_RATIO;
+
   function updateWorld(dt) {
     const f = (input.isDown("KeyW") ? 1 : 0) - (input.isDown("KeyS") ? 1 : 0);
     const s = (input.isDown("KeyD") ? 1 : 0) - (input.isDown("KeyA") ? 1 : 0);
@@ -236,12 +240,13 @@ export function createPlayer(camera, input, park) {
     let dz = 0;
     if (moving) {
       const len = Math.hypot(f, s);
-      const sp = sprint ? SPRINT : WALK;
+      const sp = sprint ? sprintSpeed : walkSpeed;
       const fx = -Math.sin(yaw), fz = -Math.cos(yaw);   // 前
       const rx = Math.cos(yaw), rz = -Math.sin(yaw);    // 右
       dx = ((fx * f + rx * s) / len) * sp;
       dz = ((fz * f + rz * s) / len) * sp;
-      bobT += dt * (sprint ? 11 : 8);
+      // 摆头频率随实际步速等比缩放（默认 4 米/秒时 = 原 8/11 节奏）
+      bobT += dt * (sprint ? 11 : 8) * (sp / WALK_BASE);
     } else {
       bobT += dt * 1.8;
     }
@@ -463,6 +468,11 @@ export function createPlayer(camera, input, park) {
     setView(y, p) {
       yaw = y;
       pitch = Math.max(-1.25, Math.min(1.25, p));
+    },
+    // 应用设置面板（园区步速; 接口与 world/mist 等系统一致, main.applyAllSettings 调用）
+    applySettings(s) {
+      walkSpeed = Math.min(16, Math.max(2, s.walkSpeed ?? WALK_BASE));
+      sprintSpeed = walkSpeed * SPRINT_RATIO;
     },
     update(dt) {
       const m = input.consumeMouse();
