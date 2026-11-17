@@ -40,6 +40,7 @@ export function createWisps(scene) {
     s.scale.setScalar(1.5);
     s.position.set(sp.x, sp.y, sp.z);
     s.frustumCulled = false;
+    s.layers.set(1); // 层1: 不进迷魂湖反射
     scene.add(s);
     return { s, sp, phase: i * 1.7, baseOpacity: 0.7, gain: 1 };
   });

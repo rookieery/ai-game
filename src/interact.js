@@ -2,7 +2,8 @@
 import { KIND_NAME } from "./fx/fireworks.js";
 
 export function createInteract({
-  input, player, park, hud, getState, onBoard, onBoardCarousel, onCollect, audio, fireworks,
+  input, player, park, hud, getState, onBoard, onBoardCarousel, onCollect, onLakePulse,
+  audio, fireworks,
 }) {
   const boarding = park?.boarding ?? { x: 0, z: 16.4 };
   // 显灵木马平台 (45,-18) r8.0: 台面上 (y≈0.62) 靠近中柱侧 r<7.6 出提示
@@ -10,6 +11,10 @@ export function createInteract({
   // 烟花发射器 x6: 就近出「按 F 点射」提示（E 不响应, 不与打卡/乘坐冲突）
   const launchers = fireworks?.getLaunchers() ?? [];
   const pois = (park?.pois ?? []).filter((p) => String(p.label).startsWith("pumpkin"));
+  // 迷魂湖 (v4): 栈桥尽头许愿点 + 铭牌文案一次性提示
+  const pierTip = { x: 90.7, z: 57.4 };   // 与 fx/lake.js PIER_TIP 一致 (错开 poi 提示半径)
+  const pierPlaque = { x: 88.6, z: 56.0 }; // 铭牌/打卡点 (栈桥尽头平台)
+  let pierToastShown = false;
   const collected = new Set();
   let active = null; // { label, run }
   let nearLauncher = -1; // 就近发射器下标, -1 = 无
@@ -75,6 +80,16 @@ export function createInteract({
             active = { run: () => collect(poi) };
             label = `收集南瓜灯（${collected.size + 1}/${pois.length}）`;
             break;
+          }
+        }
+        // 迷魂湖: 栈桥尽头 E 泛涟漪 (v4); 靠近平台先出一次铭牌文案
+        if (!active) {
+          if (dist2(p.x, p.z, pierTip.x, pierTip.z) < 2.6) {
+            active = { run: onLakePulse };
+            label = "湖心许愿 · 泛起涟漪";
+          } else if (!pierToastShown && dist2(p.x, p.z, pierPlaque.x, pierPlaque.z) < 6.0) {
+            pierToastShown = true;
+            hud.toast("夜河渡船 · 敬请期待");
           }
         }
         // 烟花发射器：E 槽位空闲时才提示（不与打卡/乘坐抢交互）; 键位徽标用 F

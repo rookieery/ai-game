@@ -13,6 +13,7 @@ import { createMist } from "./fx/mist.js";
 import { createFireworks } from "./fx/fireworks.js";
 import { createWisps } from "./fx/wisps.js";
 import { createWind } from "./fx/wind.js";
+import { createLake } from "./fx/lake.js";
 import { createHUD } from "./ui/hud.js";
 import { createSettings } from "./core/config.js";
 import { createSettingsPanel } from "./ui/settings.js";
@@ -21,6 +22,8 @@ const canvas = document.getElementById("game-canvas");
 
 const { renderer, scene, camera } = createScene(canvas);
 const world = createWorld(scene);
+camera.layers.enable(1); // 层1 = 雾潭/灵火渲染层 (不进迷魂湖反射)
+camera.layers.enable(2); // 层2 = 远景植被 (不进迷魂湖反射, 见 fx/lake.js NO_REFLECT)
 const mist = createMist(scene, world);
 const postfx = createPostFX(renderer, scene, camera);
 const input = createInput(canvas);
@@ -38,6 +41,7 @@ let ferris = null;
 let carousel = null;
 let interact = null;
 let wind = null;
+let lake = null;
 let entered = false;
 
 // ---------- 设置面板 ----------
@@ -60,6 +64,7 @@ function applyAllSettings() {
   if (ferris) ferris.applySettings(settings.values);
   if (carousel) carousel.applySettings(settings.values);
   if (wind) wind.applySettings(settings.values); // 风摆强度 + 南瓜灯亮度联动
+  if (lake) lake.applySettings(settings.values); // 湖灯亮度 + 水波速度
 }
 applyAllSettings(); // 恢复持久化配置（含舱内灯光默认 40%）
 settings.onChange(applyAllSettings);
@@ -93,6 +98,11 @@ async function boot() {
   wind = createWind(parkRoot); // 风摆 (草/柳/松/枯梢) + 南瓜灯发光联动
   wind.applySettings(settings.values);
   updates.push(wind);
+
+  // 迷魂湖 (v4): PE_LakeWater 替换为反射水面, PE_LakeLanternA/B/C 提取实例化灯笼海
+  lake = createLake(scene, parkRoot, { audio });
+  lake.applySettings(settings.values);
+  updates.push(lake);
 
   const wheelRoot = await loadGLB("/assets/models/ferris_wheel.glb", manager);
   hud.setLoadingProgress(0.85); // 召轮
@@ -146,6 +156,12 @@ async function boot() {
     },
     onCollect(poi, got, total) {
       if (got === total) hud.setStars(total, total);
+    },
+    onLakePulse() {
+      if (lake?.pulse()) {
+        hud.toast("涟漪散开 · 灯群轻轻摇曳");
+        audio.chime(2);
+      }
     },
   });
   updates.push(interact);
@@ -233,6 +249,7 @@ window.__game = {
   get carousel() { return carousel; },
   get interact() { return interact; },
   get fireworks() { return fireworks; },
+  get lake() { return lake; },
   get camera() { return camera; },
   renderer,
   scene,
