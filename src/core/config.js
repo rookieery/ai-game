@@ -32,6 +32,7 @@ export const SETTINGS_GROUPS = [
       { key: "starBrightness", label: "星空亮度", min: 0, max: 200, step: 5, def: 100, fmt: pct },
       { key: "auroraLight", label: "极光强度", min: 0, max: 200, step: 5, def: 100, fmt: pct },
       { key: "mistDensity", label: "地面漂雾", min: 0, max: 200, step: 5, def: 100, fmt: pct },
+      { key: "windStrength", label: "风摆强度", min: 0, max: 200, step: 5, def: 100, fmt: pct }, // 草/柳/松梢顶点着色器风摆
     ],
   },
   {

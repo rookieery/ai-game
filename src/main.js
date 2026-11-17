@@ -12,6 +12,7 @@ import { createPostFX } from "./fx/postfx.js";
 import { createMist } from "./fx/mist.js";
 import { createFireworks } from "./fx/fireworks.js";
 import { createWisps } from "./fx/wisps.js";
+import { createWind } from "./fx/wind.js";
 import { createHUD } from "./ui/hud.js";
 import { createSettings } from "./core/config.js";
 import { createSettingsPanel } from "./ui/settings.js";
@@ -36,6 +37,7 @@ let player = null;
 let ferris = null;
 let carousel = null;
 let interact = null;
+let wind = null;
 let entered = false;
 
 // ---------- 设置面板 ----------
@@ -57,6 +59,7 @@ function applyAllSettings() {
   if (player) player.applySettings(settings.values);
   if (ferris) ferris.applySettings(settings.values);
   if (carousel) carousel.applySettings(settings.values);
+  if (wind) wind.applySettings(settings.values); // 风摆强度 + 南瓜灯亮度联动
 }
 applyAllSettings(); // 恢复持久化配置（含舱内灯光默认 40%）
 settings.onChange(applyAllSettings);
@@ -87,6 +90,9 @@ async function boot() {
   const parkRoot = await loadGLB("/assets/models/park_env.glb", manager);
   hud.setLoadingProgress(0.6); // 铺路
   scene.add(parkRoot);
+  wind = createWind(parkRoot); // 风摆 (草/柳/松/枯梢) + 南瓜灯发光联动
+  wind.applySettings(settings.values);
+  updates.push(wind);
 
   const wheelRoot = await loadGLB("/assets/models/ferris_wheel.glb", manager);
   hud.setLoadingProgress(0.85); // 召轮

@@ -28,7 +28,7 @@ import time
 from math import radians, pi, cos, sin, atan2, hypot
 from pathlib import Path
 import numpy as np
-from mathutils import Vector
+from mathutils import Vector, Quaternion
 
 random.seed(11)
 T0 = time.time()
@@ -276,6 +276,428 @@ def collider_rect(x, y, hw, hd):
     COLLIDER_RECTS.append({"x": round(x, 2), "y": round(y, 2),
                            "hw": round(hw, 2), "hd": round(hd, 2)})
 
+# ---------------- v3 植被 helper (弯叶/变径管/顶点色/雕空) ----------------
+def make_vcol_mat(name, color, rough=0.5, emit=None, strength=0.0):
+    """顶点色材质: Base = 颜色 × COLOR_0 (three.js vertexColors 同语义, 白底=色全靠顶点色)"""
+    m = bpy.data.materials.new(name)
+    m.use_nodes = True
+    nt = m.node_tree
+    p = next(n for n in nt.nodes if n.type == "BSDF_PRINCIPLED")
+    attr = nt.nodes.new("ShaderNodeAttribute")
+    attr.attribute_name = "Col"
+    if color.upper() in ("#FFFFFF", "WHITE"):
+        nt.links.new(attr.outputs["Color"], p.inputs["Base Color"])
+    else:
+        mix = nt.nodes.new("ShaderNodeMix")
+        mix.data_type = 'RGBA'
+        mix.blend_type = 'MULTIPLY'
+        mix.inputs[6].default_value = hex_lin(color)
+        nt.links.new(attr.outputs["Color"], mix.inputs[7])
+        nt.links.new(mix.outputs[2], p.inputs["Base Color"])
+    for ident, val in (("Roughness", rough),):
+        for s in p.inputs:
+            if s.identifier == ident:
+                s.default_value = val
+    if emit:
+        for s in p.inputs:
+            if s.identifier == "Emission Color":
+                s.default_value = hex_lin(emit)
+            if s.identifier == "Emission Strength":
+                s.default_value = strength
+    return m
+
+
+def set_vcol(ob, colors):
+    """每顶点 (r,g,b) LINEAR → COLOR_0"""
+    me = ob.data
+    flat = []
+    for c in colors:
+        flat += [c[0], c[1], c[2], 1.0]
+    attr = me.color_attributes.new("Col", 'FLOAT_COLOR', 'POINT')
+    attr.data.foreach_set("color", flat)
+    try:
+        me.color_attributes.active_color = attr
+    except Exception:
+        pass
+    return ob
+
+
+def set_vcol_uniform(ob, g):
+    """无 vcol 网格补常数灰 (防 join 进 vcol 组后变黑块)"""
+    n = len(ob.data.vertices)
+    set_vcol(ob, [(g, g, g)] * n)
+
+
+def tube_frustum(name, pts, radii, mat, sides=8, sm=True, cap_end_fan=True):
+    """平行输运标架变径管: 有机弯曲枝干/蒂/藤"""
+    pts = [Vector(p) for p in pts]
+    rings = []
+    up0 = Vector((0, 0, 1))
+    d0 = (pts[1] - pts[0]).normalized()
+    dcur = d0
+    n = up0 if abs(d0.z) > 0.93 else up0.cross(d0).normalized()
+    n = (n - d0 * n.dot(d0)).normalized()
+    for i, p in enumerate(pts):
+        if i > 0:
+            dprev = (pts[i] - pts[i - 1]).normalized()
+            dcur = (pts[min(i + 1, len(pts) - 1)] - pts[i]).normalized() if i < len(pts) - 1 else dprev
+            q = dprev.rotation_difference(dcur)
+            n = q @ n
+        nn = (n - dcur * n.dot(dcur)).normalized()
+        r = radii[i]
+        ring = []
+        for k in range(sides):
+            a = 2 * pi * k / sides
+            ring.append(p + (nn * cos(a) + dcur.cross(nn) * sin(a)) * r)
+        rings.append(ring)
+    vs = [v for ring in rings for v in ring]
+    fs = []
+    for i in range(len(rings) - 1):
+        b0, b1 = i * sides, (i + 1) * sides
+        for k in range(sides):
+            k2 = (k + 1) % sides
+            fs.append((b0 + k, b0 + k2, b1 + k2, b1 + k))
+    if cap_end_fan:
+        tip = pts[-1] + (pts[-1] - pts[-2]).normalized() * radii[-1] * 2.2
+        vs.append(tuple(tip))
+        ti = len(vs) - 1
+        b = (len(rings) - 1) * sides
+        for k in range(sides):
+            fs.append((b + k, b + (k + 1) % sides, ti))
+    return _new_obj(name, vs, fs, mat, sm)
+
+
+def blade(prefix, base, length, width, yaw, bend, mat, root_c, tip_c,
+          segs=5, lean=0.2, twist=0.0):
+    """弯曲锥形草叶: 弧线积分 + 尖部收窄 + 顶点色渐变"""
+    base = Vector(base)
+    d0 = Vector((cos(yaw) * lean, sin(yaw) * lean, 1.0)).normalized()
+    outw = Vector((cos(yaw), sin(yaw), 0.0))
+    axis = d0.cross(Vector((0, 0, 1))).normalized()
+    if (Quaternion(axis, 0.2) @ d0).dot(outw) < d0.dot(outw):
+        axis = -axis
+    lft = axis.copy()
+    p = base.copy()
+    rows = []
+    step = length / segs
+    for i in range(segs + 1):
+        t = i / segs
+        th = bend * (t ** 1.3)
+        d = (Quaternion(axis, th) @ d0).normalized()
+        lft2 = Quaternion(d, twist * t) @ lft if twist else lft
+        w = width * (1 - t) ** 1.15 + 0.0012   # 全宽 (勿再乘0.5, 会细成线)
+        rows.append((p - lft2 * w, p + lft2 * w, t))
+        p = p + d * step
+    vs = []
+    vcol = []
+    for l, r, t in rows:
+        vs += [tuple(l), tuple(r)]
+        tt = t ** 0.85
+        c = [root_c[k] + (tip_c[k] - root_c[k]) * tt for k in range(3)]
+        vcol += [c, c]
+    fs = []
+    for i in range(segs):
+        a, b = i * 2, i * 2 + 1
+        fs.append((a, b, b + 2))
+        fs.append((a, b + 2, a + 2))
+    ob = _new_obj(prefix, vs, fs, mat, False)
+    set_vcol(ob, vcol)
+    return ob
+
+
+def blade_tone():
+    """草叶三色系: 常规橄榄 / 偏暗 / 枯黄"""
+    kind = random.random()
+    root = hex_lin("#14281C")[:3]
+    if kind < 0.62:
+        tip = hex_lin("#5A7A3A")[:3]
+    elif kind < 0.85:
+        tip = hex_lin("#46603A")[:3]
+    else:
+        tip = hex_lin("#98823E")[:3]
+    return root, tip
+
+
+def ground_patch(name, x, y, r, mat, tone_lo=0.62, tone_hi=1.0):
+    """有机边缘地斑 (打破纯黑地面): 波形圆盘 + 顶点色斑驳"""
+    vs = [(x, y, 0.011)]
+    fs = []
+    nseg = 22
+    wob = [(random.uniform(-1, 1), random.uniform(-1, 1)) for _ in range(3)]
+    ring = []
+    for k in range(nseg):
+        a = 2 * pi * k / nseg
+        rr = r * (1 + 0.22 * wob[0][0] * sin(3 * a + wob[0][1] * 6.28)
+                  + 0.12 * wob[1][0] * sin(7 * a + wob[1][1] * 6.28))
+        ring.append((x + rr * cos(a), y + rr * sin(a), 0.011))
+    vs += ring
+    for k in range(nseg):
+        fs.append((0, 1 + k, 1 + (k + 1) % nseg))
+    ob = _new_obj(name, vs, fs, mat, False)
+    vcol = []
+    for i in range(len(vs)):
+        d = hypot(vs[i][0] - x, vs[i][1] - y) / max(r, 1e-4)
+        g = tone_hi - (tone_hi - tone_lo) * d * random.uniform(0.6, 1.1)
+        g = max(tone_lo, min(tone_hi, g))
+        vcol.append((g, g, g))
+    set_vcol(ob, vcol)
+    return ob
+
+
+def litter_at(name, x, y, r=0.55):
+    """树脚落叶圈: 腐叶地斑 + 散叶小片 (小片补常数vcol防join黑块)"""
+    ground_patch(f"{name}_patch", x, y, r, m_litter, 0.5, 0.95)
+    for k in range(5):
+        a = random.uniform(0, 2 * pi)
+        rr = random.uniform(0.25, 0.9) * r
+        px_, py_ = x + rr * cos(a), y + rr * sin(a)
+        ob = add_box(f"{name}_leaf{k}", (0.09, 0.06, 0.004), (px_, py_, 0.016),
+                     rot=(random.uniform(-0.15, 0.15), random.uniform(-0.15, 0.15),
+                          random.uniform(0, pi)), mat=m_litter)
+        set_vcol_uniform(ob, random.uniform(0.55, 0.95))
+
+
+def prism(name, poly2d, origin, fdir, rt, up, near, far):
+    """棱柱切割器: 强制 CCW (镜像件 CW 会崩坏 EXACT 求解器)"""
+    n = len(poly2d)
+    area2 = sum(poly2d[i][0] * poly2d[(i + 1) % n][1]
+                - poly2d[(i + 1) % n][0] * poly2d[i][1] for i in range(n))
+    if area2 < 0:
+        poly2d = poly2d[::-1]
+    o = Vector(origin)
+    vs = []
+    for rr, uu in poly2d:
+        vs.append(tuple(o + fdir * near + rt * rr + up * uu))
+    for rr, uu in poly2d:
+        vs.append(tuple(o + fdir * far + rt * rr + up * uu))
+    fs = []
+    for i in range(n):
+        j = (i + 1) % n
+        fs.append((i, j, n + j, n + i))
+    fs.append(tuple(range(n - 1, -1, -1)))
+    fs.append(tuple(range(n, 2 * n)))
+    return _new_obj(name, vs, fs, None, False)
+
+
+def bowl(name, C, R, phi_lo, phi_hi, mat, seg=16, ring=5):
+    """开口碗面 (南瓜暗腔/内焰): 绕 +f 轴的球带"""
+    vs = []
+    for j in range(ring + 1):
+        phi = phi_lo + (phi_hi - phi_lo) * j / ring
+        sp, cp = sin(phi), cos(phi)
+        for i in range(seg):
+            az = 2 * pi * i / seg
+            d = f_axis * cp + (up_axis * cos(az) + rt_axis * sin(az)) * sp
+            vs.append((C[0] + d.x * R, C[1] + d.y * R, C[2] + d.z * R))
+    fs = []
+    for j in range(ring):
+        r0, r1 = j * seg, (j + 1) * seg
+        for i in range(seg):
+            i2 = (i + 1) % seg
+            fs.append((r0 + i, r1 + i, r1 + i2, r0 + i2))
+    return _new_obj(name, vs, fs, mat, True)
+
+
+def pumpkin_body(name, C, rx, rz, seg, ring, mat, lobes=8, amp=0.075):
+    """瓣纹南瓜体: 正弦瓣 + 底压扁 + 顶肩内收 + 瓣谷顶点色压暗"""
+    vs, vcol = [], []
+    for j in range(ring + 1):
+        phi = pi * j / ring
+        sp, cp = sin(phi), cos(phi)
+        for i in range(seg):
+            th = 2 * pi * i / seg
+            lobe = 1 + amp * sin(lobes * th) * (sp ** 1.4)
+            px_ = rx * sp * cos(th) * lobe
+            py_ = rx * sp * sin(th) * lobe
+            pz_ = rz * cp
+            if pz_ < 0:
+                pz_ *= 0.8
+            if phi < 0.42:
+                pz_ *= 0.94
+            vs.append((C[0] + px_, C[1] + py_, C[2] + pz_))
+            g = 0.85 + 0.40 * ((0.5 + 0.5 * sin(lobes * th)) ** 0.65)
+            g *= 0.8 if cp < -0.2 else 1.0
+            g *= random.uniform(0.96, 1.04)
+            vcol.append((g, g, g))
+    fs = []
+    for j in range(ring):
+        r0, r1 = j * seg, (j + 1) * seg
+        for i in range(seg):
+            i2 = (i + 1) % seg
+            fs.append((r0 + i, r1 + i, r1 + i2, r0 + i2))
+    ob = _new_obj(name, vs, fs, mat, True)
+    set_vcol(ob, vcol)
+    return ob
+
+
+def leaf(name, base, yaw, size=0.16):
+    """弯拱叶片: 复用草叶弯带 (自建拱带会渲成小帐篷)"""
+    rc = hex_lin("#1E3618")[:3]
+    tc = hex_lin("#4E7A32")[:3]
+    return blade(name, base, size, size * 0.3, yaw, random.uniform(0.65, 0.95),
+                 m_leaf, rc, tc, lean=0.75, twist=random.uniform(-0.35, 0.35))
+
+
+def vine_link(name, p1, p2, s=1.0, leaves=2):
+    """藤蔓: 贴地起伏管 + 嫩叶 (南瓜簇连接)"""
+    p1, p2 = Vector(p1), Vector(p2)
+    pts = []
+    for k in range(6):
+        t = k / 5
+        p = p1.lerp(p2, t)
+        p.z = 0.015 + 0.035 * sin(t * pi)
+        perp = Vector((-(p2.y - p1.y), p2.x - p1.x, 0)).normalized()
+        p = p + perp * (0.06 * sin(t * 6.28))
+        pts.append(p)
+    tube_frustum(f"{name}_vine", pts, [0.018 * s] * 6, m_pstem, sides=5, cap_end_fan=False)
+    for k in range(leaves):
+        t = 0.25 + 0.5 * k
+        lp = pts[1 + int(min(t, 0.98) * 4)]
+        a = random.uniform(0, 2 * pi)
+        leaf(f"{name}_lf{k}", lp, a, 0.3 * s)
+
+
+def mushroom_v2(name, x, y, s=1.0):
+    """发光蘑菇 v2: 波缘伞盖 + 菌褶发光底盘 + 弯柄 + 苔盘小草 (荧光逻辑: 光从褶下漏)"""
+    ground_patch(f"{name}_moss", x, y, 0.45 * s, m_moss, 0.6, 1.0)
+    tilt = random.uniform(-0.2, 0.2)
+    add_cyl(f"{name}_st", 0.035 * s, 0.26 * s, (x + tilt * 0.3, y, 0.13 * s),
+            rot=(tilt, 0, 0), mat=m_mushstem, verts=7)
+    capC = Vector((x + tilt * 0.55, y, 0.3 * s))
+    vs, fs = [], []
+    seg, ring = 14, 4
+    ph = random.uniform(0, pi)
+    for j in range(ring + 1):
+        t = j / ring
+        phi = pi * 0.5 * (0.25 + 0.75 * t)
+        for i in range(seg):
+            a = 2 * pi * i / seg + ph
+            rr_ = 0.17 * s * sin(phi) * (1 + 0.14 * sin(5 * a))
+            vs.append((capC.x + rr_ * cos(a), capC.y + rr_ * sin(a),
+                       capC.z + 0.17 * s * cos(phi) * 0.6))
+    for j in range(ring):
+        r0, r1 = j * seg, (j + 1) * seg
+        for i in range(seg):
+            i2 = (i + 1) % seg
+            fs.append((r0 + i, r1 + i, r1 + i2, r0 + i2))
+    _new_obj(f"{name}_cap", vs, fs, m_mush, True)
+    add_cyl(f"{name}_gill", 0.15 * s, 0.014 * s, tuple(capC - Vector((0, 0, 0.012 * s))),
+            mat=m_mushgill, verts=14)
+    for k in range(3):
+        a = random.uniform(0, 2 * pi)
+        add_sphere(f"{name}_spot{k}", 0.016 * s,
+                   tuple(capC + Vector((0.1 * s * cos(a), 0.1 * s * sin(a), 0.06 * s))),
+                   mat=m_mushspot, seg=6, ring=4)
+    tuft_v3(f"{name}_t0", x + 0.35 * s, y + 0.2 * s, 0.5, n=3)
+
+
+def haystack_v2(name, hx, hy):
+    """干草堆 v2: 瓣纹圆垛 (稻草本色×灰阶vcol) + 外露草叶 + 顶部草束"""
+    ground_patch(f"{name}_g", hx, hy, 1.15, m_litter, 0.55, 0.9)
+    pumpkin_body(f"{name}_dome", (hx, hy, 0.36), 0.82, 0.42, 18, 8, m_hay,
+                 lobes=6, amp=0.1)
+    for k in range(20):
+        a = random.uniform(0, 2 * pi)
+        rr_ = random.uniform(0.55, 0.85)
+        px_, py_ = hx + rr_ * cos(a), hy + rr_ * sin(a)
+        tone = random.uniform(0.7, 1.3)
+        c_lo = tuple(c * tone for c in hex_lin("#8A6A30")[:3])
+        c_hi = tuple(c * tone for c in hex_lin("#D2A85C")[:3])
+        blade(f"{name}_s{k}", (px_, py_, random.uniform(0.15, 0.5)),
+              random.uniform(0.25, 0.45), 0.018, a + random.uniform(-0.6, 0.6),
+              random.uniform(0.5, 1.0), m_strawv, c_lo, c_hi,
+              lean=random.uniform(0.4, 0.8))
+    for k in range(4):
+        a = k * pi / 2 + 0.4
+        blade(f"{name}_top{k}", (hx + 0.2 * cos(a), hy + 0.2 * sin(a), 0.72),
+              0.4, 0.02, a, 0.8, m_strawv, c_lo, c_hi, lean=0.5)
+
+
+def add_cone_hat(name, x, y):
+    """稻草人帽: 檐 + 锥顶"""
+    add_cyl(f"{name}_hatbrim", 0.34, 0.03, (x, y, 2.17), mat=m_cloth, verts=10)
+    hz = 0.13
+    vs = []
+    for i in range(8):
+        a = 2 * pi * i / 8
+        vs.append((0.3 * cos(a), 0.3 * sin(a), -hz))
+    vs.append((0, 0, hz))
+    fs = [(i, (i + 1) % 8, 8) for i in range(8)]
+    ob = _new_obj(f"{name}_hat", vs, fs, m_cloth, True)
+    ob.location = (x, y, 2.3)
+
+
+def scarecrow(name, x, y, ry=0.0):
+    """稻草人 v2: 原骨架 + 弯叶草束袖口/头顶草簇 + 脚下落叶圈"""
+    add_cyl(f"{name}_pole", 0.06, 2.0, (x, y, 1.0), mat=m_wood, verts=6)
+    add_box(f"{name}_arms", (1.2, 0.07, 0.07), (x, y, 1.5), rot=(0, 0, ry), mat=m_wood)
+    add_sphere(f"{name}_head", 0.2, (x, y, 2.05), mat=m_haysolid, seg=10, ring=7)
+    add_cone_hat(name, x, y)
+    add_box(f"{name}_body", (0.55, 0.3, 0.75), (x, y, 1.15), rot=(0, 0, ry), mat=m_cloth)
+    for as_ in (-1, 1):
+        px_ = x + cos(ry) * as_ * 0.6
+        py_ = y + sin(ry) * as_ * 0.6
+        for k in range(5):
+            a = random.uniform(0, 2 * pi)
+            tone = random.uniform(0.75, 1.2)
+            lo = tuple(c * tone for c in hex_lin("#6E5426")[:3])
+            hi = tuple(c * tone for c in hex_lin("#B8924A")[:3])
+            blade(f"{name}_cuff{as_}_{k}", (px_, py_, 1.44),
+                  random.uniform(0.28, 0.4), 0.016, a, random.uniform(0.7, 1.1),
+                  m_strawv, lo, hi, lean=0.5)
+    for k in range(4):
+        a = k * pi / 2 + 0.5
+        blade(f"{name}_hair{k}", (x + 0.12 * cos(a), y + 0.12 * sin(a), 2.2),
+              0.3, 0.015, a, 0.9, m_strawv, lo, hi, lean=0.6)
+    litter_at(f"{name}_lit", x, y, 0.7)
+    collider(x, y, 0.5)
+
+
+def flower_v3(name, x, y, violet=True, s=1.0):
+    """花 v3: 弯茎 + 弯拱叶 + 杯形6瓣 (顶点色渐变) + 暖芯 (夜读作灯笼花)"""
+    h = 0.22 * s
+    sway = random.uniform(-0.3, 0.3)
+    tube_frustum(f"{name}_st", [(x, y, 0.01), (x + sway * 0.4, y, h * 0.5),
+                                (x + sway, y + sway * 0.3, h)],
+                 [0.013 * s, 0.01 * s, 0.007 * s], m_stem, sides=5)
+    leaf(f"{name}_lf0", (x + sway * 0.2, y, h * 0.42), random.uniform(0, 2 * pi), 0.15 * s)
+    head = Vector((x + sway, y + sway * 0.3, h))
+    for k in range(6):
+        a = k * 2 * pi / 6 + random.uniform(-0.08, 0.08)
+        outw = Vector((cos(a), sin(a), 0))
+        d0 = (outw * 0.55 + Vector((0, 0, 1)) * 0.8).normalized()
+        axis = d0.cross(Vector((0, 0, 1))).normalized()
+        rows = []
+        p = head.copy()
+        step = 0.055 * s
+        for i in range(3):
+            t = i / 2
+            dd = (outw * (0.5 - 0.62 * t) + Vector((0, 0, 1)) * (0.7 + 0.5 * t)).normalized()
+            w = 0.05 * s * (1 - t * 0.4)
+            rows.append((p - axis * w, p + axis * w, t))
+            p = p + dd * step
+        if violet:
+            rc, tc = hex_lin("#6A3BB0")[:3], hex_lin("#B57BFF")[:3]
+        else:
+            rc, tc = hex_lin("#C4701F")[:3], hex_lin("#FFB347")[:3]
+        vs = []
+        vcol = []
+        for l, r, t in rows:
+            vs += [tuple(l), tuple(r)]
+            tt = t ** 0.9
+            c = [rc[k2] + (tc[k2] - rc[k2]) * tt for k2 in range(3)]
+            vcol += [c, c]
+        fs = []
+        for i in range(2):
+            a_, b_ = i * 2, i * 2 + 1
+            fs.append((a_, b_, b_ + 2))
+            fs.append((a_, b_ + 2, a_ + 2))
+        ob = _new_obj(f"{name}_p{k}", vs, fs, m_petal, False)
+        set_vcol(ob, vcol)
+    add_sphere(f"{name}_ct", 0.028 * s, tuple(head + Vector((0, 0, 0.015))), mat=m_core,
+               seg=7, ring=4)
+
+
 # ---------------------------------------------------------------- build ----
 bpy.ops.wm.read_factory_settings(use_empty=True)
 sc = bpy.context.scene
@@ -287,7 +709,7 @@ tmark("materials ready")
 
 m_ground  = make_mat("PE_Ground", HEX["ground"], rough=0.95)
 m_grass   = make_mat("PE_Grass", HEX["grass"], rough=0.95)
-m_grass2  = make_mat("PE_GrassTuft", HEX["grass2"], rough=1.0)
+m_tuft    = make_vcol_mat("PE_GrassTuft", "#FFFFFF", rough=1.0)  # v3 弯叶 (顶点色渐变)
 m_path    = make_mat("PE_Path", HEX["path"], rough=0.8, metal=0.05)
 m_iron    = make_mat("PE_Iron", HEX["iron"], rough=0.55, metal=0.8)
 m_metal_d = make_mat("PE_MetalDark", HEX["metal_d"], rough=0.6, metal=0.7)
@@ -308,15 +730,31 @@ m_green_s  = make_mat("PE_EmitGreenSoft", HEX["green"], emit=HEX["green"], stren
 m_red     = make_mat("PE_EmitRed", HEX["red"], emit=HEX["red"], strength=2.2)
 m_dot     = [make_mat(f"PE_Dot{i}", c, emit=c, strength=2.6) for i, c in enumerate(DOTS)]
 m_balloon = [make_mat(f"PE_Balloon{i}", c, emit=c, strength=1.1) for i, c in enumerate(DOTS)]  # 近景不糊 bloom
-m_pump    = make_mat("PE_Pumpkin", HEX["pumpkin"], rough=0.5, emit=HEX["pumpkin"], strength=0.5)
-m_pumpface= make_mat("PE_PumpFace", HEX["pumpface"], emit=HEX["pumpface"], strength=3.0)
-m_stem    = make_mat("PE_Stem", "#3E5230", rough=0.8)
+m_pump    = make_vcol_mat("PE_Pumpkin", "#C87419", rough=0.42)          # v3: 本体不发光, 瓣谷顶点色压暗
+m_pump_deep = make_vcol_mat("PE_PumpkinDeep", "#A8541E", rough=0.42)
+m_pump_pale = make_vcol_mat("PE_PumpkinPale", "#D9C9A8", rough=0.5)
+m_pumpface= make_mat("PE_PumpFace", HEX["pumpface"], emit=HEX["pumpface"], strength=3.0)  # 路灯南瓜顶用
+m_cavity  = make_mat("PE_PumpCavity", "#100A06", rough=1.0)
+m_glow    = make_mat("PE_PumpGlow", "#2A1608", rough=0.8, emit="#FFC46B", strength=7.0)
+m_pstem   = make_mat("PE_PumpStem", "#4A4030", rough=0.9)               # 南瓜蒂/藤蔓
+m_stem    = make_mat("PE_Stem", "#3E5230", rough=0.8)                   # 花茎 (绿)
 m_trunk   = make_mat("PE_Trunk", "#2E2620", rough=0.9)
+m_twig    = make_mat("PE_Twig", "#2A2420", rough=0.9)                   # 枯树细枝 (风摆分层)
+m_pinefol = make_vcol_mat("PE_PineFoliage", "#142A24", rough=0.9)  # 广场灯浴下再压暗一档       # v3 修复: 叶层曾有树皮色 bug
+m_willow  = make_vcol_mat("PE_WillowFiber", "#FFFFFF", rough=0.95)      # 垂柳飘带 (顶点色渐变)
 m_sign_g  = make_mat("PE_SignGate", HEX["violet"], emit=HEX["violet"], strength=1.8)
-m_petal_v = make_mat("PE_PetalV", HEX["petv"], rough=0.6, emit=HEX["petv"], strength=0.5)
-m_petal_o = make_mat("PE_PetalO", HEX["peto"], rough=0.6, emit=HEX["peto"], strength=0.5)
-m_mush    = make_mat("PE_MushCap", HEX["mush"], rough=0.55, emit=HEX["mush"], strength=1.6)
-m_mushstem= make_mat("PE_MushStem", HEX["mushstem"], rough=0.8)
+m_petal   = make_vcol_mat("PE_Petal", "#FFFFFF", rough=0.55)            # 花瓣 (顶点色渐变)
+m_leaf    = make_vcol_mat("PE_VineLeaf", "#FFFFFF", rough=0.75)         # 藤叶/草叶 (顶点色渐变)
+m_core    = make_mat("PE_FlowerCore", "#2A1608", rough=0.8, emit="#FFE9C4", strength=1.4)
+m_mush    = make_mat("PE_MushCap", "#6E5AA6", rough=0.75)
+m_mushgill= make_mat("PE_MushGill", "#6B4FA8", rough=0.8, emit="#B08BFF", strength=0.5)
+m_mushspot= make_mat("PE_MushSpot", "#6B4FA8", rough=0.8, emit="#B08BFF", strength=0.35)
+m_mushstem= make_mat("PE_MushStem", "#B8B0C6", rough=0.85)
+m_moss    = make_vcol_mat("PE_GroundMoss", "#1B2E22", rough=1.0)        # 地表苔斑
+m_litter  = make_vcol_mat("PE_LeafLitter", "#4E3822", rough=1.0)        # 落叶圈
+m_strawv  = make_vcol_mat("PE_StrawV", "#FFFFFF", rough=0.95)           # 草束/干草叶 (顶点色)
+m_hay     = make_vcol_mat("PE_Hay", "#A8823A", rough=0.95)              # 干草垛穹体
+m_haysolid= make_mat("PE_HaySolid", "#8A6A2E", rough=0.95)              # 稻草人头 (无vcol, 防join黑块)
 m_water   = make_mat("PE_WellWater", HEX["water"], rough=0.25, metal=0.4,
                      emit="#4A3A8A", strength=0.8)
 
@@ -585,120 +1023,306 @@ for i, (bx, by) in enumerate(((5.5, -143.5), (-5.5, -143.5),
     collider(bx, by, 0.45)
 
 # ---------------- 枯树 v2 x22 (螺旋/双干/垂枝, 递归分枝 + 根部外扩) ----------------
-def branch(name, base, dirv, length, radius, depth, phase=0.0, weep=False):
-    end = base + dirv * length
-    cyl_between(name, base, end, radius, m_trunk, verts=5)
-    if depth == 0:
-        return
-    n = 2 if depth <= 1 else random.randint(2, 3)
-    for k in range(n):
-        ang = phase + k * 2.1 + random.uniform(-0.4, 0.4)
-        tilt = random.uniform(0.5, 0.9)
-        nd = (dirv + Vector((cos(ang) * tilt, sin(ang) * tilt,
-                             random.uniform(-0.25, 0.7)))).normalized()
-        if weep and depth <= 1:
-            nd = (nd + Vector((0, 0, -1.0))).normalized()
-        branch(f"{name}_{k}", end, nd, length * random.uniform(0.6, 0.75),
-               radius * 0.55, depth - 1, phase + 1.7, weep)
-
 def spooky_tree(name, x, y, scale=1.0, variant=None):
+    """枯树 v3: S弯多段锥干 + 板根 + 递归弯枝(连续变径+尖梢), 主干/细枝分材质 (风摆分层)"""
     variant = variant or random.choice(("spiral", "fork", "weep"))
-    h = 2.9 * scale
-    r0 = 0.30 * scale
-    # 根部外扩
-    for rf in range(3):
-        a = random.uniform(0, 2 * pi)
-        d = Vector((cos(a) * 0.9, sin(a) * 0.9, -0.3)).normalized()
-        cyl_between(f"{name}_root{rf}", Vector((x, y, 0.4 * scale)),
-                    Vector((x, y, 0.4 * scale)) + d * (0.75 * scale),
-                    0.13 * scale, m_trunk, verts=5)
-    top = Vector((x, y, h))
-    if variant == "fork":     # 双干
-        mid = Vector((x, y, h * 0.5))
-        cyl_between(f"{name}_trunk", (x, y, 0), mid, r0, m_trunk, verts=7)
-        for t in range(2):
+    h = 3.1 * scale
+
+    def curve_pts(base, dirv, length, segs, drift=0.5):
+        pts = [Vector(base)]
+        d = Vector(dirv).normalized()
+        p = pts[0].copy()
+        for _ in range(segs):
+            d = (d + Vector((random.uniform(-drift, drift) * 0.4,
+                             random.uniform(-drift, 0) * 0.4,
+                             random.uniform(-0.12, 0.10)))).normalized()
+            d.z = max(d.z, -0.2)
+            p = p + d * (length / segs)
+            pts.append(p.copy())
+        return pts
+
+    # 板根 x5
+    for rf in range(5):
+        a = rf * 2 * pi / 5 + random.uniform(-0.3, 0.3)
+        outw = Vector((cos(a), sin(a), 0))
+        base = Vector((x, y, 0)) + outw * 0.1
+        end = Vector((x, y, 0)) + outw * random.uniform(0.7, 1.0) * scale + Vector((0, 0, -0.02))
+        mid = Vector((x, y, 0.5 * scale)).lerp(end, 0.55)
+        mid.z = 0.16 * scale
+        tube_frustum(f"{name}_root{rf}", [base, mid, end],
+                     [0.14 * scale, 0.08 * scale, 0.02 * scale], m_trunk, sides=6)
+
+    # 主干 S 弯 7 段
+    lean = 0.22 if variant == "spiral" else 0.12
+    a0 = random.uniform(0, 2 * pi)
+    trunk_pts = curve_pts((x, y, 0), (cos(a0) * lean, sin(a0) * lean, 1.0), h, 7, drift=0.45)
+    r0 = 0.26 * scale
+    radii = [r0 * (0.82 ** i) for i in range(len(trunk_pts))]
+    tube_frustum(f"{name}_trunk", trunk_pts, radii, m_trunk, sides=8)
+
+    def grow(prefix, base, dirv, length, radius, depth, weep):
+        pts = curve_pts(base, dirv, length, 3 if depth >= 2 else 2, drift=0.7)
+        radii = [radius * (0.72 ** i) for i in range(len(pts))]
+        tube_frustum(f"{prefix}", pts, radii, m_trunk if depth >= 2 else m_twig,
+                     sides=7 if depth >= 2 else 5)
+        if depth == 0:
+            return
+        tip = pts[-1]
+        dlast = (pts[-1] - pts[-2]).normalized()
+        n_child = 2 if depth <= 1 else random.randint(2, 3)
+        for k in range(n_child):
+            a = random.uniform(0, 2 * pi)
+            tilt = random.uniform(0.45, 0.85)
+            nd = (dlast + Vector((cos(a) * tilt, sin(a) * tilt,
+                                  random.uniform(-0.15, 0.55)))).normalized()
+            if weep and depth <= 1:
+                nd = (nd + Vector((0, 0, -1.1))).normalized()
+            grow(f"{prefix}_{k}", tip, nd, length * random.uniform(0.58, 0.74),
+                 radius * 0.52, depth - 1, weep)
+
+    top = trunk_pts[-1]
+    n_primary = 4 if variant != "fork" else 2
+    for b in range(n_primary):
+        a = b * 2 * pi / n_primary + random.uniform(-0.5, 0.5)
+        d = Vector((cos(a) * 0.7, sin(a) * 0.7, random.uniform(0.8, 1.3))).normalized()
+        grow(f"{name}_b{b}", top, d, 1.7 * scale, 0.085 * scale, 3, variant == "weep")
+    if variant == "fork":   # 双干: 中上部再立两根斜干
+        for b in range(2):
             a = random.uniform(0, 2 * pi)
             d = Vector((cos(a) * 0.5, sin(a) * 0.5, 1.0)).normalized()
-            base = mid + d * (h * 0.1)
-            top2 = base + d * (h * 0.62)
-            cyl_between(f"{name}_trk{t}", base, top2, r0 * 0.75, m_trunk, verts=6)
-            branch(f"{name}_b{t}", top2, d, 1.5 * scale, 0.09 * scale, 2, random.uniform(0, pi))
-    else:
-        lean = 0.18 if variant == "spiral" else 0.05
-        a0 = random.uniform(0, 2 * pi)
-        trunk_dir = Vector((cos(a0) * lean, sin(a0) * lean, 1.0)).normalized()
-        base = Vector((x, y, 0))
-        mid = base + trunk_dir * (h * 0.55)
-        cyl_between(f"{name}_trunk", base, mid, r0, m_trunk, verts=7)
-        top = mid + trunk_dir * (h * 0.45)
-        cyl_between(f"{name}_trunk2", mid, top, r0 * 0.7, m_trunk, verts=6)
-        branch(f"{name}_b", top, trunk_dir, 1.8 * scale, 0.1 * scale, 3,
-               random.uniform(0, pi), weep=(variant == "weep"))
+            grow(f"{name}_f{b}", trunk_pts[4], d, 1.5 * scale, 0.09 * scale, 3, False)
+    for b in range(2):      # 中干侧枝
+        a = random.uniform(0, 2 * pi)
+        d = Vector((cos(a) * 0.9, sin(a) * 0.9, random.uniform(0.3, 0.7))).normalized()
+        grow(f"{name}_m{b}", trunk_pts[3 + b], d, 1.0 * scale, 0.05 * scale, 2, variant == "weep")
+    litter_at(f"{name}_lit", x, y, 0.9 * scale)
+    for t_ in range(random.randint(2, 3)):
+        a = random.uniform(0, 2 * pi)
+        rr = random.uniform(0.5, 1.0) * scale
+        tuft_v3(f"{name}_t{t_}", x + rr * cos(a), y + rr * sin(a), 0.8)
     collider(x, y, 0.65)
 
-# ---------------- 缠灯松树 (高瘦/矮胖/歪脖) ----------------
+
 def pine_tree(name, x, y, variant="tall", lit=True):
-    s = 1.0
+    """缠灯松 v2: 锯齿噪声锥层 (独立针叶材质) + 底缘裙边下垂; 修复叶层曾有树皮色 bug"""
     if variant == "tall":
-        layers = ((2.0, 1.6), (1.6, 2.6), (1.2, 3.6), (0.85, 4.5), (0.5, 5.3))
+        layers = ((1.9, 1.7), (1.5, 2.6), (1.15, 3.5), (0.8, 4.35), (0.45, 5.1))
     elif variant == "fat":
-        layers = ((2.6, 1.4), (2.0, 2.4), (1.3, 3.3), (0.7, 4.1))
-    else:   # crooked
-        layers = ((2.1, 1.5), (1.6, 2.5), (1.1, 3.4), (0.6, 4.2))
+        layers = ((2.5, 1.5), (1.9, 2.45), (1.25, 3.3), (0.7, 4.0))
+    else:
+        layers = ((2.0, 1.6), (1.55, 2.5), (1.05, 3.35), (0.6, 4.1))
     lean_a = random.uniform(0, 2 * pi)
-    lean = 0.22 if variant == "crooked" else 0.0
-    add_cyl(f"{name}_trunk", 0.15, 1.4, (x, y, 0.7), mat=m_trunk, verts=6)
+    lean = 0.2 if variant == "crooked" else 0.0
+    add_cyl(f"{name}_trunk", 0.15, 2.4, (x, y, 1.2), mat=m_trunk, verts=7)
+    ph = random.uniform(0, pi)
     for li, (cr, cz) in enumerate(layers):
-        ox = lean * cz * cos(lean_a)
-        oy = lean * cz * sin(lean_a)
-        add_cone(f"{name}_{li}", cr * s, 1.8, (x + ox, y + oy, cz + 0.4), mat=m_trunk, verts=8)
+        ox, oy = lean * cz * cos(lean_a), lean * cz * sin(lean_a)
+        seg, ring, hl = 14, 5, 1.55
+        vs, vcol = [], []
+        for j in range(ring + 1):
+            t = j / ring
+            for i in range(seg):
+                a = 2 * pi * i / seg + li * 0.6 + ph
+                rr_ = cr * (1 - t * 0.96) * (1 + 0.14 * sin(7 * a + li * 1.7))
+                if j == 0:
+                    rr_ *= 1.12
+                vs.append((x + ox + rr_ * cos(a), y + oy + rr_ * sin(a),
+                           cz + 0.1 + t * hl + 0.3 * cr * (t - 1)))
+                g = 0.55 + 0.45 * t
+                vcol.append((g, g, g))
+        fs = []
+        for j in range(ring):
+            r0, r1 = j * seg, (j + 1) * seg
+            for i in range(seg):
+                i2 = (i + 1) % seg
+                if j == ring - 1:
+                    fs.append((r0 + i, r1 + i, r1 + i2))
+                else:
+                    fs.append((r0 + i, r1 + i, r1 + i2, r0 + i2))
+        ob = _new_obj(f"{name}_l{li}", vs, fs, m_pinefol, True)
+        set_vcol(ob, vcol)
     if lit:
         for k in range(10):
             th2 = k * 2 * pi / 10
             li = k % len(layers)
             cr, cz = layers[li]
-            rr_ = cr * 0.82
-            ox = lean * cz * cos(lean_a)
-            oy = lean * cz * sin(lean_a)
+            rr_ = cr * 0.85
+            t_d = (1 - 0.85) / 0.96
+            pz_ = cz + 0.1 + t_d * 1.55 + 0.3 * cr * (t_d - 1)
+            ox, oy = lean * cz * cos(lean_a), lean * cz * sin(lean_a)
             add_sphere(f"{name}_dot{k}", 0.07,
-                       (x + ox + rr_ * cos(th2), y + oy + rr_ * sin(th2), cz + 0.75),
+                       (x + ox + rr_ * cos(th2), y + oy + rr_ * sin(th2), pz_),
                        mat=m_dot[k % 4], seg=8, ring=5)
+    tuft_v3(f"{name}_t0", x + 0.9, y - 0.4, 0.75)
+    litter_at(f"{name}_lit", x, y, 0.7)
     collider(x, y, 1.0)
 
-# ---------------- 垂柳 x4 ----------------
+
 def willow_tree(name, x, y, scale=1.0):
-    h = 3.2 * scale
-    add_cyl(f"{name}_trunk", 0.22 * scale, h, (x, y, h / 2), mat=m_trunk, verts=7)
-    crown = Vector((x, y, h * 0.92))
-    for b in range(3):   # 顶部上翘短枝
+    """垂柳 v2: 弯 lean 干 + 沿上干分布的锥形垂飘带 (顶点色渐变, 材质独立供风摆)"""
+    h = 3.3 * scale
+    lean_a = random.uniform(0, 2 * pi)
+    ld = Vector((cos(lean_a) * 0.4, sin(lean_a) * 0.4, 1)).normalized()
+    pts = [Vector((x, y, 0))]
+    p = pts[0].copy()
+    for _ in range(4):
+        ld = (ld + Vector((random.uniform(-0.1, 0.1), random.uniform(-0.1, 0.1), 0))).normalized()
+        p = p + ld * (h / 4)
+        pts.append(p.copy())
+    tube_frustum(f"{name}_trunk", pts,
+                 [0.2 * scale, 0.165 * scale, 0.13 * scale, 0.1 * scale, 0.07 * scale],
+                 m_trunk, sides=8)
+    crown = pts[-1]
+    for b in range(3):
         a = random.uniform(0, 2 * pi)
         d = Vector((cos(a), sin(a), 0.9)).normalized()
-        cyl_between(f"{name}_up{b}", crown, crown + d * (1.1 * scale), 0.05 * scale, m_trunk, verts=5)
-    for s_ in range(16):   # 下垂发丝枝
+        tube_frustum(f"{name}_up{b}", [crown, crown + d * (1.0 * scale)],
+                     [0.05 * scale, 0.015 * scale], m_trunk, sides=5)
+    anchors = [pts[2] + Vector((0, 0, 0.1)), pts[3] + Vector((0, 0, 0.05)), crown]
+    for s_ in range(36):
         a = random.uniform(0, 2 * pi)
-        rr_ = random.uniform(0.15, 0.55) * scale
-        p = crown + Vector((cos(a) * rr_, sin(a) * rr_, 0))
-        d = Vector((cos(a) * 0.55, sin(a) * 0.55, 0.25)).normalized()
-        for seg in range(3):
-            ln = random.uniform(0.7, 1.0) * scale
-            nxt = p + d * ln
-            cyl_between(f"{name}_w{s_}_{seg}", p, nxt, 0.035 - seg * 0.008, m_trunk, verts=4)
-            d = (d + Vector((0, 0, -0.85))).normalized()
-            p = nxt
+        anchor = anchors[s_ % len(anchors)]
+        rr_ = random.uniform(0.1, 0.5) * scale
+        base = anchor + Vector((cos(a) * rr_, sin(a) * rr_, random.uniform(0.0, 0.3)))
+        d = Vector((cos(a) * 0.85, sin(a) * 0.85, random.uniform(0.05, 0.25))).normalized()
+        segs = 8
+        step = random.uniform(0.22, 0.32) * scale
+        rows = []
+        p = base.copy()
+        axis = d.cross(Vector((0, 0, 1))).normalized()
+        for i in range(segs + 1):
+            t = i / segs
+            dd = (d + Vector((0, 0, -2.2 * t ** 1.1))).normalized()
+            w = 0.045 * scale * (1 - t) ** 0.8 + 0.004
+            rows.append((p - axis * w, p + axis * w, t))
+            p = p + dd * step
+        vs = []
+        vcol = []
+        rc = hex_lin("#233629")[:3]
+        tc = hex_lin("#4E6845")[:3]
+        for l, r, t in rows:
+            vs += [tuple(l), tuple(r)]
+            tt = t ** 0.8
+            c = [rc[k] + (tc[k] - rc[k]) * tt for k in range(3)]
+            vcol += [c, c]
+        fs = []
+        for i in range(segs):
+            a_, b_ = i * 2, i * 2 + 1
+            fs.append((a_, b_, b_ + 2))
+            fs.append((a_, b_ + 2, a_ + 2))
+        ob = _new_obj(f"{name}_w{s_}", vs, fs, m_willow, False)
+        set_vcol(ob, vcol)
+    litter_at(f"{name}_lit", x, y, 0.8 * scale)
     collider(x, y, 0.8)
 
-# ---------------- 南瓜灯 x39 (高/扁体形) ----------------
-def jack_o_lantern(name, x, y, z=0.0, ry=0.0, s=1.0, shape=None):
-    shape = shape or random.choice(("round", "round", "tall", "flat"))
-    sz = {"round": 0.78, "tall": 1.0, "flat": 0.6}[shape]
-    # 球心 z = 半纵轴 0.34*s*sz -> 底面恰好贴地; 蒂在顶面 0.68*sz 处
-    body = add_sphere(f"{name}_body", 0.34 * s, (x, y, z + 0.34 * s * sz),
-                      mat=m_pump, seg=12, ring=8, scale=(1.0, 1.0, sz))
-    body.rotation_euler.z = ry
-    add_cyl(f"{name}_stem", 0.05 * s, 0.16 * s, (x, y, z + (0.68 * sz + 0.04) * s),
-            mat=m_stem, verts=6)
-    pumpkin_face(f"{name}_face", x, y, z + max(0.05, 0.34 * sz - 0.24) * s, ry, s=s * 0.9)
 
+FACES = {
+    "classic": {
+        "eyes": [[(-0.155, 0.045), (-0.055, 0.045), (-0.105, 0.15)],
+                 [(0.155, 0.045), (0.055, 0.045), (0.105, 0.15)]],
+        "mouth": [(-0.17, -0.02), (-0.125, 0.05), (-0.08, -0.01), (-0.04, 0.05),
+                  (0.0, -0.01), (0.04, 0.05), (0.08, -0.01), (0.125, 0.05),
+                  (0.17, -0.02), (0.11, -0.115), (-0.11, -0.115)],
+    },
+    "scowl": {
+        "eyes": [[(-0.17, 0.02), (-0.06, 0.09), (-0.16, 0.12)],
+                 [(0.17, 0.02), (0.06, 0.09), (0.16, 0.12)]],
+        "mouth": [(-0.15, -0.02), (-0.10, -0.075), (-0.05, -0.03), (0.0, -0.075),
+                  (0.05, -0.03), (0.10, -0.075), (0.15, -0.02), (0.08, -0.13),
+                  (-0.08, -0.13)],
+    },
+    "cute": {
+        "eyes": [[(-0.15, 0.06), (-0.07, 0.06), (-0.055, 0.10), (-0.13, 0.10)],
+                 [(0.15, 0.06), (0.07, 0.06), (0.055, 0.10), (0.13, 0.10)]],
+        "mouth": [(cos(2 * pi * k / 8) * 0.062, sin(2 * pi * k / 8) * 0.055 - 0.055)
+                  for k in range(8)],
+    },
+}
+
+
+def tuft_v3(name, x, y, scale=1.0, n=None):
+    """草丛 v3: 根盘 + 7±2 弯曲叶 (风摆目标材质 PE_GrassTuft)"""
+    add_sphere(f"{name}_root", 0.1 * scale, (x, y, 0.012), mat=m_ground, seg=8, ring=4,
+               scale=(1.0, 1.0, 0.24))
+    n = n or random.randint(6, 9)
+    for b in range(n):
+        a = random.uniform(0, 2 * pi)
+        blen = random.uniform(0.26, 0.48) * scale
+        if random.random() < 0.16:
+            blen *= 1.5   # 抽穗长叶
+        bw = random.uniform(0.028, 0.042) * scale
+        bend = random.uniform(0.55, 1.15)
+        root, tip = blade_tone()
+        blade(f"{name}_b{b}", (x, y, 0.01), blen, bw, a, bend, m_tuft,
+              root, tip, lean=random.uniform(0.12, 0.32), twist=random.uniform(-0.5, 0.5))
+
+
+def jack_o_lantern(name, x, y, z=0.0, ry=0.0, s=1.0, shape=None):
+    """南瓜 v3: 瓣纹体(不发光) + EXACT 真雕空脸(贯通切割) + 暗腔 + 内焰 + S弯蒂; 三色三脸谱"""
+    global f_axis, rt_axis, up_axis
+    shape = shape or random.choice(("round", "round", "tall", "flat"))
+    sz = {"round": 0.86, "tall": 1.06, "flat": 0.68}[shape]
+    roll = random.random()
+    if roll < 0.68:
+        mat, face = m_pump, "classic"
+    elif roll < 0.88:
+        mat, face = m_pump_deep, "scowl"
+    else:
+        mat, face = m_pump_pale, "cute"
+    C = Vector((x, y, z + 0.34 * s * sz * 0.92))
+    rx, rz = 0.34 * s, 0.34 * s * sz
+    body_ob = pumpkin_body(f"{name}_body", C, rx, rz, 20, 12, mat)
+    tint = random.uniform(0.9, 1.04)   # 逐实例明度差
+    attr = body_ob.data.color_attributes[0]
+    buf = [0.0] * (len(attr.data) * 4)
+    attr.data.foreach_get("color", buf)
+    attr.data.foreach_set("color", [c * tint if i % 4 < 3 else 1.0
+                                    for i, c in enumerate(buf)])
+
+    f_axis = Vector((cos(ry), sin(ry), 0.0))
+    rt_axis = Vector((-sin(ry), cos(ry), 0.0))
+    up_axis = Vector((0, 0, 1))
+    spec = FACES[face]
+    cutters = []
+    ci = 0
+    for poly in spec["eyes"]:
+        ci += 1
+        prism(f"{name}_cut_e{ci}", [(r_ * s, u_ * s) for r_, u_ in poly],
+              C, f_axis, rt_axis, up_axis, -0.6 * s, 0.5 * s)
+        cutters.append(col.objects[f"{name}_cut_e{ci}"])
+    ci += 1
+    prism(f"{name}_cut_m", [(r_ * s, u_ * s) for r_, u_ in spec["mouth"]],
+          C, f_axis, rt_axis, up_axis, -0.6 * s, 0.5 * s)
+    cutters.append(col.objects[f"{name}_cut_m"])
+
+    # 逐个 EXACT 雕刻 — 合并多腔切割器会让求解器崩坏; 贯通切割(near<0)让内焰可见
+    for cob in cutters:
+        mod = body_ob.modifiers.new("carve", 'BOOLEAN')
+        mod.operation = 'DIFFERENCE'
+        mod.solver = 'EXACT'
+        mod.object = cob
+        dg = bpy.context.evaluated_depsgraph_get()
+        me_new = bpy.data.meshes.new_from_object(body_ob.evaluated_get(dg))
+        body_ob.modifiers.remove(mod)
+        old = body_ob.data
+        body_ob.data = me_new
+        bpy.data.meshes.remove(old)
+        bpy.data.objects.remove(cob, do_unlink=True)
+
+    bowl(f"{name}_cav", C, 0.30 * s * min(sz, 1.0), radians(72), radians(180), m_cavity, 18, 6)
+    bowl(f"{name}_flame", C, 0.283 * s * min(sz, 1.0), radians(95), radians(178), m_glow, 14, 4)
+
+    top = C + Vector((0, 0, rz * 0.96))
+    sway = Vector((cos(ry + pi / 2), sin(ry + pi / 2), 0))
+    pts = [top + Vector((0, 0, 0.015 * s)),
+           top + sway * 0.03 * s + Vector((0, 0, 0.055 * s)),
+           top + sway * 0.07 * s + Vector((0, 0, 0.09 * s)),
+           top + sway * 0.11 * s + Vector((0, 0, 0.115 * s))]
+    tube_frustum(f"{name}_stem", pts,
+                 [0.042 * s, 0.036 * s, 0.028 * s, 0.02 * s], m_pstem, sides=7)
+
+
+# ---------------- 南瓜灯放置 (布局不变) + v3 瓜簇/藤蔓 ----------------
 pump_plan = [
     # 主路纵列
     (2.9, -21.0), (-3.1, -23.5), (3.0, -35.0), (-2.9, -37.5),
@@ -726,6 +1350,17 @@ for i, (x, y) in enumerate(pump_plan):
                    s=random.uniform(0.9, 1.25))
     pump_spots.append((x, y))
     collider(x, y, 0.55)
+    # v3 瓜簇: 每 3 盏带 1-2 只伴生小瓜 (挡路则省略) + 藤蔓相连
+    if i % 3 == 0:
+        for c in range(random.choice((1, 2))):
+            a2 = random.uniform(0, 2 * pi)
+            cx2, cy2 = x + 0.62 * cos(a2), y + 0.62 * sin(a2)
+            if on_path(cx2, cy2, 0.5):
+                continue
+            jack_o_lantern(f"PE_PumpC{i}_{c}", cx2, cy2, 0.0, ry=random.uniform(0, 2 * pi),
+                           s=random.uniform(0.42, 0.62))
+            collider(cx2, cy2, 0.38)
+            vine_link(f"PE_PumpV{i}_{c}", (x, y, 0), (cx2, cy2, 0), s=1.0, leaves=2)
 
 # 打卡点: 10 个南瓜簇 (app 坐标在导出时换算)
 POIS.extend([
@@ -741,7 +1376,7 @@ POIS.extend([
     (16.2, -91.6, "pumpkin_field"),
 ])
 
-# ---------------- 草丛 ~600 ----------------
+# ---------------- 草丛 ~600 (v3 弯叶, 风摆目标) ----------------
 tufts = []
 tries = 0
 while len(tufts) < 600 and tries < 4000:
@@ -760,16 +1395,32 @@ while len(tufts) < 600 and tries < 4000:
         continue
     tufts.append((x, y))
 for i, (x, y) in enumerate(tufts):
-    n_b = random.randint(3, 5)
-    for b in range(n_b):
-        a = random.uniform(0, 2 * pi)
-        tilt = random.uniform(0.25, 0.55)
-        d = Vector((cos(a) * tilt, sin(a) * tilt, 1.0)).normalized()
-        blen = random.uniform(0.3, 0.55)
-        base = Vector((x, y, 0))
-        cyl_between(f"PE_Tuft{i}_{b}", base, base + d * blen, 0.028, m_grass2, verts=3)
+    tuft_v3(f"PE_Tuft{i}", x, y, scale=random.uniform(0.85, 1.2))
 
-# ---------------- 发光蘑菇圈 x8 ----------------
+# ---------------- 地表杂色地斑 (苔藓/腐叶, 打破纯黑地面) ----------------
+patch_spots = []
+tries = 0
+while len(patch_spots) < 55 and tries < 3000:
+    tries += 1
+    ang = random.uniform(0, 2 * pi)
+    rr = 136.0 * random.random() ** 0.7
+    x, y = rr * cos(ang), rr * sin(ang)
+    if on_path(x, y, 2.2):
+        continue
+    ok = True
+    for px_, py_ in patch_spots:
+        if (px_ - x) ** 2 + (py_ - y) ** 2 < 7.0 ** 2:
+            ok = False
+            break
+    if not ok:
+        continue
+    patch_spots.append((x, y))
+    if random.random() < 0.7:
+        ground_patch(f"PE_GP{len(patch_spots)}", x, y, random.uniform(1.6, 3.6), m_moss)
+    else:
+        ground_patch(f"PE_GP{len(patch_spots)}", x, y, random.uniform(1.2, 2.4), m_litter, 0.5, 0.95)
+
+# ---------------- 发光蘑菇圈 x8 (v2 波缘伞盖 + 菌褶底发光) ----------------
 mush_circles = [(30, -38), (38, -44), (60, 45), (-15, -70), (-75, 10),
                 (30, -80), (75, -20), (-40, 80)]
 for ci, (cx, cy) in enumerate(mush_circles):
@@ -780,19 +1431,12 @@ for ci, (cx, cy) in enumerate(mush_circles):
         mx = cx + ring_r * cos(a) + random.uniform(-0.15, 0.15)
         my = cy + ring_r * sin(a) + random.uniform(-0.15, 0.15)
         ms_ = random.uniform(0.7, 1.3)
-        add_cyl(f"PE_Mush{ci}_{k}_st", 0.05 * ms_, 0.26 * ms_, (mx, my, 0.13 * ms_),
-                mat=m_mushstem, verts=6)
-        add_sphere(f"PE_Mush{ci}_{k}_cap", 0.17 * ms_, (mx, my, 0.3 * ms_),
-                   mat=m_mush, seg=10, ring=6, scale=(1.0, 1.0, 0.6))
+        mushroom_v2(f"PE_Mush{ci}_{k}", mx, my, ms_)
     collider(cx, cy, ring_r + 0.5)
 
-# ---------------- 路缘花带 (紫郁金香 + 橙万寿菊) ----------------
+
 def flower(name, x, y, violet=True, s=1.0):
-    add_cyl(f"{name}_st", 0.02, 0.34 * s, (x, y, 0.17 * s), mat=m_stem, verts=4)
-    add_sphere(f"{name}_hd", 0.095 * s, (x, y, 0.36 * s),
-               mat=(m_petal_v if violet else m_petal_o), seg=8, ring=5,
-               scale=(1.0, 1.0, 0.6))
-    add_sphere(f"{name}_ct", 0.045 * s, (x, y, 0.44 * s), mat=m_dot[0], seg=6, ring=4)
+    flower_v3(name, x, y, violet, s)   # v3: 杯形瓣+暖芯 (见 helper 区)
 
 flower_spots = []
 row = 0
@@ -845,17 +1489,23 @@ add_sphere("PE_GraveFlame", 0.12, (gx0, gy0 + 4.6, 0.72), mat=m_violet, seg=10, 
 spooky_tree("PE_GraveTree", gx0 + 5.4, gy0 + 3.2, scale=1.2, variant="weep")
 collider(gx0 + 5.4, gy0 + 3.2, 0.7)
 
-# 彼岸花丛 x4 (墓园, 暗红发光)
+# 彼岸花丛 x4 (墓园 v2: 弯茎 + 放射红蕊弯瓣, m_red 自发光)
 for ci, (cx, cy) in enumerate(((31.0, -43.0), (36.0, -38.0), (33.0, -46.0), (38.0, -42.0))):
     for f in range(7):
         fx = cx + random.uniform(-0.7, 0.7)
         fy = cy + random.uniform(-0.7, 0.7)
-        add_cyl(f"PE_Higan{ci}_{f}_st", 0.015, 0.42, (fx, fy, 0.21), mat=m_stem, verts=4)
-        add_sphere(f"PE_Higan{ci}_{f}_hd", 0.05, (fx, fy, 0.46), mat=m_red, seg=6, ring=4)
-        for st in range(4):   # 向上花蕊
-            a = f + st * pi / 2
-            add_cyl(f"PE_Higan{ci}_{f}_sp{st}", 0.008, 0.16,
-                    (fx + 0.02 * cos(a), fy + 0.02 * sin(a), 0.54), mat=m_red, verts=3)
+        a0 = random.uniform(0, 2 * pi)
+        bx, by = fx + 0.08 * cos(a0), fy + 0.08 * sin(a0)
+        tube_frustum(f"PE_Higan{ci}_{f}_st",
+                     [(fx, fy, 0.01), (fx + 0.04 * cos(a0), fy + 0.04 * sin(a0), 0.2),
+                      (bx, by, 0.4)],
+                     [0.014, 0.01, 0.006], m_stem, sides=5)
+        for st in range(6):
+            a = st * 2 * pi / 6 + random.uniform(-0.2, 0.2)
+            blade(f"PE_Higan{ci}_{f}_sp{st}", (bx, by, 0.42), 0.16, 0.02, a,
+                  random.uniform(0.9, 1.4), m_red,
+                  hex_lin("#8A1E1E")[:3], hex_lin("#FF4A4A")[:3], lean=0.5)
+        add_sphere(f"PE_Higan{ci}_{f}_hd", 0.03, (bx, by, 0.44), mat=m_red, seg=6, ring=4)
     collider(cx, cy, 1.0)
 
 # ---------------- 市集亭 x3 (西) + 新摊车 x2 ----------------
@@ -932,16 +1582,10 @@ for ap in range(6):   # 糖苹果: 竹签 + 红糖壳
 barrel("PE_CartApple_barrel", ax_ + 1.15, ay_ + 0.5)
 collider_rect(ax_, ay_, 0.9, 0.75)
 
-# ---------------- 干草堆 x3 ----------------
+# ---------------- 干草堆 x3 (v2 圆垛+外露草叶) ----------------
 for i, (hx, hy) in enumerate(((26.0, -36.0), (12.5, -11.2), (-11.8, -11.5))):
-    add_box(f"PE_Hay{i}", (1.35, 1.0, 0.75), (hx, hy, 0.37), rot=(0, 0, random.uniform(0, 1.5)),
-            mat=m_straw)
-    for st in range(4):   # 草束层次
-        a = st * pi / 2 + 0.4
-        add_box(f"PE_HaySt{i}", (0.5, 0.3, 0.2),
-                (hx + 0.45 * cos(a), hy + 0.35 * sin(a), 0.62),
-                rot=(0, radians(18), a), mat=m_straw)
-    collider(hx, hy, 1.0, h=0.745)
+    haystack_v2(f"PE_Hay{i}", hx, hy)
+    collider(hx, hy, 1.0, h=0.78)
 
 # ---------------- 长椅 x12 (四种款式) ----------------
 def bench(name, bx, by, rotz_deg, variant=None):
@@ -1245,20 +1889,6 @@ gargoyle("PE_Gargoyle0", 15.0, -20.0, ry=radians(135))
 gargoyle("PE_Gargoyle1", -15.0, -20.0, ry=radians(45))
 
 # ---------------- 稻草人 x2 ----------------
-def scarecrow(name, x, y, ry=0.0):
-    add_cyl(f"{name}_pole", 0.06, 2.0, (x, y, 1.0), mat=m_wood, verts=6)
-    add_box(f"{name}_arms", (1.2, 0.07, 0.07), (x, y, 1.5), rot=(0, 0, ry), mat=m_wood)
-    add_sphere(f"{name}_head", 0.2, (x, y, 2.05), mat=m_straw, seg=10, ring=7)
-    add_cone(f"{name}_hat", 0.3, 0.26, (x, y, 2.28), mat=m_cloth, verts=8)
-    add_cyl(f"{name}_hatbrim", 0.34, 0.03, (x, y, 2.17), mat=m_cloth, verts=10)
-    add_box(f"{name}_body", (0.55, 0.3, 0.75), (x, y, 1.15), rot=(0, 0, ry), mat=m_cloth)
-    for as_ in (-1, 1):   # 袖口草束
-        px_ = x + cos(ry) * as_ * 0.6
-        py_ = y + sin(ry) * as_ * 0.6
-        add_cone(f"{name}_cuff{as_}", 0.09, 0.3, (px_, py_, 1.42),
-                 mat=m_straw, verts=5, rot=(radians(180), 0, 0))
-    collider(x, y, 0.5)
-
 scarecrow("PE_Scarecrow0", 40.0, -47.0, ry=radians(30))
 scarecrow("PE_Scarecrow1", -70.0, 20.0, ry=radians(-60))
 
@@ -1504,9 +2134,10 @@ except Exception as e:
     print("BLOOM_FAIL", type(e).__name__, str(e)[:120])
 
 # ---------------- 按材质合并 (压 draw call) ----------------
+# v3: bpy.ops.object.join 在 17k 对象上要爬十几分钟 (踩坑: 见 blender-bpydata-fast-helpers),
+# 改 bpy.data 直合: 逐对象施矩阵收集顶点/面/顶点色, 一次 from_pydata。
 n_mesh = sum(1 for ob in bpy.context.scene.objects if ob.type == "MESH")
 tmark(f"scene done ({n_mesh} meshes) -> join")
-bpy.ops.object.select_all(action="DESELECT")
 groups = {}
 for ob in list(bpy.context.scene.objects):
     if ob.type != "MESH":
@@ -1515,13 +2146,52 @@ for ob in list(bpy.context.scene.objects):
     groups.setdefault(mat, []).append(ob)
 print(f"JOIN groups={len(groups)}")
 for mat_name, obs in groups.items():
-    bpy.ops.object.select_all(action="DESELECT")
+    vs_all = []
+    fs_all = []
+    vcol_all = []
+    group_vcol = any(len(ob.data.color_attributes) > 0 for ob in obs)
+    offset = 0
+    # 目标空间 = 世界坐标 (新对象零变换): wind.js 顶点着色器按世界 y/相位计算, 正好需要
     for ob in obs:
-        ob.select_set(True)
-    bpy.context.view_layer.objects.active = obs[0]
-    if len(obs) > 1:
-        bpy.ops.object.join()
-    bpy.context.view_layer.objects.active.name = f"PE_{mat_name}"
+        me = ob.data
+        mw = ob.matrix_world
+        buf = None
+        if len(me.color_attributes) > 0:
+            attr = me.color_attributes[0]
+            buf = [0.0] * (len(me.vertices) * 4)
+            attr.data.foreach_get("color", buf)
+        for v in me.vertices:
+            vs_all.append(tuple(mw @ v.co))
+        if buf is not None:
+            vcol_all += buf                      # 扁平 RGBA 流 (foreach_set 要求一维)
+        elif group_vcol:
+            vcol_all += [1.0] * (len(me.vertices) * 4)
+        for poly in me.polygons:
+            fs_all.append(tuple(i + offset for i in poly.vertices))
+        offset = len(vs_all)
+        bpy.data.objects.remove(ob, do_unlink=True)
+    me_new = bpy.data.meshes.new(f"PE_{mat_name}")
+    me_new.from_pydata(vs_all, [], fs_all)
+    me_new.validate(verbose=False)
+    me_new.update()
+    if group_vcol:
+        attr = me_new.color_attributes.new("Col", 'FLOAT_COLOR', 'POINT')
+        attr.data.foreach_set("color", vcol_all)
+        try:
+            me_new.color_attributes.active_color = attr
+        except Exception:
+            pass
+    if me_new.materials:
+        pass
+    src_mat = None
+    for o_ in bpy.data.materials:
+        if o_.name == mat_name:
+            src_mat = o_
+            break
+    if src_mat:
+        me_new.materials.append(src_mat)
+    ob_new = bpy.data.objects.new(f"PE_{mat_name}", me_new)
+    col.objects.link(ob_new)
 tmark(f"joined ({len(groups)} groups)")
 
 # ---------------- 导出 ----------------
