@@ -7,6 +7,7 @@ import { createInteract } from "./interact.js";
 import { createAudio } from "./core/audio.js";
 import { loadGLB, createLoadingManager } from "./park/loader.js";
 import { createFerrisWheel } from "./rides/ferris.js";
+import { createCarousel } from "./rides/carousel.js";
 import { createPostFX } from "./fx/postfx.js";
 import { createMist } from "./fx/mist.js";
 import { createHUD } from "./ui/hud.js";
@@ -25,9 +26,10 @@ const audio = createAudio(hud);
 window.__hud = hud; // 截图验证钩子（开发用）
 
 // ---------- 游戏状态 ----------
-const game = { state: "boot" }; // boot -> walk -> boarding -> riding -> exiting -> walk
+const game = { state: "boot", ride: null }; // boot -> walk -> boarding -> riding -> exiting -> walk; ride = ferris|carousel
 let player = null;
 let ferris = null;
+let carousel = null;
 let interact = null;
 let entered = false;
 
@@ -46,6 +48,7 @@ function applyAllSettings() {
   mist.applySettings(settings.values);
   postfx.applySettings(settings.values);
   if (ferris) ferris.applySettings(settings.values);
+  if (carousel) carousel.applySettings(settings.values);
 }
 applyAllSettings(); // 恢复持久化配置（含舱内灯光默认 40%）
 settings.onChange(applyAllSettings);
@@ -84,6 +87,16 @@ async function boot() {
   ferris.applySettings(settings.values); // 摩天轮就位后补应用（含持久化配置）
   updates.push(ferris);
 
+  // 显灵木马: 原点建模资产摆到东北园区 (blender (45,18) -> app (45,-18));
+  // 平台/中柱/台阶/围栏碰撞为静态表 (colliders.json), 骑乘位/铜杆由 carousel.js 动态驱动
+  const carouselRoot = await loadGLB("/assets/models/carousel.glb", manager);
+  hud.setLoadingProgress(0.9); // 请灵
+  carouselRoot.position.set(45, 0, -18);
+  scene.add(carouselRoot);
+  carousel = createCarousel(carouselRoot, { player });
+  carousel.applySettings(settings.values);
+  updates.push(carousel);
+
   // 交互
   interact = createInteract({
     input, hud, audio,
@@ -92,11 +105,26 @@ async function boot() {
     onBoard() {
       if (game.state !== "walk") return;
       game.state = "boarding";
+      game.ride = "ferris";
       audio.setRiding(true);
       hud.transition(() => {
         ferris.board();
         player.enterCabin(() => ferris.getRideFrame());
         hud.showPlaque("幽眠摩天轮", "高空观光 · WASD 舱内走动 · C 坐下起身 · E 随时下乘");
+        game.state = "riding";
+      });
+    },
+    onBoardCarousel() {
+      if (game.state !== "walk") return;
+      game.state = "boarding";
+      game.ride = "carousel";
+      audio.setRiding(true);
+      hud.transition(() => {
+        carousel.board();
+        const fr = carousel.getMountFrame();
+        player.enterMount(() => carousel.getMountFrame());
+        player.setView(fr.yaw, -0.04); // 初始视线 = 灵兽行进方向
+        hud.showPlaque("显灵木马", "灵兽环游 · 自由环视 · E 随时下乘");
         game.state = "riding";
       });
     },
@@ -106,16 +134,25 @@ async function boot() {
   });
   updates.push(interact);
 
-  // 乘坐中 E 下客
+  // 乘坐中 E 下客（按 ride 分流: 摩天轮回地面登舱点 / 木马下马回平台）
   input.onPress("KeyE", () => {
     if (game.state !== "riding") return;
+    const kind = game.ride;
     game.state = "exiting";
     audio.setRiding(false);
     hud.transition(() => {
-      player.exitCabin();
-      ferris.disembark();
-      // 统一送回地面登舱点（站台登舱后避免落在站台投影内；淡入淡出掩盖位移）
-      player.teleport(park?.boarding?.x ?? 0, park?.boarding?.z ?? 16.4);
+      if (kind === "carousel") {
+        const drop = carousel.dismountPoint();
+        player.exitMount();
+        carousel.dismount();
+        player.teleport(drop.x, drop.z); // 平台上落点, y 由地面支撑接管
+      } else {
+        player.exitCabin();
+        ferris.disembark();
+        // 统一送回地面登舱点（站台登舱后避免落在站台投影内；淡入淡出掩盖位移）
+        player.teleport(park?.boarding?.x ?? 0, park?.boarding?.z ?? 16.4);
+      }
+      game.ride = null;
       hud.hidePlaque();
       game.state = "walk";
     });
@@ -167,8 +204,10 @@ renderer.setAnimationLoop(() => {
 // 调试钩子（截图/排错/性能核对）
 window.__game = {
   get state() { return game.state; },
+  get ride() { return game.ride; },
   get player() { return player; },
   get ferris() { return ferris; },
+  get carousel() { return carousel; },
   get interact() { return interact; },
   get camera() { return camera; },
   renderer,

@@ -1,6 +1,10 @@
-// 交互系统：距离检测 -> 灵摆提示 -> E 触发（登舱 / 打卡收集）
-export function createInteract({ input, player, park, hud, getState, onBoard, onCollect, audio }) {
+// 交互系统：距离检测 -> 灵摆提示 -> E 触发（登舱 / 上马 / 打卡收集）
+export function createInteract({
+  input, player, park, hud, getState, onBoard, onBoardCarousel, onCollect, audio,
+}) {
   const boarding = park?.boarding ?? { x: 0, z: 16.4 };
+  // 显灵木马平台 (45,-18) r8.0: 台面上 (y≈0.62) 靠近中柱侧 r<7.6 出提示
+  const carouselCenter = { x: 45, z: -18 };
   const pois = (park?.pois ?? []).filter((p) => String(p.label).startsWith("pumpkin"));
   const collected = new Set();
   let active = null; // { label, run }
@@ -49,6 +53,13 @@ export function createInteract({ input, player, park, hud, getState, onBoard, on
       if (dist2(p.x, p.z, bx, bz) < 2.6) {
         active = { run: onBoard };
         label = "乘坐摩天轮";
+      } else if (
+        p.y > 0.4 && p.y < 1.2 &&
+        dist2(p.x, p.z, carouselCenter.x, carouselCenter.z) < 7.6
+      ) {
+        // 显灵木马盘面: 就近上马
+        active = { run: onBoardCarousel };
+        label = "骑上显灵木马";
       } else {
         for (const poi of pois) {
           if (collected.has(poi.label)) continue;

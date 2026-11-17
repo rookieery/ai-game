@@ -7,6 +7,7 @@ const root = resolve(import.meta.dirname, "..");
 
 const MAP = [
   ["model/ferris_wheel/ferris_wheel.glb", "public/assets/models/ferris_wheel.glb"],
+  ["model/carousel/carousel.glb", "public/assets/models/carousel.glb"],
   ["model/park_env/park_env.glb", "public/assets/models/park_env.glb"],
   ["model/park_env/colliders.json", "public/assets/models/colliders.json"],
 ];

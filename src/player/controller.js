@@ -113,6 +113,13 @@ export function createPlayer(camera, input, park) {
     pose: 1,                         // 坐站插值：0 坐 .. 1 站
   };
 
+  // ---------- 骑乘模式（固定座位, 显灵木马）----------
+  // 相机 = 骑乘位世界帧 × (0, eye, 0)，随盘旋转/起伏；WASD 不移动，仅自由环视。
+  const mount = {
+    active: false,
+    getFrame: null,                  // () => { pos, quat, eye }
+  };
+
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
   // 舱内碰撞解算：先钳外墙/长椅矩形，再推离中柱圆
@@ -210,6 +217,16 @@ export function createPlayer(camera, input, park) {
     cabin.vel.set(0, 0);
   });
 
+  // 骑乘模式相机：固定坐点随骑乘位帧（旋转 + 起伏），叠加轻微呼吸浮动
+  const _mf = new THREE.Vector3();
+  function updateMount(dt) {
+    const fr = mount.getFrame ? mount.getFrame() : null;
+    if (!fr) return;
+    bobT += dt * 1.8;
+    _mf.set(0, fr.eye + Math.sin(bobT) * 0.012, 0).applyQuaternion(fr.quat);
+    camera.position.copy(fr.pos).add(_mf);
+  }
+
   function updateWorld(dt) {
     const f = (input.isDown("KeyW") ? 1 : 0) - (input.isDown("KeyS") ? 1 : 0);
     const s = (input.isDown("KeyD") ? 1 : 0) - (input.isDown("KeyA") ? 1 : 0);
@@ -271,6 +288,8 @@ export function createPlayer(camera, input, park) {
       jumpBufT = 0;
     }
 
+    pushOut(); // 动态圆每帧推挤（静止也被旋转骑乘位推开）
+
     landDip *= Math.exp(-dt * 7);
     camera.position.set(pos.x, EYE + pos.y + Math.sin(bobT) * 0.035 - landDip, pos.z);
   }
@@ -306,6 +325,34 @@ export function createPlayer(camera, input, park) {
   // 空中改为不高于脚部（防低空侧穿平台壁，从上方越过不受限）
   function canStand(x, z) {
     return groundAt(x, z) <= pos.y + (grounded ? STEP : 0.01);
+  }
+
+  // 静止推挤：动态圆（旋转设施的骑乘位/铜杆）经过静止玩家时也要推开,
+  // 否则障碍直接穿身。复用 tryMove 的圆推挤 + 边界钳制, 不含台阶/矩形逻辑。
+  function pushOut() {
+    let nx = pos.x;
+    let nz = pos.z;
+    for (let it = 0; it < 2; it++) {
+      for (const c of circles) {
+        if (c.h !== undefined && pos.y >= c.h - STEP) continue;
+        const dx = nx - c.x;
+        const dz = nz - c.z;
+        const d = Math.hypot(dx, dz);
+        const min = c.r + PR;
+        if (d < min && d > 1e-4) {
+          nx = c.x + (dx / d) * min;
+          nz = c.z + (dz / d) * min;
+        }
+      }
+    }
+    const d0 = Math.hypot(nx, nz);
+    const maxD = boundaryR - PR;
+    if (d0 > maxD) {
+      nx *= maxD / d0;
+      nz *= maxD / d0;
+    }
+    pos.x = nx;
+    pos.z = nz;
   }
 
   function tryMove(nx, nz) {
@@ -380,6 +427,20 @@ export function createPlayer(camera, input, park) {
       grounded = true;
       landDip = 0;
     },
+    // 固定座位骑乘（显灵木马）：getFrame() => { pos, quat, eye }
+    enterMount(getFrame) {
+      mount.active = true;
+      mount.getFrame = getFrame;
+    },
+    exitMount() {
+      mount.active = false;
+      mount.getFrame = null;
+      // 回到园区模式：垂直状态归零（下马落点由 main 侧 teleport 给出）
+      pos.y = 0;
+      vy = 0;
+      grounded = true;
+      landDip = 0;
+    },
     // 调试/测试钩子：舱本地坐标与坐站态（非舱内模式返回 null）
     cabinLocal() {
       return cabin.active
@@ -394,6 +455,11 @@ export function createPlayer(camera, input, park) {
       grounded = true;
       landDip = 0;
     },
+    // 动态碰撞注册（旋转设施用）：圆对象引用就地注册, 设施每帧改写 x/z
+    // 即可实现移动阻挡（碰撞循环每帧实时遍历 circles, 无需其他接入）
+    registerCircles(list) {
+      for (const c of list) circles.push(c);
+    },
     setView(y, p) {
       yaw = y;
       pitch = Math.max(-1.25, Math.min(1.25, p));
@@ -404,7 +470,8 @@ export function createPlayer(camera, input, park) {
         yaw -= m.dx * 0.0022;
         pitch = Math.max(-1.25, Math.min(1.25, pitch - m.dy * 0.0022));
       }
-      if (cabin.active) updateCabin(dt);
+      if (mount.active) updateMount(dt);
+      else if (cabin.active) updateCabin(dt);
       else updateWorld(dt);
       camera.rotation.order = "YXZ";
       camera.rotation.set(pitch, yaw, 0);

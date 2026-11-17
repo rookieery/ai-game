@@ -15,6 +15,12 @@ export const SETTINGS_GROUPS = [
     ],
   },
   {
+    name: "显灵木马",
+    items: [
+      { key: "carouselSpinPeriod", label: "旋转转速", min: 10, max: 40, step: 1, def: 18, fmt: (v) => `${v} 秒/圈` },
+    ],
+  },
+  {
     name: "园区",
     items: [
       { key: "parkLampLight", label: "园区照明亮度", min: 0, max: 200, step: 5, def: 100, fmt: pct },

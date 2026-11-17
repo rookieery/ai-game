@@ -71,16 +71,42 @@ p = await jumpOnto(-23.0, 25.8, 450);
 await expect("跳上木桶 y≈0.955", Math.abs(p.y - 0.955) < 0.02, JSON.stringify(p));
 await page.screenshot({ path: `${outDir}/j2_barrel.png` });
 
-// T4 跳上旋转木马平台 (45,-18 r4.5 顶 0.555), 再走东缘下落
-p = await jumpOnto(45.0, -23.5, 450);
-await expect("跳上旋转木马平台 y≈0.555", Math.abs(p.y - 0.555) < 0.02, JSON.stringify(p));
+// T4 旋转木马平台 (45,-18 r8.0 顶 0.62): 冻结转速选马位空档传送,
+// 原地跳验证顶面支撑, 走出台缘下落归零 (骑乘位动态碰撞圈不与时间耦合)
+await page.evaluate(() => { window.__game.carousel.state.spinPeriod = 99999; });
+const spot = await page.evaluate(() => {
+  const c = window.__game.carousel;
+  const angs = c.rideRoots.filter(Boolean)
+    .map((r) => Math.atan2(r.position.z, r.position.x))
+    .sort((a, b) => a - b);
+  let best = 0;
+  let gap = -1;
+  for (let i = 0; i < angs.length; i++) {
+    const g = ((angs[(i + 1) % angs.length] - angs[i] + Math.PI * 2) % (Math.PI * 2))
+      || Math.PI * 2;
+    if (g > gap) { gap = g; best = angs[i] + g / 2; }
+  }
+  return best;
+});
+await page.evaluate(([x, z, s]) => {
+  window.__game.player.teleport(x, z);
+  window.__game.player.setView(Math.atan2(-Math.cos(s), -Math.sin(s)), 0);
+}, [45 + 6.2 * Math.cos(spot), -18 + 6.2 * Math.sin(spot), spot]);
+await page.waitForTimeout(400);
+p = await pos();
+await expect("平台上站立 y≈0.62", Math.abs(p.y - 0.62) < 0.02, JSON.stringify(p));
+await page.keyboard.press("Space");
+await page.waitForTimeout(1400);
+p = await pos();
+await expect("平台上原地跳落回 0.62", Math.abs(p.y - 0.62) < 0.02, JSON.stringify(p));
 await page.screenshot({ path: `${outDir}/j3_carousel.png` });
-await page.keyboard.down("KeyS");
-await page.waitForTimeout(700);
-await page.keyboard.up("KeyS");
-await page.waitForTimeout(1000);
+await page.keyboard.down("KeyW"); // 已面向圆心外侧, 直走出台缘
+await page.waitForTimeout(1400);
+await page.keyboard.up("KeyW");
+await page.waitForTimeout(1200);
 p = await pos();
 await expect("平台走缘下落 y=0", p.y === 0, JSON.stringify(p));
+await page.evaluate(() => { window.__game.carousel.state.spinPeriod = 18; });
 
 // T5 8 级台阶走上 1.55 站台 (南向走廊 z17.5 -> 直行 -Z)
 await page.evaluate(() => {

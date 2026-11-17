@@ -498,27 +498,13 @@ for i, (bx, by, rotz) in enumerate(bench_spots):
                 rot=(0, 0, rz), mat=m_iron)
     collider(bx, by, 0.9, h=0.665)  # 座面可站 (0.62+0.09/2)
 
-# ---------------- 旋转木马剪影 (东北, 占位) ----------------
+# ---------------- 旋转木马 (东北) ----------------
+# 真实资产 = model/carousel/carousel.glb, app 侧由 main.js 摆到 (45, 0, -18)。
+# 本文件不再生成占位几何 (2026-11-17 起以 glb 替代; park_env.blend 中 PE_Car* 已删除重导出)。
+# 碰撞约定: 平台/中柱/台阶圆在 colliders.json 手工维护 (勿重跑本文件, 随机件会漂移);
+#           骑乘位/铜杆为旋转件, 由 src/rides/carousel.js 每帧动态驱动碰撞圆。
 mx, my = 45.0, 18.0
-add_cyl("PE_CarPlatform", 4.5, 0.55, (mx, my, 0.28), mat=m_wood, verts=24)
-add_cyl("PE_CarPole", 0.26, 4.8, (mx, my, 2.9), mat=m_metal_d, verts=10)
-add_cone("PE_CarRoof", 5.3, 1.9, (mx, my, 6.2), mat=m_metal_d, verts=10)
-add_torus("PE_CarGlow", 3.7, 0.08, (mx, my, 5.05), mat=m_warm, ms=48, ns=6)
-for k in range(6):
-    th = k * pi / 3
-    px_, py_ = mx + 3.3 * cos(th), my + 3.3 * sin(th)
-    add_cyl(f"PE_CarRod{k}", 0.055, 3.6, (px_, py_, 2.9), mat=m_iron, verts=6)
-    add_box(f"PE_CarSeat{k}", (0.5, 0.28, 0.5), (px_, py_, 1.05), mat=m_wood)
-for k in range(10):
-    th = k * 2 * pi / 10
-    add_sphere(f"PE_CarDot{k}", 0.09, (mx + 4.6 * cos(th), my + 4.6 * sin(th), 5.6),
-               mat=m_dot[k % 4], seg=8, ring=5)
-collider(mx, my, 4.5, h=0.555)  # 平台盘顶面可站 (0.28+0.55/2), 中柱/座椅另挡
-collider(mx, my, 0.26)          # 中柱 (顶上有锥顶, 不可越)
-for k in range(6):              # 座椅 (顶上正中是吊杆, 挡掉避免站上穿镜头)
-    th = k * pi / 3
-    collider(mx + 3.3 * cos(th), my + 3.3 * sin(th), 0.35)
-POIS.append((mx, my, "carousel_silhouette"))
+POIS.append((mx, my, "carousel"))
 
 # ---------------- 过山车剪影 (远东北, 占位) ----------------
 cpts = []
