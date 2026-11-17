@@ -193,8 +193,9 @@ export function createAudio(hud) {
       src.start(t);
       src.stop(t + 1.2);
     },
-    // 烟花爆裂: 低通噪声扫频下坠 + 低频正弦轰 (vol 按爆点距离衰减)
-    fireworkBurst(vol = 1) {
+    // 烟花爆裂: 低通噪声扫频下坠 + 低频正弦轰; 分型尾音
+    // A 牡丹 = 纯轰; B 垂柳 = + 金瀑 shimmer 长尾; C 椰芯 = + 连串爆响 (vol 按爆点距离衰减)
+    fireworkBurst(vol = 1, kind = "A") {
       if (!ctx) return;
       const t = ctx.currentTime;
       const src = ctx.createBufferSource();
@@ -219,6 +220,41 @@ export function createAudio(hud) {
       osc.connect(og).connect(master);
       osc.start(t);
       osc.stop(t + 0.7);
+      if (kind === "B") {
+        // 垂柳 shimmer: 带通噪声缓缓下滑 2.2s, 如金瀑簌簌
+        const s2 = ctx.createBufferSource();
+        s2.buffer = noiseBuffer(2.4);
+        const bp = ctx.createBiquadFilter();
+        bp.type = "bandpass";
+        bp.Q.value = 1.2;
+        bp.frequency.setValueAtTime(1600, t + 0.15);
+        bp.frequency.exponentialRampToValueAtTime(420, t + 2.3);
+        const g2 = ctx.createGain();
+        g2.gain.setValueAtTime(0.0001, t + 0.15);
+        g2.gain.exponentialRampToValueAtTime(0.075 * vol, t + 0.45);
+        g2.gain.exponentialRampToValueAtTime(0.0001, t + 2.35);
+        s2.connect(bp).connect(g2).connect(master);
+        s2.start(t + 0.15);
+        s2.stop(t + 2.4);
+      } else if (kind === "C") {
+        // 椰芯连串爆响: 二次炸裂时刻的短促噼啪串
+        const cb = noiseBuffer(1.4);
+        const pops = 7 + ((Math.random() * 4) | 0);
+        let pt = t + 0.75;
+        for (let i = 0; i < pops; i++) {
+          const s3 = ctx.createBufferSource();
+          s3.buffer = cb;
+          const hp = ctx.createBiquadFilter();
+          hp.type = "highpass";
+          hp.frequency.value = 2200 + Math.random() * 1200;
+          const g3 = ctx.createGain();
+          g3.gain.setValueAtTime((0.05 + Math.random() * 0.06) * vol, pt);
+          g3.gain.exponentialRampToValueAtTime(0.0001, pt + 0.09);
+          s3.connect(hp).connect(g3).connect(master);
+          s3.start(pt, Math.random() * 1.2, 0.1);
+          pt += 0.08 + Math.random() * 0.07;
+        }
+      }
     },
   };
 }

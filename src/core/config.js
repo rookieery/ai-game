@@ -38,6 +38,7 @@ export const SETTINGS_GROUPS = [
     items: [
       { key: "fireworkPeriod", label: "自动烟花间隔", min: 10, max: 120, step: 5, def: 30, fmt: (v) => `${v} 秒/轮` },
       { key: "fireworkBright", label: "烟花亮度", min: 0, max: 200, step: 5, def: 100, fmt: pct }, // 粒子亮度 + 爆裂闪光联动
+      { key: "fireworkHeight", label: "炸点高度", min: 25, max: 90, step: 5, def: 55, fmt: (v) => `${v} 米` }, // 壳体初速按 v0y=√(2gh) 反解
     ],
   },
   {

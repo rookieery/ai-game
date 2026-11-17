@@ -26,8 +26,8 @@ const input = createInput(canvas);
 const hud = createHUD();
 const audio = createAudio(hud);
 window.__hud = hud; // 截图验证钩子（开发用）
-// 烟花（origin = 烟花释放器管口, blender (22,-22) -> app (22,22)）+ 幽灵火
-const fireworks = createFireworks(scene, { origin: { x: 22, y: 0, z: 22 }, camera, audio, renderer });
+// 烟花（6 站发射器锚点由 colliders.json 注入, 见 boot() 内 setLaunchers）+ 幽灵火
+const fireworks = createFireworks(scene, { camera, audio, renderer });
 const wisps = createWisps(scene);
 
 // ---------- 游戏状态 ----------
@@ -76,6 +76,7 @@ async function boot() {
     console.warn("[park] colliders.json 加载失败, 使用空碰撞");
   }
   window.__park = park;
+  fireworks.setLaunchers(park?.launchers); // 6 站发射器 { id, kind, x, z, dx, dz, mz }
 
   player = createPlayer(camera, input, park);
 
@@ -165,10 +166,11 @@ async function boot() {
     });
   });
 
-  // 烟花释放器：靠近时按 F 手动齐射（interact.update 提供 near 判定与提示）
+  // 烟花发射器：靠近时按 F 单发点射（interact.update 提供就近判定与提示）
   input.onPress("KeyF", () => {
-    if (game.state !== "walk" || !interact.nearLauncher()) return;
-    fireworks.manualVolley();
+    if (game.state !== "walk") return;
+    const lid = interact.nearLauncher();
+    if (lid >= 0) fireworks.fire(lid);
   });
 
   // 指针锁定（面板打开时不出「点击画面」提示，避免与抽屉重叠）
@@ -222,6 +224,7 @@ window.__game = {
   get ferris() { return ferris; },
   get carousel() { return carousel; },
   get interact() { return interact; },
+  get fireworks() { return fireworks; },
   get camera() { return camera; },
   renderer,
   scene,

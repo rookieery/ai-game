@@ -10,14 +10,15 @@ Run: blender --background --python park_env.py
           西南幽灵港 217.6°, 西北许愿池 147°) + 木马支路 22° / 墓园·市集横路
   - 预留区 (围挡+敬请期待牌): 北 过山车 x[-30,60] y[70,130];
           西南 幽灵港(海盗船) x[-88,-52] y[-55,-35]; 东南 秘境 x[78,112] y[-78,-42]
-  - 烟花释放器 (22,-22) / 许愿池 (-57,38) / 石像鬼 x2 / 稻草人 x2 / 花藤拱门 x3
+  - 烟花发射器 x6 (三型×2: A 牡丹架 广场东北+木马缘 / B 垂柳塔 墓园东+许愿池 /
+          C 椰芯炮 市集南+南瓜田, 炮口朝园心) / 许愿池 (-57,38) / 石像鬼 x2 / 稻草人 x2 / 花藤拱门 x3
   - 植被: 枯树 v2 x22 (螺旋/双干/垂枝) / 缠灯松 x12 (高瘦/矮胖/歪脖) / 垂柳 x4
           草丛 ~600 / 发光蘑菇圈 x8 / 路缘花带 (紫郁金香+橙万寿菊) / 彼岸花 x4 (墓园)
   - 家具变体: 长椅 x12 (铁艺卷草/木条/南瓜背/简约) / 路灯 x28 (球灯/南瓜顶/双头提灯)
           木桶加铁箍 / 南瓜灯 x39 (高/扁体形)
   - 围墙铁艺栅栏 r146 (~380 柱) + 维多利亚路灯 + 灯串 + 彩旗串
   - 远景: 山脊剪影环 (420-470) + 城市灯火点阵 (300-390)
-输出: park_env.glb (按材质合并) + colliders.json (app 坐标, 含 launcher) + preview/
+输出: park_env.glb (按材质合并) + colliders.json (app 坐标, 含 launchers 锚点) + preview/
 """
 import bpy
 import bmesh
@@ -290,6 +291,8 @@ m_grass2  = make_mat("PE_GrassTuft", HEX["grass2"], rough=1.0)
 m_path    = make_mat("PE_Path", HEX["path"], rough=0.8, metal=0.05)
 m_iron    = make_mat("PE_Iron", HEX["iron"], rough=0.55, metal=0.8)
 m_metal_d = make_mat("PE_MetalDark", HEX["metal_d"], rough=0.6, metal=0.7)
+m_steel   = make_mat("PE_Steel", "#3A4152", rough=0.35, metal=0.9)   # 发射器亮钢炮管
+m_wood_d  = make_mat("PE_WoodDark", "#3A2A1D", rough=0.9)            # 发射器深木件
 m_stone   = make_mat("PE_Stone", HEX["stone"], rough=0.85)
 m_wood    = make_mat("PE_Wood", HEX["wood"], rough=0.85)
 m_straw   = make_mat("PE_Straw", HEX["straw"], rough=0.9)
@@ -299,6 +302,9 @@ m_warm    = make_mat("PE_EmitWarm", HEX["warm"], emit=HEX["warm"], strength=2.6)
 m_orange  = make_mat("PE_EmitOrange", HEX["orange"], emit=HEX["orange"], strength=2.4)
 m_violet  = make_mat("PE_EmitViolet", HEX["violet"], emit=HEX["violet"], strength=2.2)
 m_green   = make_mat("PE_EmitGreen", HEX["green"], emit=HEX["green"], strength=2.2)
+m_orange_s = make_mat("PE_EmitOrangeSoft", HEX["orange"], emit=HEX["orange"], strength=1.3)  # 发射器型别环: 近景不糊 bloom
+m_violet_s = make_mat("PE_EmitVioletSoft", HEX["violet"], emit=HEX["violet"], strength=1.2)
+m_green_s  = make_mat("PE_EmitGreenSoft", HEX["green"], emit=HEX["green"], strength=1.2)
 m_red     = make_mat("PE_EmitRed", HEX["red"], emit=HEX["red"], strength=2.2)
 m_dot     = [make_mat(f"PE_Dot{i}", c, emit=c, strength=2.6) for i, c in enumerate(DOTS)]
 m_balloon = [make_mat(f"PE_Balloon{i}", c, emit=c, strength=1.1) for i, c in enumerate(DOTS)]  # 近景不糊 bloom
@@ -330,6 +336,15 @@ ZONE_COAST = (-30, 60, 70, 130)   # x0,x1,y0,y1
 ZONE_BAY   = (-88, -52, -55, -35)
 ZONE_THIRD = (78, 112, -78, -42)
 LAUNCHER = (22.0, -22.0)
+# 烟花发射器 6 站 (id, kind, blender x,y): A 牡丹×2 / B 垂柳×2 / C 椰芯×2, 炮口朝园心
+LAUNCHER_SITES = [
+    ("L1", "A", (22.0, -22.0)),    # 广场东北 (原释放器位)
+    ("L2", "A", (56.0, 30.0)),     # 木马广场东南缘
+    ("L3", "B", (43.5, -45.0)),    # 墓园东缘
+    ("L4", "B", (-55.0, 30.0)),    # 许愿池旁
+    ("L5", "C", (-30.0, -24.0)),   # 西市集南端
+    ("L6", "C", (11.0, -84.0)),    # 南瓜田
+]
 WELL = (-57.0, 38.0)
 
 def on_path(x, y, margin=0.0):
@@ -353,7 +368,8 @@ def on_path(x, y, margin=0.0):
         if x0 - margin < x < x1 + margin and y0 - margin < y < y1 + margin: return True
     if hypot(x - 45, y - 18) < 13.5 + margin:           return True   # 木马
     if hypot(x - 34, y + 41) < 9.5 + margin:            return True   # 墓园草皮
-    if hypot(x - LAUNCHER[0], y - LAUNCHER[1]) < 2.4 + margin: return True
+    for _lid, _kd, (lx_, ly_) in LAUNCHER_SITES:
+        if hypot(x - lx_, y - ly_) < 2.6 + margin: return True   # 发射器禁布区
     if hypot(x - WELL[0], y - WELL[1]) < 2.8 + margin:  return True
     if abs(r - P["fence_r"]) < 2.2 + margin:            return True   # 围墙
     return False
@@ -990,24 +1006,196 @@ bench_spots = [(5.6, -31.0, 90), (-5.6, -45.0, 90), (5.6, -59.0, 90),
 for i, (bx, by, rotz) in enumerate(bench_spots):
     bench(f"PE_Bench{i}", bx, by, rotz)
 
-# ---------------- 烟花释放器 (22,-22) ----------------
-lx_, ly_ = LAUNCHER
-add_box("PE_Launcher_skid", (2.2, 1.3, 0.18), (lx_, ly_, 0.09), mat=m_wood)
-for k, (tx, ty, tilt_y) in enumerate(((-0.55, 0.1, -12), (0.0, -0.08, -12), (0.55, 0.1, -12))):
-    add_cyl(f"PE_Launcher_tube{k}", 0.17, 0.75, (lx_ + tx, ly_ + ty, 0.55),
-            rot=(radians(tilt_y), 0, 0), mat=m_metal_d, verts=12)
-    add_torus(f"PE_Launcher_muzzle{k}", 0.17, 0.03, (lx_ + tx, ly_ + ty + 0.16, 0.9),
-              rot=(radians(tilt_y * 0.4), 0, 0), mat=m_iron, ms=16, ns=5)
-    add_sphere(f"PE_Launcher_fuse{k}", 0.05, (lx_ + tx, ly_ + ty + 0.16, 0.95),
-               mat=m_warm, seg=6, ring=5)
-add_box("PE_Launcher_crate", (0.55, 0.5, 0.5), (lx_ + 1.35, ly_ - 0.45, 0.25), mat=m_wood)
-add_box("PE_Launcher_crate2", (0.45, 0.45, 0.4), (lx_ + 1.3, ly_ - 0.4, 0.7),
-        rot=(0, 0, radians(18)), mat=m_wood)
-jack_o_lantern("PE_Launcher_pump", lx_ - 1.25, ly_ - 0.5, 0.0, ry=radians(200), s=0.85)
-add_sphere("PE_Launcher_sign", 0.12, (lx_ + 1.35, ly_ - 0.45, 1.05), mat=m_orange, seg=8, ring=5)
-collider_rect(lx_, ly_, 1.15, 0.7)
-collider(lx_ + 1.35, ly_ - 0.45, 0.45, h=0.5)
-POIS.append((lx_, ly_, "launcher"))
+# ---------------- 烟花发射器 x3 型 × 6 站 ----------------
+# 造型定稿: model/firework_launcher/design_preview.py (用户已确认)
+# 家族基因: 木结构 + 铁艺管件 + 点火箱红钮 + 暖光小灯串
+# 型号识别: 管口发光环 + 饰色 + 剪影 (A 牡丹架-橙 / B 垂柳塔-紫 / C 椰芯炮-绿)
+def _lw_fwd(elev, az=0.0):
+    """局部旋转 (elev, 0, az) 下 +Z 轴方向 (炮口朝 -Y 仰起)"""
+    return (sin(az) * sin(elev), -cos(az) * sin(elev), cos(elev))
+
+def _lw_firebox(obs, tag, x, y, z, yaw=0.0):
+    """家族基因: 点火箱 + 红蘑菇钮 + 推杆"""
+    obs.append(add_box(f"{tag}_FBbody", (0.42, 0.3, 0.3), (x, y, z + 0.15), rot=(0, 0, yaw), mat=m_wood_d))
+    obs.append(add_box(f"{tag}_FBlip", (0.46, 0.34, 0.04), (x, y, z + 0.31), rot=(0, 0, yaw), mat=m_wood))
+    obs.append(add_cyl(f"{tag}_FBbtn", 0.06, 0.05, (x, y - 0.1, z + 0.36), mat=m_red, verts=10))
+    obs.append(add_sphere(f"{tag}_FBcap", 0.055, (x, y - 0.1, z + 0.39), mat=m_red, seg=8, ring=5))
+    obs.append(cyl_between(f"{tag}_FBlever", (x + 0.16, y + 0.05, z + 0.3), (x + 0.26, y + 0.12, z + 0.5), 0.014, m_iron))
+
+def _lw_A(tag):
+    """牡丹发射架: A 字木架 + 5 管扇形 (仰角 52°), 管口橙环"""
+    o = []
+    for sx in (-1.05, 1.05):
+        o.append(add_box(f"{tag}_runner", (2.6, 0.14, 0.1), (sx, 0, 0.05), mat=m_wood_d))
+    for k in range(5):
+        o.append(add_box(f"{tag}_plank{k}", (2.4, 0.2, 0.05), (0, -0.55 + k * 0.28, 0.13), mat=m_wood))
+    for sx in (-1.05, 1.05):
+        o.append(cyl_between(f"{tag}_legF_{sx}", (sx, -0.62, 0.15), (sx * 0.42, -0.1, 1.42), 0.06, m_wood))
+        o.append(cyl_between(f"{tag}_legB_{sx}", (sx, 0.62, 0.15), (sx * 0.42, -0.1, 1.42), 0.06, m_wood))
+        o.append(cyl_between(f"{tag}_brace_{sx}", (sx * 0.66, -0.66, 0.62), (sx * 0.66, 0.66, 0.62), 0.03, m_iron))
+    o.append(cyl_between(f"{tag}_axle", (-1.0, -0.1, 1.42), (1.0, -0.1, 1.42), 0.04, m_iron))
+    elev = radians(52)
+    for k in range(5):
+        az = (k - 2) * radians(8)
+        fx, fy, fz = _lw_fwd(elev, az)
+        tx = (k - 2) * 0.25
+        o.append(add_cyl(f"{tag}_tube{k}", 0.15, 0.62, (tx, -0.12, 1.42), rot=(elev, 0, az), mat=m_steel, verts=12))
+        o.append(add_torus(f"{tag}_ring{k}", 0.115, 0.024, (tx + fx * 0.34, -0.12 + fy * 0.34, 1.42 + fz * 0.34),
+                           rot=(elev, 0, az), mat=m_orange_s))
+        o.append(add_torus(f"{tag}_bandA{k}", 0.165, 0.02, (tx + fx * 0.2, -0.12 + fy * 0.2, 1.42 + fz * 0.2),
+                           rot=(elev, 0, az), mat=m_metal_d))
+        o.append(add_torus(f"{tag}_bandB{k}", 0.165, 0.02, (tx + fx * 0.05, -0.12 + fy * 0.05, 1.42 + fz * 0.05),
+                           rot=(elev, 0, az), mat=m_metal_d))
+        o.append(add_sphere(f"{tag}_fuse{k}", 0.03, (tx - fx * 0.33, -0.12 - fy * 0.33, 1.42 - fz * 0.33),
+                            mat=m_warm, seg=6, ring=5))
+    for k in range(4):   # 横撑灯串 (暖白/橙交替)
+        t = (k + 0.5) / 4
+        bx = -0.66 + 1.32 * t
+        o.append(cyl_between(f"{tag}_bw{k}", (-0.66, -0.66, 0.68), (bx, -0.66, 0.615), 0.006, m_iron))
+        o.append(add_sphere(f"{tag}_bulb{k}", 0.04, (bx, -0.66, 0.585),
+                            mat=m_orange if k % 2 else m_warm, seg=6, ring=5))
+    _lw_firebox(o, tag, 0.95, 0.42, 0.16, yaw=radians(-20))
+    o.append(add_box(f"{tag}_crate", (0.52, 0.5, 0.42), (-0.92, 0.42, 0.37), rot=(0, 0, radians(8)), mat=m_wood_d))
+    o.append(add_box(f"{tag}_crate2", (0.36, 0.34, 0.26), (-0.88, 0.46, 0.72), rot=(0, 0, radians(24)), mat=m_wood))
+    # 内联南瓜灯 (脸朝 -Y; 不用 jack_o_lantern 以便纳入锚点父子)
+    o.append(add_sphere(f"{tag}_pump", 0.2, (0.35, 0.62, 0.34), mat=m_pump, seg=10, ring=6, scale=(1, 0.85, 0.78)))
+    o.append(add_cyl(f"{tag}_pumpstem", 0.025, 0.09, (0.35, 0.62, 0.56), mat=m_stem, verts=6))
+    o.append(add_box(f"{tag}_pumpEyeL", (0.055, 0.02, 0.06), (0.27, 0.46, 0.4), rot=(0, 0, radians(15)), mat=m_pumpface))
+    o.append(add_box(f"{tag}_pumpEyeR", (0.055, 0.02, 0.06), (0.43, 0.46, 0.4), rot=(0, 0, radians(-15)), mat=m_pumpface))
+    o.append(add_box(f"{tag}_pumpMouth", (0.14, 0.02, 0.05), (0.35, 0.46, 0.29), mat=m_pumpface))
+    return o
+
+def _lw_B(tag):
+    """垂柳塔: 四腿收分木塔 (H2.3) + 单口粗臼炮 (仰角 76°) + 垂链紫灯笼 x4 + 弯月徽"""
+    o = []
+    g0, t0, H = 0.85, 0.5, 2.3
+    for sx in (-1, 1):
+        for sy in (-1, 1):
+            o.append(cyl_between(f"{tag}_leg_{sx}{sy}", (sx * g0, sy * g0, 0.04), (sx * t0, sy * t0, H), 0.06, m_wood))
+    for zz in (0.75, 1.5):
+        w = g0 + (t0 - g0) * zz / H
+        for sy in (-1, 1):
+            o.append(cyl_between(f"{tag}_x1_{zz}_{sy}", (-w, sy * w, zz), (w, sy * w, zz + 0.55), 0.028, m_iron))
+            o.append(cyl_between(f"{tag}_x2_{zz}_{sy}", (w, sy * w, zz), (-w, sy * w, zz + 0.55), 0.028, m_iron))
+    o.append(add_box(f"{tag}_deck", (1.3, 1.3, 0.09), (0, 0, H + 0.045), mat=m_wood_d))
+    for sx in (-1, 1):
+        for sy in (-1, 1):
+            o.append(add_cyl(f"{tag}_post_{sx}{sy}", 0.025, 0.3, (sx * 0.6, sy * 0.6, H + 0.24), mat=m_wood, verts=8))
+    for sy in (-1, 1):
+        o.append(cyl_between(f"{tag}_railX_{sy}", (-0.6, sy * 0.6, H + 0.36), (0.6, sy * 0.6, H + 0.36), 0.02, m_wood))
+    for sx in (-1, 1):
+        o.append(cyl_between(f"{tag}_railY_{sx}", (sx * 0.6, -0.6, H + 0.36), (sx * 0.6, 0.6, H + 0.36), 0.02, m_wood))
+    elev = radians(76)
+    fx, fy, fz = _lw_fwd(elev)
+    bx, by, bz = 0.0, 0.1, H + 0.5
+    o.append(add_cyl(f"{tag}_mortar", 0.27, 0.88, (bx, by, bz), rot=(elev, 0, 0), mat=m_steel, verts=14))
+    o.append(add_torus(f"{tag}_band1", 0.285, 0.026, (bx - fx * 0.25, by - fy * 0.25, bz - fz * 0.25),
+                       rot=(elev, 0, 0), mat=m_metal_d))
+    o.append(add_torus(f"{tag}_band2", 0.29, 0.026, (bx + fx * 0.05, by + fy * 0.05, bz + fz * 0.05),
+                       rot=(elev, 0, 0), mat=m_metal_d))
+    o.append(add_cyl(f"{tag}_lip", 0.32, 0.12, (bx + fx * 0.42, by + fy * 0.42, bz + fz * 0.42),
+                     rot=(elev, 0, 0), mat=m_steel, verts=14))
+    o.append(add_torus(f"{tag}_rim", 0.32, 0.024, (bx + fx * 0.46, by + fy * 0.46, bz + fz * 0.46),
+                       rot=(elev, 0, 0), mat=m_metal_d))
+    o.append(add_torus(f"{tag}_muzzlering", 0.24, 0.03, (bx + fx * 0.5, by + fy * 0.5, bz + fz * 0.5),
+                       rot=(elev, 0, 0), mat=m_violet_s))
+    o.append(add_box(f"{tag}_mount", (0.72, 0.72, 0.22), (0, 0.1, H + 0.24), mat=m_iron))
+    for (cx, cy, L) in ((-0.6, -0.6, 0.72), (0.6, -0.6, 0.5), (-0.6, 0.6, 0.4), (0.6, 0.6, 0.4)):
+        lz = H + 0.34 - L
+        o.append(cyl_between(f"{tag}_chain_{cx}{cy}", (cx, cy, H + 0.34), (cx, cy, lz), 0.011, m_iron))
+        o.append(add_sphere(f"{tag}_lant_{cx}{cy}", 0.095, (cx, cy, lz - 0.11),
+                            mat=m_violet, seg=10, ring=6, scale=(1, 1, 1.2)))
+        o.append(add_cone(f"{tag}_cap_{cx}{cy}", 0.075, 0.08, (cx, cy, lz - 0.005), mat=m_metal_d, verts=12))
+    moon = add_torus(f"{tag}_moon", 0.22, 0.026, (0, -0.72, 1.35), rot=(radians(90), 0, 0), mat=m_warm)
+    torus_gap(moon, 48, 60)   # 缺口右上 = 新月
+    o.append(moon)
+    o.append(add_cyl(f"{tag}_barrel", 0.26, 0.5, (-1.0, 0.35, 0.25), mat=m_wood_d, verts=12))
+    o.append(add_torus(f"{tag}_bbarrel", 0.265, 0.02, (-1.0, 0.35, 0.25), mat=m_iron))
+    o.append(add_cyl(f"{tag}_barrel2", 0.22, 0.42, (-0.85, -0.6, 0.21), mat=m_wood, verts=12))
+    o.append(add_torus(f"{tag}_bbarrel2", 0.225, 0.02, (-0.85, -0.6, 0.21), mat=m_iron))
+    _lw_firebox(o, tag, 0.9, -0.55, 0.02, yaw=radians(15))
+    return o
+
+def _lw_C(tag):
+    """椰芯连环炮: 双辐条轮手推车 + 6 管转轮缸 (仰角 45°) + 齿盘摇柄 + 绿尖弹药"""
+    o = []
+    o.append(add_box(f"{tag}_deck", (2.2, 1.1, 0.1), (0, 0, 0.6), mat=m_wood))
+    o.append(add_box(f"{tag}_railF", (2.2, 0.06, 0.12), (0, 0.52, 0.71), mat=m_wood_d))
+    o.append(add_box(f"{tag}_railB", (2.2, 0.06, 0.12), (0, -0.52, 0.71), mat=m_wood_d))
+    for sy in (-1, 1):
+        o.append(cyl_between(f"{tag}_shaft_{sy}", (1.05, sy * 0.28, 0.58), (1.95, sy * 0.34, 0.12), 0.035, m_wood))
+        o.append(cyl_between(f"{tag}_grip_{sy}", (1.95, sy * 0.34, 0.12), (2.1, sy * 0.34, 0.3), 0.03, m_iron))
+    o.append(add_cyl(f"{tag}_leg", 0.04, 0.55, (-0.85, 0, 0.28), mat=m_wood, verts=8))
+    for sy in (-1, 1):
+        cy = sy * 0.62
+        o.append(add_torus(f"{tag}_felly_{sy}", 0.4, 0.055, (-0.25, cy, 0.44), rot=(radians(90), 0, 0), mat=m_wood_d))
+        o.append(add_cyl(f"{tag}_hub_{sy}", 0.08, 0.12, (-0.25, cy, 0.44), rot=(radians(90), 0, 0), mat=m_iron, verts=10))
+        o.append(add_sphere(f"{tag}_hubcap_{sy}", 0.1, (-0.25, cy + sy * 0.06, 0.44),
+                            mat=m_iron, seg=8, ring=6, scale=(1, 0.5, 1)))
+        for k in range(8):   # 辐条 (轮面 = XZ)
+            a = k * pi / 4
+            o.append(cyl_between(f"{tag}_spoke_{sy}_{k}", (-0.25, cy, 0.44),
+                                 (-0.25 + 0.36 * cos(a), cy, 0.44 + 0.36 * sin(a)), 0.018, m_wood))
+    o.append(cyl_between(f"{tag}_axle", (-0.25, -0.62, 0.44), (-0.25, 0.62, 0.44), 0.035, m_iron))
+    elev = radians(45)
+    fx, fy, fz = _lw_fwd(elev)
+    vx, vy, vz = 0.0, cos(elev), sin(elev)   # 局部 Y 轴
+    pvx, pvy, pvz = -0.2, 0.0, 0.92
+    o.append(add_cyl(f"{tag}_pivot", 0.09, 0.55, (pvx, pvy, pvz - 0.27), mat=m_iron, verts=10))
+    o.append(add_cyl(f"{tag}_hubcyl", 0.12, 0.72, (pvx + fx * 0.12, pvy + fy * 0.12, pvz + fz * 0.12),
+                     rot=(elev, 0, 0), mat=m_metal_d, verts=12))
+    o.append(add_torus(f"{tag}_hband", 0.125, 0.022, (pvx + fx * 0.12, pvy + fy * 0.12, pvz + fz * 0.12),
+                       rot=(elev, 0, 0), mat=m_green_s))
+    for k in range(6):
+        a = k * pi / 3 + radians(30)
+        offx = (cos(a) + vx * sin(a)) * 0.26
+        offy = (0.0 + vy * sin(a)) * 0.26
+        offz = (0.0 + vz * sin(a)) * 0.26
+        cx, cyy, cz = pvx + fx * 0.2 + offx, pvy + fy * 0.2 + offy, pvz + fz * 0.2 + offz
+        o.append(add_cyl(f"{tag}_tube{k}", 0.075, 0.62, (cx, cyy, cz), rot=(elev, 0, 0), mat=m_steel, verts=10))
+        o.append(add_torus(f"{tag}_ring{k}", 0.062, 0.022, (cx + fx * 0.31, cyy + fy * 0.31, cz + fz * 0.31),
+                           rot=(elev, 0, 0), mat=m_green_s))
+    o.append(add_cyl(f"{tag}_plF", 0.3, 0.05, (pvx + fx * 0.36, pvy + fy * 0.36, pvz + fz * 0.36),
+                     rot=(elev, 0, 0), mat=m_steel, verts=14))
+    o.append(add_cyl(f"{tag}_plB", 0.3, 0.05, (pvx - fx * 0.16, pvy - fy * 0.16, pvz - fz * 0.16),
+                     rot=(elev, 0, 0), mat=m_steel, verts=14))
+    gx, gy, gz = pvx - fx * 0.26, pvy - fy * 0.26, pvz - fz * 0.26
+    o.append(add_cyl(f"{tag}_gear", 0.2, 0.045, (gx, gy, gz), rot=(elev, 0, 0), mat=m_metal_d, verts=16))
+    for k in range(12):
+        a = k * pi / 6
+        ux_, vx_ = cos(a), sin(a)
+        o.append(cyl_between(f"{tag}_pin{k}",
+                             (gx + ux_ * 0.2, gy + vx_ * vy * 0.2, gz + vx_ * vz * 0.2),
+                             (gx + ux_ * 0.27, gy + vx_ * vy * 0.27, gz + vx_ * vz * 0.27), 0.02, m_metal_d))
+    kx = gx + cos(0.9) * 0.24 - fx * 0.1
+    ky = gy + sin(0.9) * vy * 0.24 - fy * 0.1
+    kz = gz + sin(0.9) * vz * 0.24 - fz * 0.1
+    o.append(cyl_between(f"{tag}_crank", (gx - fx * 0.02, gy - fy * 0.02, gz - fz * 0.02), (kx, ky, kz), 0.014, m_iron))
+    o.append(add_sphere(f"{tag}_knob", 0.05, (kx - fx * 0.03, ky - fy * 0.03, kz - fz * 0.03), mat=m_warm, seg=8, ring=6))
+    bx = 0.72
+    o.append(add_box(f"{tag}_crateF", (0.5, 0.06, 0.18), (bx, 0, 0.74), mat=m_wood_d))
+    for sy in (-1, 1):
+        o.append(add_box(f"{tag}_crateS_{sy}", (0.06, 0.44, 0.18), (bx, sy * 0.22, 0.74), mat=m_wood_d))
+    for k, sy in enumerate((-0.12, 0.02, 0.16)):
+        o.append(add_cyl(f"{tag}_shell{k}", 0.066, 0.2, (bx - 0.05 + k * 0.05, sy, 0.78),
+                         rot=(radians(-12), 0, 0), mat=m_steel, verts=10))
+        o.append(add_cone(f"{tag}_tip{k}", 0.066, 0.12, (bx - 0.05 + k * 0.05, sy - 0.012, 0.94), mat=m_green, verts=10))
+    o.append(add_cyl(f"{tag}_pole", 0.02, 0.4, (-1.0, -0.4, 0.85), mat=m_iron, verts=8))
+    o.append(add_sphere(f"{tag}_lamp", 0.07, (-1.0, -0.4, 1.08), mat=m_green, seg=8, ring=6))
+    _lw_firebox(o, tag, -0.95, 0.32, 0.66, yaw=radians(-90))
+    return o
+
+BUILDERS = {"A": _lw_A, "B": _lw_B, "C": _lw_C}
+LW_COLLIDE = {"A": 1.25, "B": 0.95, "C": 1.2}   # 无限高圆墙 (发射器不可穿行)
+for lid, kd, (sx, sy) in LAUNCHER_SITES:
+    obs = BUILDERS[kd](f"PE_LW_{lid}")
+    anchor = bpy.data.objects.new(f"PE_LW_{lid}_anchor", None)
+    col.objects.link(anchor)
+    anchor.location = (sx, sy, 0.0)
+    anchor.rotation_euler = (0.0, 0.0, atan2(-sx, sy))   # 本地 -Y (炮口) 转向园心
+    for ob in obs:
+        ob.parent = anchor
+    collider(sx, sy, LW_COLLIDE[kd])
 
 # ---------------- 许愿池 (西北外环节点) ----------------
 wx, wy = WELL
@@ -1349,13 +1537,22 @@ except (TypeError, RuntimeError):
 print("GLB_EXPORTED")
 
 # colliders.json (转 app 坐标: app_x = blender_x, app_z = -blender_y)
+# 发射器锚点: dx/dz = 炮口水平朝向单位向量 (朝园心), mz = 管口离地高 (与建模常量一致)
+MUZZLE_LOCAL = {"A": (0.0, -0.39, 1.63), "B": (0.0, -0.39, 2.92), "C": (-0.2, -0.36, 1.28)}
+manifest_launchers = []
+for lid, kd, (sx, sy) in LAUNCHER_SITES:
+    lapp = hypot(sx, sy) or 1.0
+    manifest_launchers.append({"id": lid, "kind": kd,
+                               "x": round(sx, 2), "z": round(-sy, 2),
+                               "dx": round(-sx / lapp, 3), "dz": round(sy / lapp, 3),
+                               "mz": MUZZLE_LOCAL[kd][2]})
 manifest = {
     "version": 3,
-    "note": "坐标为 glTF/app 空间 (x, z); 由 park_env.py v3 自动生成; h = 顶面高度(可站立), 缺省为无限高阻挡; rects = 轴对齐盒墙(可推挤)",
+    "note": "坐标为 glTF/app 空间 (x, z); 由 park_env.py v3 自动生成; h = 顶面高度(可站立), 缺省为无限高阻挡; rects = 轴对齐盒墙(可推挤); launchers = 烟花发射器锚点",
     "boundaryR": 144.5,
     "spawn": {"x": 0.0, "z": 144.0},
     "boarding": {"x": 0.0, "z": 16.4},
-    "launcher": {"x": round(LAUNCHER[0], 2), "z": round(-LAUNCHER[1], 2)},
+    "launchers": manifest_launchers,
     "pois": [{"x": round(x, 2), "z": round(-y, 2), "label": lb} for x, y, lb in POIS],
     "rects": [
         {"x": r_["x"], "z": round(-r_["y"], 2), "hw": r_["hw"], "hd": r_["hd"]}

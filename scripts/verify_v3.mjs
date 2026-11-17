@@ -34,14 +34,14 @@ await page.evaluate(() => {
 await page.waitForTimeout(600);
 await page.screenshot({ path: `${outDir}/v2_midgate.png` });
 
-// 3. 烟花释放器 (22,22) + 提示 + F 齐射 (南退 40m 仰拍北天, 爆点 38-68m 高)
+// 3. 烟花发射器 L1 (22,22) + 提示 + F 点射 (南退 40m 仰拍北天)
 await page.evaluate(() => {
   window.__game.player.teleport(20.4, 20.4);
   window.__game.player.setView(-2.4, -0.1);
 });
 await page.waitForTimeout(500);
 await page.screenshot({ path: `${outDir}/v3_launcher.png` });
-const promptText = await page.evaluate(() => document.body.innerText.match(/发射烟花|装填中[^\n]*/)?.[0] ?? "(无提示)");
+const promptText = await page.evaluate(() => document.body.innerText.match(/发射架 · F 点射|垂柳塔 · F 点射|连环炮 · F 点射|烟花装填中[^\n]*/)?.[0] ?? "(无提示)");
 console.log("launcher prompt:", promptText);
 await page.keyboard.press("KeyF");
 await page.evaluate(() => {
@@ -53,8 +53,8 @@ const fwDump = await page.evaluate(() => {
   let alive = 0;
   let maxY = -9999;
   window.__game.scene.traverse((o) => {
-    if (o.isPoints && o.geometry?.attributes?.color) {
-      const c = o.geometry.attributes.color.array;
+    if (o.isPoints && o.geometry?.attributes?.aColor) {
+      const c = o.geometry.attributes.aColor.array;
       const p = o.geometry.attributes.position.array;
       for (let i = 0; i < c.length; i += 3) {
         if (c[i] + c[i + 1] + c[i + 2] > 0.01) {

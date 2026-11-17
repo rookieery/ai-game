@@ -1,16 +1,18 @@
-// 交互系统：距离检测 -> 灵摆提示 -> E 触发（登舱 / 上马 / 打卡收集）+ F 烟花释放器
+// 交互系统：距离检测 -> 灵摆提示 -> E 触发（登舱 / 上马 / 打卡收集）+ F 烟花发射器
+import { KIND_NAME } from "./fx/fireworks.js";
+
 export function createInteract({
   input, player, park, hud, getState, onBoard, onBoardCarousel, onCollect, audio, fireworks,
 }) {
   const boarding = park?.boarding ?? { x: 0, z: 16.4 };
   // 显灵木马平台 (45,-18) r8.0: 台面上 (y≈0.62) 靠近中柱侧 r<7.6 出提示
   const carouselCenter = { x: 45, z: -18 };
-  // 烟花释放器 (22,22): 靠近出「按 F」提示（E 不响应, 不与打卡/乘坐冲突）
-  const launcher = park?.launcher ?? { x: 22, z: 22 };
+  // 烟花发射器 x6: 就近出「按 F 点射」提示（E 不响应, 不与打卡/乘坐冲突）
+  const launchers = fireworks?.getLaunchers() ?? [];
   const pois = (park?.pois ?? []).filter((p) => String(p.label).startsWith("pumpkin"));
   const collected = new Set();
   let active = null; // { label, run }
-  let nearLauncher = false;
+  let nearLauncher = -1; // 就近发射器下标, -1 = 无
 
   const dist2 = (ax, az, bx, bz) => Math.hypot(ax - bx, az - bz);
 
@@ -43,12 +45,12 @@ export function createInteract({
       if (getState() !== "walk") {
         hud.hidePrompt();
         active = null;
-        nearLauncher = false;
+        nearLauncher = -1;
         return;
       }
       const p = player.pos;
       active = null;
-      nearLauncher = false;
+      nearLauncher = -1;
       let label = "";
 
       // 登舱锚点二选一：地面登舱点；或站台停靠舱旁（脚高 > 1.4 ⇒ 在站台上，
@@ -75,12 +77,22 @@ export function createInteract({
             break;
           }
         }
-        // 烟花释放器：E 槽位空闲时才提示（不与打卡/乘坐抢交互）; 键位徽标用 F
-        if (!active && dist2(p.x, p.z, launcher.x, launcher.z) < 3.2) {
-          nearLauncher = true;
-          label = fireworks && !fireworks.isReady() ? "烟花装填中…" : "发射烟花";
-          hud.showPrompt(label, "F");
-          return;
+        // 烟花发射器：E 槽位空闲时才提示（不与打卡/乘坐抢交互）; 键位徽标用 F
+        if (!active && launchers.length) {
+          let best = -1;
+          let bestD = 3.2;
+          for (let i = 0; i < launchers.length; i++) {
+            const d = dist2(p.x, p.z, launchers[i].x, launchers[i].z);
+            if (d < bestD) { bestD = d; best = i; }
+          }
+          if (best >= 0) {
+            nearLauncher = best;
+            label = fireworks.isReady(best)
+              ? `${KIND_NAME[launchers[best].kind] ?? "烟花发射器"} · F 点射`
+              : "烟花装填中…";
+            hud.showPrompt(label, "F");
+            return;
+          }
         }
       }
 
