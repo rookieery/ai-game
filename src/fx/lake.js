@@ -10,10 +10,10 @@
 import * as THREE from "three";
 import { Water } from "three/addons/objects/Water.js";
 
-// 湖体参数 (与 park_env.py LAKE_* / colliders.json lake 字段一致, app 坐标)
-const LAKE = { cx: 105, cz: 66, rx: 34.5, rz: 27.5 };
+// 湖体参数 (与 park_env.py LAKE_* / colliders.json lake 字段一致, app 坐标; +0.5 = 水盘外扩)
+const LAKE = { cx: 105, cz: 66, rx: 44.5, rz: 42.5 };
 const PIER_TIP = { x: 90.7, z: 57.4 };   // 许愿触发点 (栈桥尽头水面侧, 避开 poi 提示半径)
-const LANTERN_N = 380;                   // 灯笼总数 (A/B/C = 45%/35%/20%)
+const LANTERN_N = 640;                   // 灯笼总数 (A/B/C = 45%/35%/20%; v4.1 湖扩容等比加密)
 const REFLECT_RT = 1024;                 // 反射 RT 分辨率 (性能降级阶梯第一档: 调小)
 
 // 西岸栈桥视角构图优先: 密度沿「湖心->栈桥」方向轴衰减 (东岸留稀), 中环留航道
@@ -107,7 +107,7 @@ function planLanterns() {
   const rnd = mulberry32(20261118);
   const out = [];
   let tries = 0;
-  while (out.length < LANTERN_N && tries < 9000) {
+  while (out.length < LANTERN_N && tries < 14000) {
     tries += 1;
     const nx = rnd() * 2 - 1, nz = rnd() * 2 - 1;
     const n = Math.hypot(nx, nz);

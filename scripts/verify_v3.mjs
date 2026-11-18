@@ -127,9 +127,9 @@ const checks = await page.evaluate(() => ({
   spawn: window.__park?.spawn,
 }));
 console.log("park meta:", JSON.stringify(checks));
-// 真实按键冲刺 3s 验证边界 (yaw π = 面向 +z 南, 朝大门)
+// 真实按键冲刺 3s 验证边界 (yaw π = 面向 +z 南, 朝大门; v4.1 起期望值随 colliders.json 动态)
 await page.evaluate(() => {
-  window.__game.player.teleport(0, 130);
+  window.__game.player.teleport(0, 168);
   window.__game.player.setView(Math.PI, 0);
 });
 await page.keyboard.down("KeyW");
@@ -141,7 +141,11 @@ const southPos = await page.evaluate(() => {
   const p = window.__game.player.pos;
   return { x: +p.x.toFixed(2), z: +p.z.toFixed(2), r: +Math.hypot(p.x, p.z).toFixed(2) };
 });
-console.log("boundary clamp pos:", JSON.stringify(southPos), "(r 应 <= 144.2)");
+const boundaryR = await page.evaluate(() => window.__park?.boundaryR ?? 174.5);
+const clampLimit = boundaryR - 0.38 + 0.05;
+const clampOk = southPos.r <= clampLimit;
+console.log("boundary clamp pos:", JSON.stringify(southPos),
+  clampOk ? `OK(r <= ${clampLimit.toFixed(2)})` : `FAIL(超出边界 ${clampLimit.toFixed(2)})`);
 // 围挡阻挡: 幽灵港东缘 x=-52 缺口 z∈[37,43], 在 z=45 (墙段) 往 -x 冲应被挡
 await page.evaluate(() => {
   window.__game.player.teleport(-45, 45);
