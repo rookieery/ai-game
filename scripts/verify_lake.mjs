@@ -1,6 +1,4 @@
-// 迷魂湖 v4.1 验证：真实走桥 E2E + 栈桥口封口挤压 + 栈桥/灯海/反射水 定点取证
-//   + 许愿脉冲 + 湖面守卫 + 湖灯亮度联动 + FPS/drawcall 遥测
-// (2026-11-18: 旧版栈桥取证全走 teleport, 没测「从岸上走上去」——岸线圆错位封桥的 bug 因此漏检)
+// 迷魂湖 v4 验证：栈桥/灯海/反射水 定点取证 + 许愿脉冲 + 湖面守卫 + 湖灯亮度联动 + FPS/drawcall 遥测
 // 用法: node scripts/verify_lake.mjs [输出目录]   (GAME_URL 默认 http://127.0.0.1:8765)
 // 性能指标只记录不设限 (用户决策 2026-11-17: 未来遇到实际卡顿再优化)
 import { chromium } from "playwright";
@@ -48,76 +46,23 @@ const stand1 = await page.evaluate(() => new Promise((res) => {
 }));
 const drift1 = Math.hypot(stand1.dx, stand1.dz);
 console.log("regress-stand:", JSON.stringify(stand1), drift1 < 0.05 ? "OK(站桩零漂移)" : `FAIL(被拉动 ${drift1.toFixed(2)}m)`);
-// b) 岸线点 (63,39) 静置 1s: 不再往返 (v4.1: 旧点 82.7,88 已在扩容后的湖内)
-await page.evaluate(() => window.__game.player.teleport(63.0, 39.0));
+// b) 旧振荡点 (82.7,88) 静置 1s: 不再往返
+await page.evaluate(() => window.__game.player.teleport(82.7, 88.0));
 await page.waitForTimeout(1000);
 const stand2 = await page.evaluate(() => {
   const p2 = window.__game.player.pos;
   return { x: +p2.x.toFixed(1), z: +p2.z.toFixed(1) };
 });
-const drift2 = Math.hypot(stand2.x - 63.0, stand2.z - 39.0);
+const drift2 = Math.hypot(stand2.x - 82.7, stand2.z - 88);
 console.log("regress-oscillation:", JSON.stringify(stand2), drift2 < 0.5 ? "OK(岸线静止)" : `FAIL(仍振荡 漂移${drift2.toFixed(1)}m)`);
-
-// ---------- 真实走桥 E2E (原 bug 盲区): 从支路岸端一路走到尽头平台 ----------
-// 路线: (60.5,38) -> 朝平台 (88.58,56) 直线, 途经拱门/两级台阶/登桥漏斗/桥面 h 链
-{
-  await page.evaluate(() => {
-    window.__game.player.teleport(60.5, 38.0);
-    window.__game.player.setView(-2.141, -0.05);
-  });
-  await page.waitForTimeout(300);
-  const walkStart = Date.now();
-  await page.keyboard.down("KeyW");
-  let reached = false;
-  while (Date.now() - walkStart < 15000) {
-    await page.waitForTimeout(500);
-    reached = await page.evaluate(() => {
-      const p = window.__game.player.pos;
-      return p.y >= 0.45 && Math.hypot(p.x - 88.58, p.z - 56) < 3.5;
-    });
-    if (reached) break;
-  }
-  await page.keyboard.up("KeyW");
-  const fin = await page.evaluate(() => {
-    const p = window.__game.player.pos;
-    return { x: +p.x.toFixed(1), z: +p.z.toFixed(1), y: +p.y.toFixed(2) };
-  });
-  console.log("walk-bridge:", JSON.stringify(fin),
-    reached ? `OK(走上尽头平台 ${((Date.now() - walkStart) / 1000).toFixed(1)}s)` : "FAIL(未能走上栈桥)");
-  await page.screenshot({ path: `${outDir}/0_walk_bridge.png` });
-}
-
-// ---------- 栈桥口封口挤压: 从桥侧岸线向水面直走, 不得登上桥面 / 落水会被浪推回 ----------
-{
-  await page.evaluate(() => {
-    window.__game.player.teleport(64.99, 47.22); // 封口外侧 (栈桥本地 t=80.2, v=+5.2)
-    window.__game.player.setView(-0.565, -0.05);
-  });
-  await page.waitForTimeout(300);
-  await page.keyboard.down("KeyW");
-  await page.waitForTimeout(3500);
-  await page.keyboard.up("KeyW");
-  const sq = await page.evaluate(() => {
-    const p = window.__game.player.pos;
-    const L = window.__park.lake;
-    return {
-      y: +p.y.toFixed(2),
-      norm: +Math.hypot((p.x - L.cx) / L.rx, (p.z - L.cz) / L.rz).toFixed(2),
-      dist: +Math.hypot(p.x - 64.99, p.z - 47.22).toFixed(1),
-    };
-  });
-  const sqOk = sq.y < 0.45 && sq.norm >= 0.98;
-  console.log("mouth-squeeze:", JSON.stringify(sq),
-    sqOk ? "OK(未登桥, 落水即被浪推回)" : "FAIL(从封口侧登上桥面或滞留水中)");
-}
 
 // 定点取证: (x, z=app 坐标, yaw[atan2(-dx,-dz)], 俯仰, 标签)
 const stops = [
   [82.0, 51.8, -2.13, -0.15, "1_pier_deck"],      // 栈桥桥面朝尽头平台 (站位 h=0.5 桥面)
-  [62.9, 39.8, -2.13, -0.1, "2_shore_west"],      // 西岸入口望湖心灯海 (v4.1 岸线外移)
-  [149.7, 79.3, 1.28, -0.12, "3_east_look"],      // 东岸回望 (灯群西密东疏构图, v4.1 新岸线)
+  [78.0, 47.0, -2.18, -0.1, "2_shore_west"],      // 西岸入口望湖心灯海
+  [135.0, 72.0, 1.24, -0.12, "3_east_look"],      // 东岸回望 (灯群西密东疏构图)
   [30.0, 30.0, -2.03, -0.05, "4_far_view"],       // 广场远眺 (雾中湖面)
-  [88.6, 56.0, 1.01, -0.02, "5_tip_plaque"],      // 平台回望长栈桥 (灯柱+铭牌+栏杆)
+  [88.6, 56.0, 1.01, -0.02, "5_tip_plaque"],      // 平台回望栈桥 (灯柱+铭牌+栏杆)
   [88.6, 56.0, -2.70, -0.25, "6_tip_water"],      // 平台尽头俯瞰灯海+光柱
 ];
 for (const [x, z, yaw, pitch, label] of stops) {
@@ -190,7 +135,7 @@ async function sampleFrame(label, x, z, yaw, pitch) {
 }
 const samples = [];
 samples.push(await sampleFrame("pier", 82.0, 51.8, -2.13, -0.15));
-samples.push(await sampleFrame("east", 149.7, 79.3, 1.28, -0.12));
+samples.push(await sampleFrame("east", 135.0, 72.0, 1.24, -0.12));
 samples.push(await sampleFrame("far", 30.0, 30.0, -2.03, -0.05));
 const fps = await page.evaluate(() => new Promise((resolve) => {
   let n = 0;

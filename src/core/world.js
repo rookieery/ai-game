@@ -84,7 +84,7 @@ export function createWorld(scene) {
   plaza2.position.set(-12, 7, -14);
   scene.add(plaza2);
   const gate = new THREE.PointLight("#ffc46b", BASE.gate, 70, 1.7);
-  gate.position.set(0, 7, 168); // 大门随围栏外移 (v4.1 fence_r 176)
+  gate.position.set(0, 7, 146); // 大门随围栏外移 r146
   scene.add(gate);
   const bay = new THREE.PointLight("#7fd8c8", BASE.bay, 95, 1.7);   // 幽灵港: 灵绿
   bay.position.set(-70, 9, 45);

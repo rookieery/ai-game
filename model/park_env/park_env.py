@@ -3,14 +3,14 @@
 Park Environment v3 - "幽夜游乐场" Halloween night park (game-ready glTF asset)
 Run: blender --background --python park_env.py
 
-布局 v4.1 (Blender 坐标, +Y=北, r180 扩园 + 迷魂湖扩容):
+布局 v4 (Blender 坐标, +Y=北, r170 扩园 + 迷魂湖):
   - 摩天轮在原点 (轮盘资产独立), 登舱台阶在 -Y 侧, 中央广场 r17.5
-  - 南入口大门 (0,-176) -> 石板主路 (9 段, 中途二道门牌楼 y=-60) -> 广场
+  - 南入口大门 (0,-166) -> 石板主路 (7 段, 中途二道门牌楼 y=-60) -> 广场
   - 路网: 内环 r34 / 外环 r90 / 四条放射支路 (东北过山车 78°, 东南迷魂湖 -32°,
           西南幽灵港 217.6°, 西北许愿池 147°) + 木马支路 22° / 墓园·市集横路
   - 预留区 (围挡+敬请期待牌): 北 过山车 x[-30,60] y[70,130];
           西南 幽灵港(海盗船) x[-88,-52] y[-55,-35]
-  - 迷魂湖 (v4.1 扩容一倍): 椭圆湖 c(105,-66) rx44 ry42 + 岸唇/长栈桥
+  - 迷魂湖 (v4, 原东南秘境围挡拆除): 椭圆湖 c(105,-66) rx34 ry27 + 岸唇/栈桥
           (登船点+铭牌) / 灯笼原型 x3 (PE_LakeLanternA/B/C, 运行时实例化) / 湖畔打卡点 x2
   - 烟花发射器 x6 (三型×2: A 牡丹架 广场东北+木马缘 / B 垂柳塔 墓园东+许愿池 /
           C 椰芯炮 市集南+南瓜田, 炮口朝园心) / 许愿池 (-57,38) / 石像鬼 x2 / 稻草人 x2 / 花藤拱门 x3
@@ -18,7 +18,7 @@ Run: blender --background --python park_env.py
           草丛 ~600 / 发光蘑菇圈 x8 / 路缘花带 (紫郁金香+橙万寿菊) / 彼岸花 x4 (墓园)
   - 家具变体: 长椅 x12 (铁艺卷草/木条/南瓜背/简约) / 路灯 x28 (球灯/南瓜顶/双头提灯)
           木桶加铁箍 / 南瓜灯 x39 (高/扁体形)
-  - 围墙铁艺栅栏 r176 (~458 柱) + 维多利亚路灯 + 灯串 + 彩旗串
+  - 围墙铁艺栅栏 r166 (~432 柱) + 维多利亚路灯 + 灯串 + 彩旗串
   - 远景: 山脊剪影环 (420-470) + 城市灯火点阵 (300-390)
 输出: park_env.glb (按材质合并) + colliders.json (app 坐标, 含 launchers 锚点) + preview/
 """
@@ -27,7 +27,7 @@ import bmesh
 import json
 import random
 import time
-from math import radians, pi, cos, sin, atan2, hypot, sqrt
+from math import radians, pi, cos, sin, atan2, hypot
 from pathlib import Path
 import numpy as np
 from mathutils import Vector, Quaternion
@@ -38,8 +38,8 @@ def tmark(label):
     print(f"[t={time.time()-T0:7.1f}s] {label}", flush=True)
 
 P = {
-    "park_r": 180.0,
-    "fence_r": 176.0,
+    "park_r": 170.0,
+    "fence_r": 166.0,
     "plaza_r": 17.5,
     "res_still": (1600, 900),
 }
@@ -767,14 +767,14 @@ RING_OUT = 90.0         # 外环
 # 放射支路: (角° blender, r_from, r_to)
 SPOKES = [
     (78.0,   30.0, 70.0),    # 东北 -> 过山车预留区
-    (-32.3,  30.0, 76.0),    # 东南 -> 迷魂湖岸/栈桥 (v4.1 湖扩容再缩短防没入湖中)
+    (-32.3,  30.0, 90.0),    # 东南 -> 迷魂湖岸/栈桥 (支路缩短防没入湖中)
     (217.6,  30.0, 58.0),    # 西南 -> 幽灵港 (对准东缘缺口 y[-43,-37])
     (146.8,  30.0, 67.0),    # 西北 -> 许愿池
 ]
 CAR_SPUR = (21.8, 19.0, 33.0)   # 木马支路
 ZONE_COAST = (-30, 60, 70, 130)   # x0,x1,y0,y1
 ZONE_BAY   = (-88, -52, -55, -35)
-ZONE_LAKE  = (54, 158, -116, -16)  # 迷魂湖+岸带 (v4.1 扩容, 含水面禁树禁草区)
+ZONE_LAKE  = (64, 146, -99, -33)   # 迷魂湖+岸带 (v4, 含水面禁树禁草区)
 LAUNCHER = (22.0, -22.0)
 # 烟花发射器 6 站 (id, kind, blender x,y): A 牡丹×2 / B 垂柳×2 / C 椰芯×2, 炮口朝园心
 LAUNCHER_SITES = [
@@ -824,9 +824,9 @@ torus_gap(bpy.data.objects["PE_PlazaRing1"], gap_half_deg=13.0, gap_center_deg=2
 add_torus("PE_PlazaRing2", 13.0, 0.10, (0, 0, 0.07), mat=m_violet, ms=96, ns=6, scale=(1, 1, 0.12))
 torus_gap(bpy.data.objects["PE_PlazaRing2"], gap_half_deg=13.0, gap_center_deg=270.0)
 
-# 主路 (南入口 -> 广场), 9 段 (v4.1 扩园延伸到新大门)
-for k in range(9):
-    add_box(f"PE_MainPath{k}", (4.8, 18.5, 0.12), (0, -27.5 - k * 17.0, -0.02), mat=m_path)
+# 主路 (南入口 -> 广场), 7 段
+for k in range(7):
+    add_box(f"PE_MainPath{k}", (4.8, 18.5, 0.12), (0, -27.5 - k * 18.4, -0.02), mat=m_path)
 # 环路 (内 + 外)
 add_torus("PE_LoopPathIn", RING_IN, 1.9, (0, 0, -0.04), mat=m_path, ms=96, ns=10, scale=(1, 1, 0.05))
 add_torus("PE_LoopPathOut", RING_OUT, 2.0, (0, 0, -0.04), mat=m_path, ms=128, ns=10, scale=(1, 1, 0.05))
@@ -849,7 +849,7 @@ for i, (rr, w) in enumerate(((24.0, 3.2), (44.0, 5.0), (68.0, 6.0))):
 
 tmark("ground/paths done")
 
-# ---------------- 入口大门 (南, 随 fence_r) ----------------
+# ---------------- 入口大门 (南 r146) ----------------
 def park_gate(name, gx, gy, scale=1.0):
     """石造牌楼: 双柱 + 尖顶 + 门楣 + 发光招牌 + 彩点 (scale=1 主门, 0.9 二道门)"""
     s = scale
@@ -866,14 +866,14 @@ def park_gate(name, gx, gy, scale=1.0):
         add_sphere(f"{name}_Dot{k}", 0.14 * s, (gx - 1.3 * s + k * 1.3 * s, gy, 6.4 * s),
                    mat=m_dot[k % 4], seg=10, ring=6)
 
-park_gate("PE_Gate", 0, -176.0, 1.0)
-POIS.append((0, -172.0, "entrance"))
+park_gate("PE_Gate", 0, -166.0, 1.0)
+POIS.append((0, -162.0, "entrance"))
 
 # 二道门 (主路中途 y=-60)
 park_gate("PE_Gate2", 0, -60.0, 0.88)
 
-# ---------------- 围墙铁艺栅栏 r176 (v4.1 扩园, 柱距保持 ~2.41m) ----------------
-n_post = 458
+# ---------------- 围墙铁艺栅栏 r166 ----------------
+n_post = 432
 for k in range(n_post):
     th = k * 2 * pi / n_post
     x, y = P["fence_r"] * cos(th), P["fence_r"] * sin(th)
@@ -904,7 +904,7 @@ def pumpkin_face(name, x, y, z, ry, s=1.0):
                 (px_, py_, pz_), rot=(0, 0, ry), mat=m_pumpface)
 
 lamp_positions = []   # (x, y, face_ry) face_ry = 灯头朝向
-for k in range(10):                       # 主路双侧 20 (v4.1 扩园延长)
+for k in range(8):                        # 主路双侧 16
     lamp_positions.append((4.4, -24.0 - k * 14.0, pi))
     lamp_positions.append((-4.4, -24.0 - k * 14.0, 0.0))
 for th in (radians(45), radians(135), radians(225), radians(315)):   # 广场对角 4
@@ -974,11 +974,11 @@ def bunting(name, p1, p2, sag=0.6, step=0.5):
         prev = pt
 
 runs = []
-for k in range(9):   # 主路灯杆之间 (双侧, v4.1 随灯杆延长)
+for k in range(7):   # 主路灯杆之间 (双侧)
     runs.append(((4.4, -24.0 - k * 14.0, 3.6), (4.4, -38.0 - k * 14.0, 3.6)))
     runs.append(((-4.4, -24.0 - k * 14.0, 3.6), (-4.4, -38.0 - k * 14.0, 3.6)))
-runs.append(((3.4, -166.0, 7.2), (4.4, -150.0, 3.6)))    # 大门 -> 最近灯杆 (v4.1 r176)
-runs.append(((-3.4, -166.0, 7.2), (-4.4, -150.0, 3.6)))
+runs.append(((3.4, -146.0, 7.2), (4.4, -122.0, 3.6)))    # 大门 -> 最近灯杆
+runs.append(((-3.4, -146.0, 7.2), (-4.4, -122.0, 3.6)))
 runs.append(((4.4, -24.0, 3.6), (10.6, -10.6, 3.6)))     # 路灯 -> 广场灯 (斜拉)
 runs.append(((-4.4, -24.0, 3.6), (-10.6, -10.6, 3.6)))
 runs.append(((10.6, -10.6, 3.6), (10.6, 10.6, 3.6)))     # 广场对角
@@ -2009,16 +2009,16 @@ vine_arch("PE_ZoneCoast_arch", 15.0, 70.5, 90.0)
 zone_fence("PE_ZoneBay", -88, -52, -55, -35, "E", -43, -37)
 zone_sign("PE_ZoneBay_sign", -51.8, -33.0, 90)
 
-# ---------------- 迷魂湖 (v4.1 面积扩容一倍, 原东南秘境围挡拆除) ----------------
-# 椭圆湖 c(105,-66) rx44 ry42 (v4 rx34 ry27 -> ×2.01); 水面材质 LakeWater -> join 后
-# 对象名 PE_LakeWater, 运行时 src/fx/lake.js 按节点名找到它替换为反射水面。灯笼原型三枚
-# 材质 LakeLanternA/B/C -> PE_LakeLanternA/B/C, 运行时提取几何实例化后隐藏原型 (藏 z=-8 地下)。
-# 扩容依据: 水面最远缘 r167.5 / 岸唇最远缘 r174.0 -> 围栏 r176 / boundaryR 174.5 包住 (可步行岸线)。
+# ---------------- 迷魂湖 (v4, 原东南秘境围挡拆除) ----------------
+# 椭圆湖 c(105,-66) rx34 ry27; 水面材质 LakeWater -> join 后对象名 PE_LakeWater,
+# 运行时 src/fx/lake.js 按节点名找到它替换为反射水面。灯笼原型三枚材质 LakeLanternA/B/C
+# -> PE_LakeLanternA/B/C, 运行时提取几何实例化 ~380 盏后隐藏原型 (藏 z=-8 地下)。
 LAKE_CX, LAKE_CY = 105.0, -66.0
-LAKE_RX, LAKE_RY = 44.0, 42.0
+LAKE_RX, LAKE_RY = 34.0, 27.0
 PIER_A = radians(-32.3)                       # 栈桥轴向 = 支路方向 (入湖)
 PD = (cos(PIER_A), sin(PIER_A))
 PN = (-sin(PIER_A), cos(PIER_A))
+PIER_MOUTH_DEG = 148.3                        # 栈桥口方位 (湖心视角, 碰撞链在此断开)
 
 def lake_pt(rx_, ry_, ang):
     return (LAKE_CX + rx_ * cos(ang), LAKE_CY + ry_ * sin(ang))
@@ -2026,17 +2026,6 @@ def lake_pt(rx_, ry_, ang):
 def pier_pt(t, v, z=0.0):
     """栈桥局部坐标: t = 沿轴离园心距离, v = 横向偏移"""
     return (PD[0] * t + PN[0] * v, PD[1] * t + PN[1] * v, z)
-
-# -- 栈桥与湖面几何交点 (支路方向射线入水处, 解椭圆方程; v4.1 湖扩容后 t≈80.6) --
-_ell_a = (PD[0] / LAKE_RX) ** 2 + (PD[1] / LAKE_RY) ** 2
-_ell_b = -2.0 * ((PD[0] * LAKE_CX) / LAKE_RX ** 2 + (PD[1] * LAKE_CY) / LAKE_RY ** 2)
-_ell_c = (LAKE_CX / LAKE_RX) ** 2 + (LAKE_CY / LAKE_RY) ** 2 - 1.0
-PIER_T0 = ((-_ell_b - sqrt(_ell_b ** 2 - 4 * _ell_a * _ell_c)) / (2 * _ell_a))
-STEP0_T = PIER_T0 - 3.0        # 台阶 1 (岸上, 顶 0.18)
-STEP1_T = PIER_T0 - 1.7        # 台阶 2 (岸缘, 顶 0.36)
-DECK_H = 0.5
-PLANK_T0, PLANK_T1 = PIER_T0 + 0.3, 103.5   # 桥面板 t 区间 (尽头平台原位不动)
-PLATFORM_T = 104.8                          # 尽头平台 (许愿点/POI 不变)
 
 m_lake_water = make_mat("LakeWater", "#141B33", rough=0.15, metal=0.3,
                         emit="#4A3A8A", strength=0.35)   # 占位暗水 (运行时换反射水)
@@ -2046,8 +2035,8 @@ m_lake_lantern = [
     for k, c, s in (("A", "#FFE9C4", 3.2), ("B", "#FFA53B", 3.0), ("C", "#FF9E9E", 2.6))
 ]
 
-# -- 水面椭圆盘 (rx+0.5 外扩塞进岸唇之下, z=0.055; NSEG 128 防大湖面棱化) --
-NSEG = 128
+# -- 水面椭圆盘 (rx+0.5 外扩塞进岸唇之下, z=0.055) --
+NSEG = 96
 wv = [(LAKE_CX, LAKE_CY, 0.055)]
 for k in range(NSEG):
     a = 2 * pi * k / NSEG
@@ -2082,12 +2071,14 @@ for ci, angd in enumerate((100, 165, 210, 255, 300, 20)):
               random.uniform(0.8, 1.3), 0.028, aa + random.uniform(-0.5, 0.5),
               random.uniform(0.25, 0.6), m_tuft, REED_ROOT, tip)
 
-# -- 栈桥: 两级台阶 + 板面 (顶 z 0.5, 宽 2.2, 台阶在岸上) + 尽头平台 r2.2 --
-add_box("PE_PierStep0", (0.55, 2.4, 0.18), pier_pt(STEP0_T, 0, 0.09),
+# -- 栈桥: 两级台阶 + 板面 (t 92.2~103.5, 顶 z 0.5, 宽 2.2) + 尽头平台 r2.2 --
+DECK_H = 0.5
+PLANK_T0, PLANK_T1 = 92.2, 103.5
+add_box("PE_PierStep0", (0.55, 2.4, 0.18), pier_pt(89.5, 0, 0.09),
         rot=(0, 0, PIER_A), mat=m_wood)
-add_box("PE_PierStep1", (0.55, 2.4, 0.36), pier_pt(STEP1_T, 0, 0.18),
+add_box("PE_PierStep1", (0.55, 2.4, 0.36), pier_pt(90.8, 0, 0.18),
         rot=(0, 0, PIER_A), mat=m_wood)
-plank_n = 46
+plank_n = 24
 for k in range(plank_n):
     t = PLANK_T0 + 0.24 + k * ((PLANK_T1 - PLANK_T0 - 0.48) / (plank_n - 1))
     add_box(f"PE_PierPlank{k}", (0.55, 2.2, 0.055),
@@ -2097,8 +2088,8 @@ for pv in (-0.95, 0.95):
     add_box(f"PE_PierStringer{pv}", (PLANK_T1 - PLANK_T0, 0.13, 0.15),
             pier_pt((PLANK_T0 + PLANK_T1) / 2, pv, DECK_H - 0.14),
             rot=(0, 0, PIER_A), mat=m_wood_d)
-for k in range(14):
-    t_ = PLANK_T0 + 0.8 + k * ((PLANK_T1 - PLANK_T0 - 1.6) / 13)
+for k in range(7):
+    t_ = 93.2 + k * 1.75
     for pv in (-1.02, 1.02):
         add_cyl(f"PE_PierPost{t_:.0f}_{pv}", 0.075, 1.9, pier_pt(t_, pv, -0.42),
                 mat=m_wood_d, verts=8)
@@ -2109,7 +2100,7 @@ for pv in (-1.02, 1.02):
                 pier_pt(PLANK_T1 - 0.3, pv, DECK_H + 0.44), 0.035, m_wood_d, verts=5)
     cyl_between(f"PE_PierRailB{pv}", pier_pt(PLANK_T0 + 0.3, pv, DECK_H + 0.20),
                 pier_pt(PLANK_T1 - 0.3, pv, DECK_H + 0.20), 0.028, m_wood_d, verts=5)
-add_cyl("PE_PierPlatform", 2.2, 0.56, pier_pt(PLATFORM_T, 0, DECK_H - 0.28),
+add_cyl("PE_PierPlatform", 2.2, 0.56, pier_pt(104.8, 0, DECK_H - 0.28),
         mat=m_wood, verts=24)
 
 # -- 栈桥灯柱 x2 (缩比维多利亚) + 尽头铭牌 (双柱+发光板+三彩点, 「夜河渡船·敬请期待」) --
@@ -2121,22 +2112,19 @@ for li, (lt_, lv_) in enumerate(((97.0, -1.02), (101.0, 1.02))):
     add_cone(f"PE_PierLampCap{li}", 0.26, 0.18, (lx, ly, DECK_H + 2.24), mat=m_metal_d, verts=6)
     collider(lx, ly, 0.18)
 for sp_ in (-0.6, 0.6):
-    sx_, sy_ = pier_pt(PLATFORM_T, sp_)[:2]
+    sx_, sy_ = pier_pt(104.8, sp_)[:2]
     add_cyl(f"PE_PierSignPost{sp_}", 0.05, 1.15, (sx_, sy_, DECK_H + 0.575),
             mat=m_wood_d, verts=6)
     collider(sx_, sy_, 0.15)
-add_box("PE_PierSignBoard", (0.08, 1.6, 0.46), pier_pt(PLATFORM_T, 0, DECK_H + 1.05),
+add_box("PE_PierSignBoard", (0.08, 1.6, 0.46), pier_pt(104.8, 0, DECK_H + 1.05),
         rot=(0, 0, PIER_A), mat=m_sign_g)
 for k in range(3):
-    add_sphere(f"PE_PierSignDot{k}", 0.055, pier_pt(PLATFORM_T, (k - 1) * 0.45, DECK_H + 1.05),
+    add_sphere(f"PE_PierSignDot{k}", 0.055, pier_pt(104.8, (k - 1) * 0.45, DECK_H + 1.05),
                mat=m_dot[k], seg=8, ring=5)
 
-# -- 入口拱门 + 铭牌 (随岸线外移: 拱门跨支路, 铭牌立柱离登桥轴线 ≥2m) --
-_arch_t = PIER_T0 - 4.8
-_arch_x, _arch_y = pier_pt(_arch_t, 0)[:2]
-vine_arch("PE_Lake_arch", _arch_x, _arch_y, -32.3)
-_sign_x, _sign_y = pier_pt(PIER_T0 - 6.8, 3.6)[:2]
-zone_sign("PE_Lake_sign", _sign_x, _sign_y, 90)
+# -- 入口拱门 + 铭牌 (支路尽头, 对齐 -32.3°) --
+vine_arch("PE_Lake_arch", 72.5, -46.0, -32.3)
+zone_sign("PE_Lake_sign", 76.2, -45.5, 90)
 
 # -- 灯笼原型 x3 (低多边形棱面, sm=False; 藏地下 z=-8, 运行时提取后隐藏) --
 for li, (px_, py_, pr_, pseg_, pring_, pmat_) in enumerate((
@@ -2146,39 +2134,29 @@ for li, (px_, py_, pr_, pseg_, pring_, pmat_) in enumerate((
     add_sphere(f"PE_LakeProto{li}", pr_, (px_, py_, -8.0), mat=pmat_,
                seg=pseg_, ring=pring_, sm=False)
 
-# -- 湖泊碰撞: 岸线无 h 圆链 (96 采样, 栈桥口「几何剪口」) + 封口 + 桥面 h 链 --
-# 教训 (2026-11-18): 旧版按椭圆参数角 ±4° 剪口, 3.75° 采样网格下 142.5° 圆恰落桥面
-# 起点正中 (栈桥本地 t=92.1, v=+0.2), 无限高墙封死台阶→桥面过渡, 玩家只能上第一级台阶。
-# 改为逐点换算栈桥本地 (t, v), 桥走廊内 (t∈[74,98] 且 |v|<3.5) 一律不放岸线圆。
-MOUTH_SKIP_T = (74.0, 98.0)
-MOUTH_SKIP_V = 3.5
+# -- 湖泊碰撞: 岸线无 h 圆链 (96 采样, 栈桥口 ±4° 断开+侧翼封口) + 桥面 h 链 --
 for k in range(96):
     angd = k * 360.0 / 96.0
-    px_, py_ = lake_pt(LAKE_RX + 0.3, LAKE_RY + 0.3, radians(angd))
-    t_ = px_ * PD[0] + py_ * PD[1]
-    v_ = px_ * PN[0] + py_ * PN[1]
-    if MOUTH_SKIP_T[0] < t_ < MOUTH_SKIP_T[1] and abs(v_) < MOUTH_SKIP_V:
+    dd = abs(((angd - PIER_MOUTH_DEG + 540.0) % 360.0) - 180.0)
+    if dd < 4.0:
         continue
-    collider(px_, py_, 1.2)
-# 栈桥口封口 x2 (环剪口软点补封): 与两侧保留岸线圆盘搭接, 缝 < 0.76 玩家直径。
-# 注意桥面走廊本身由 h 链自封 (水位玩家 canStand 过不了 0.5 桥面顶), 此处不可放
-# 无-h 封口圆横跨走廊 —— 会在台阶顶把玩家夹在两盘排斥交叠区 (2026-11-18 二次教训)
-for fv in (-3.6, 3.6):
-    fx_, fy_ = pier_pt(PLANK_T0 - 1.4, fv)[:2]
-    collider(fx_, fy_, 1.3)
-for t_, h_ in ((STEP0_T, 0.18), (STEP1_T, 0.36)):   # 入口台阶 (顶面可站)
+    cx_, cy_ = lake_pt(LAKE_RX + 0.3, LAKE_RY + 0.3, radians(angd))
+    collider(cx_, cy_, 1.2)
+for fv in (-1.9, 1.9):    # 栈桥口侧翼封口 (防绕过桥从口子下水)
+    fx_, fy_ = pier_pt(91.5, fv)[:2]
+    collider(fx_, fy_, 1.0)
+for t_, h_ in ((89.5, 0.18), (90.8, 0.36)):   # 入口台阶 (顶面可站)
     cx_, cy_ = pier_pt(t_, 0)[:2]
     collider(cx_, cy_, 1.2, h=h_)
-for k in range(15):                                 # 桥面 h 链 (首圆 t0+0.3 与台阶链搭接, 防踩空缺口)
-    t_ = PLANK_T0 + 0.3 + k * 1.5
+for t_ in (93.0, 94.5, 96.0, 97.5, 99.0, 100.5, 102.0, 103.5):   # 桥面链
     cx_, cy_ = pier_pt(t_, 0)[:2]
     collider(cx_, cy_, 1.15, h=DECK_H)
-cx_, cy_ = pier_pt(PLATFORM_T, 0)[:2]
+cx_, cy_ = pier_pt(104.8, 0)[:2]
 collider(cx_, cy_, 2.2, h=DECK_H)   # 尽头平台 (未来登船点)
 
-# -- 湖畔打卡点 x2 (栈桥尽头 / 东岸观景点, 后者随岸线外移到新岸唇带上) --
+# -- 湖畔打卡点 x2 (栈桥尽头 / 东岸观景点) --
 POIS.append((88.6, -56.0, "pumpkin_lakePier"))
-POIS.append((149.7, -79.3, "pumpkin_lakeEast"))
+POIS.append((140.7, -76.6, "pumpkin_lakeEast"))
 tmark("lake done")
 
 tmark(f"props done (grass={len(tufts)} pumps={len(pump_plan)} flowers={len(flower_spots)})")
@@ -2389,10 +2367,10 @@ for lid, kd, (sx, sy) in LAUNCHER_SITES:
 manifest = {
     "version": 4,
     "note": "坐标为 glTF/app 空间 (x, z); 由 park_env.py v4 自动生成; h = 顶面高度(可站立), 缺省为无限高阻挡; rects = 轴对齐盒墙(可推挤); launchers = 烟花发射器锚点; lake = 迷魂湖椭圆水域 (运行时禁入/水声衰减/彩蛋触发)",
-    "boundaryR": 174.5,
-    "spawn": {"x": 0.0, "z": 173.5},
+    "boundaryR": 164.5,
+    "spawn": {"x": 0.0, "z": 164.0},
     "boarding": {"x": 0.0, "z": 16.4},
-    "lake": {"cx": 105.0, "cz": 66.0, "rx": 44.0, "rz": 42.0},
+    "lake": {"cx": 105.0, "cz": 66.0, "rx": 34.0, "rz": 27.0},
     "launchers": manifest_launchers,
     "pois": [{"x": round(x, 2), "z": round(-y, 2), "label": lb} for x, y, lb in POIS],
     "rects": [
