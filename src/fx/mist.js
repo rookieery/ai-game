@@ -208,7 +208,6 @@ const CLUSTERS = [
   [15, -69, 9, 7],      // 过山车预留区入口
   [-70, 44, 9, 7],      // 幽灵港湾口
   [16, 92, 10, 7],      // 南外环灯下
-  [105, 66, 12, 8],     // 迷魂湖灯群暖雾 (v4, 湖面)
 ];
 
 // 灯染源：live ≥ 0 跟随 world.plazaLights 对应灯的实时强度，-1 为静态南瓜点（随 parkLampLight 总增益）
@@ -220,7 +219,7 @@ const TINT_LIGHTS = [
   { pos: [-25.5, 1.2, 30], color: "#ffa53b", r: 12, live: -1, gain: 0.8 },         // 摊位灯
   { pos: [-70, 1.2, 45], color: "#7fd8c8", r: 14, live: 3, base: 30, gain: 0.8 },  // 幽灵港 ↔ bay
   { pos: [15, 1.2, -100], color: "#ff9a5c", r: 16, live: 4, base: 42, gain: 0.8 }, // 北过山车 ↔ north
-  { pos: [105, 1.6, 66], color: "#ffb066", r: 20, live: -1, gain: 1.0 },           // 迷魂湖灯群暖染 (v4, 原东南秘境紫让位)
+  { pos: [95, 1.2, 60], color: "#9b5bff", r: 14, live: 5, base: 26, gain: 0.8 },   // 东南秘境 ↔ east
 ];
 
 const BASE = { mist: 0.46 }; // mistDensity 100% 基准（旧 0.10 竖板方案的替代标定）
@@ -291,11 +290,10 @@ export function createMist(scene, world) {
     })
   );
   puffs.frustumCulled = false;
-  puffs.layers.set(1); // 层1: 不进迷魂湖反射
   scene.add(puffs);
 
-  // ----- 贴地雾层：两层错相圆盘（v4 半径随扩园 150 -> 170） -----
-  const discGeo = new THREE.CircleGeometry(170, 64);
+  // ----- 贴地雾层：两层错相圆盘（v3 半径随扩园 85 -> 150） -----
+  const discGeo = new THREE.CircleGeometry(150, 64);
   const discs = [];
   for (const cfg of [
     { y: 0.45, seed: [0, 0], sign: 1 },
@@ -314,7 +312,6 @@ export function createMist(scene, world) {
     });
     const d = new THREE.Mesh(discGeo, mat);
     d.rotation.x = -Math.PI / 2;
-    d.layers.set(1); // 层1: 不进迷魂湖反射
     d.position.y = cfg.y;
     d.frustumCulled = false;
     scene.add(d);

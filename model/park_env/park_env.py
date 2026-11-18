@@ -3,22 +3,20 @@
 Park Environment v3 - "幽夜游乐场" Halloween night park (game-ready glTF asset)
 Run: blender --background --python park_env.py
 
-布局 v4 (Blender 坐标, +Y=北, r170 扩园 + 迷魂湖):
+布局 v3 (Blender 坐标, +Y=北, r150 扩园):
   - 摩天轮在原点 (轮盘资产独立), 登舱台阶在 -Y 侧, 中央广场 r17.5
-  - 南入口大门 (0,-166) -> 石板主路 (7 段, 中途二道门牌楼 y=-60) -> 广场
-  - 路网: 内环 r34 / 外环 r90 / 四条放射支路 (东北过山车 78°, 东南迷魂湖 -32°,
+  - 南入口大门 (0,-146) -> 石板主路 (7 段, 中途二道门牌楼 y=-60) -> 广场
+  - 路网: 内环 r34 / 外环 r90 / 四条放射支路 (东北过山车 78°, 东南秘境 -32°,
           西南幽灵港 217.6°, 西北许愿池 147°) + 木马支路 22° / 墓园·市集横路
   - 预留区 (围挡+敬请期待牌): 北 过山车 x[-30,60] y[70,130];
-          西南 幽灵港(海盗船) x[-88,-52] y[-55,-35]
-  - 迷魂湖 (v4, 原东南秘境围挡拆除): 椭圆湖 c(105,-66) rx34 ry27 + 岸唇/栈桥
-          (登船点+铭牌) / 灯笼原型 x3 (PE_LakeLanternA/B/C, 运行时实例化) / 湖畔打卡点 x2
+          西南 幽灵港(海盗船) x[-88,-52] y[-55,-35]; 东南 秘境 x[78,112] y[-78,-42]
   - 烟花发射器 x6 (三型×2: A 牡丹架 广场东北+木马缘 / B 垂柳塔 墓园东+许愿池 /
           C 椰芯炮 市集南+南瓜田, 炮口朝园心) / 许愿池 (-57,38) / 石像鬼 x2 / 稻草人 x2 / 花藤拱门 x3
   - 植被: 枯树 v2 x22 (螺旋/双干/垂枝) / 缠灯松 x12 (高瘦/矮胖/歪脖) / 垂柳 x4
           草丛 ~600 / 发光蘑菇圈 x8 / 路缘花带 (紫郁金香+橙万寿菊) / 彼岸花 x4 (墓园)
   - 家具变体: 长椅 x12 (铁艺卷草/木条/南瓜背/简约) / 路灯 x28 (球灯/南瓜顶/双头提灯)
           木桶加铁箍 / 南瓜灯 x39 (高/扁体形)
-  - 围墙铁艺栅栏 r166 (~432 柱) + 维多利亚路灯 + 灯串 + 彩旗串
+  - 围墙铁艺栅栏 r146 (~380 柱) + 维多利亚路灯 + 灯串 + 彩旗串
   - 远景: 山脊剪影环 (420-470) + 城市灯火点阵 (300-390)
 输出: park_env.glb (按材质合并) + colliders.json (app 坐标, 含 launchers 锚点) + preview/
 """
@@ -38,8 +36,8 @@ def tmark(label):
     print(f"[t={time.time()-T0:7.1f}s] {label}", flush=True)
 
 P = {
-    "park_r": 170.0,
-    "fence_r": 166.0,
+    "park_r": 150.0,
+    "fence_r": 146.0,
     "plaza_r": 17.5,
     "res_still": (1600, 900),
 }
@@ -223,7 +221,7 @@ def add_cone(name, r, depth, loc, mat=None, verts=4, rot=(0, 0, 0)):
     ob.rotation_euler = rot
     return ob
 
-def add_sphere(name, r, loc, mat=None, seg=10, ring=6, scale=(1, 1, 1), sm=True):
+def add_sphere(name, r, loc, mat=None, seg=10, ring=6, scale=(1, 1, 1)):
     vs = [(0, 0, r)]   # 顶极
     for j in range(1, ring):
         phi = pi * j / ring
@@ -248,7 +246,7 @@ def add_sphere(name, r, loc, mat=None, seg=10, ring=6, scale=(1, 1, 1), sm=True)
     for i in range(seg):
         i2 = (i + 1) % seg
         fs.append((bot_i, last_row + i2, last_row + i))       # 底三角带
-    ob = _new_obj(name, vs, fs, mat, sm)
+    ob = _new_obj(name, vs, fs, mat, True)
     ob.location = loc
     ob.scale = scale
     return ob
@@ -767,14 +765,14 @@ RING_OUT = 90.0         # 外环
 # 放射支路: (角° blender, r_from, r_to)
 SPOKES = [
     (78.0,   30.0, 70.0),    # 东北 -> 过山车预留区
-    (-32.3,  30.0, 90.0),    # 东南 -> 迷魂湖岸/栈桥 (支路缩短防没入湖中)
+    (-32.3,  30.0, 95.0),    # 东南 -> 秘境预留区
     (217.6,  30.0, 58.0),    # 西南 -> 幽灵港 (对准东缘缺口 y[-43,-37])
     (146.8,  30.0, 67.0),    # 西北 -> 许愿池
 ]
 CAR_SPUR = (21.8, 19.0, 33.0)   # 木马支路
 ZONE_COAST = (-30, 60, 70, 130)   # x0,x1,y0,y1
 ZONE_BAY   = (-88, -52, -55, -35)
-ZONE_LAKE  = (64, 146, -99, -33)   # 迷魂湖+岸带 (v4, 含水面禁树禁草区)
+ZONE_THIRD = (78, 112, -78, -42)
 LAUNCHER = (22.0, -22.0)
 # 烟花发射器 6 站 (id, kind, blender x,y): A 牡丹×2 / B 垂柳×2 / C 椰芯×2, 炮口朝园心
 LAUNCHER_SITES = [
@@ -804,7 +802,7 @@ def on_path(x, y, margin=0.0):
                 CAR_SPUR[2] * cos(a), CAR_SPUR[2] * sin(a)) < 1.5 + margin: return True
     if seg_dist(x, y, 0, -40, 34, -40) < 1.5 + margin:  return True    # 墓园横路
     if seg_dist(x, y, -31.5, -32, -0.5, -32) < 1.5 + margin: return True  # 市集横路
-    for x0, x1, y0, y1 in (ZONE_COAST, ZONE_BAY, ZONE_LAKE):
+    for x0, x1, y0, y1 in (ZONE_COAST, ZONE_BAY, ZONE_THIRD):
         if x0 - margin < x < x1 + margin and y0 - margin < y < y1 + margin: return True
     if hypot(x - 45, y - 18) < 13.5 + margin:           return True   # 木马
     if hypot(x - 34, y + 41) < 9.5 + margin:            return True   # 墓园草皮
@@ -866,18 +864,18 @@ def park_gate(name, gx, gy, scale=1.0):
         add_sphere(f"{name}_Dot{k}", 0.14 * s, (gx - 1.3 * s + k * 1.3 * s, gy, 6.4 * s),
                    mat=m_dot[k % 4], seg=10, ring=6)
 
-park_gate("PE_Gate", 0, -166.0, 1.0)
-POIS.append((0, -162.0, "entrance"))
+park_gate("PE_Gate", 0, -146.0, 1.0)
+POIS.append((0, -142.0, "entrance"))
 
 # 二道门 (主路中途 y=-60)
 park_gate("PE_Gate2", 0, -60.0, 0.88)
 
-# ---------------- 围墙铁艺栅栏 r166 ----------------
-n_post = 432
+# ---------------- 围墙铁艺栅栏 r146 ----------------
+n_post = 380
 for k in range(n_post):
     th = k * 2 * pi / n_post
     x, y = P["fence_r"] * cos(th), P["fence_r"] * sin(th)
-    if y < -(P["fence_r"] - 3.0) and abs(x) < 5.0:   # 大门开口
+    if y < -143.0 and abs(x) < 5.0:   # 大门开口
         continue
     add_box(f"PE_FencePost{k}", (0.15, 0.15, 2.5), (x, y, 1.25), mat=m_iron)
     add_cone(f"PE_FenceTip{k}", 0.10, 0.4, (x, y, 2.68), mat=m_iron, verts=6)
@@ -1340,7 +1338,7 @@ pump_plan = [
     # 新分区入口
     (13.5, 68.5), (18.5, 67.0),           # 过山车
     (-50.0, -38.5), (-54.5, -41.5),       # 幽灵港
-    (66.7, -68.7), (73.5, -84.1),         # 迷魂湖岸 (v4: 原秘境点位已没入湖中, 迁岸线)
+    (79.0, -52.5), (81.5, -56.0),         # 秘境
     (18.8, -18.4), (24.5, -24.5),         # 烟花释放器
     (-55.2, 35.2),                        # 许愿池
     # 外环
@@ -1373,6 +1371,7 @@ POIS.extend([
     (-22.0, -28.5, "pumpkin_stall"),
     (13.5, 68.5, "pumpkin_coast"),
     (-50.0, -38.5, "pumpkin_bay"),
+    (79.0, -52.5, "pumpkin_east"),
     (-55.2, 35.2, "pumpkin_well"),
     (16.2, -91.6, "pumpkin_field"),
 ])
@@ -2009,155 +2008,9 @@ vine_arch("PE_ZoneCoast_arch", 15.0, 70.5, 90.0)
 zone_fence("PE_ZoneBay", -88, -52, -55, -35, "E", -43, -37)
 zone_sign("PE_ZoneBay_sign", -51.8, -33.0, 90)
 
-# ---------------- 迷魂湖 (v4, 原东南秘境围挡拆除) ----------------
-# 椭圆湖 c(105,-66) rx34 ry27; 水面材质 LakeWater -> join 后对象名 PE_LakeWater,
-# 运行时 src/fx/lake.js 按节点名找到它替换为反射水面。灯笼原型三枚材质 LakeLanternA/B/C
-# -> PE_LakeLanternA/B/C, 运行时提取几何实例化 ~380 盏后隐藏原型 (藏 z=-8 地下)。
-LAKE_CX, LAKE_CY = 105.0, -66.0
-LAKE_RX, LAKE_RY = 34.0, 27.0
-PIER_A = radians(-32.3)                       # 栈桥轴向 = 支路方向 (入湖)
-PD = (cos(PIER_A), sin(PIER_A))
-PN = (-sin(PIER_A), cos(PIER_A))
-PIER_MOUTH_DEG = 148.3                        # 栈桥口方位 (湖心视角, 碰撞链在此断开)
-
-def lake_pt(rx_, ry_, ang):
-    return (LAKE_CX + rx_ * cos(ang), LAKE_CY + ry_ * sin(ang))
-
-def pier_pt(t, v, z=0.0):
-    """栈桥局部坐标: t = 沿轴离园心距离, v = 横向偏移"""
-    return (PD[0] * t + PN[0] * v, PD[1] * t + PN[1] * v, z)
-
-m_lake_water = make_mat("LakeWater", "#141B33", rough=0.15, metal=0.3,
-                        emit="#4A3A8A", strength=0.35)   # 占位暗水 (运行时换反射水)
-m_lake_shore = make_mat("PE_Shore", "#241D14", rough=0.92)
-m_lake_lantern = [
-    make_mat(f"LakeLantern{k}", c, rough=0.6, emit=c, strength=s)
-    for k, c, s in (("A", "#FFE9C4", 3.2), ("B", "#FFA53B", 3.0), ("C", "#FF9E9E", 2.6))
-]
-
-# -- 水面椭圆盘 (rx+0.5 外扩塞进岸唇之下, z=0.055) --
-NSEG = 96
-wv = [(LAKE_CX, LAKE_CY, 0.055)]
-for k in range(NSEG):
-    a = 2 * pi * k / NSEG
-    wv.append((LAKE_CX + (LAKE_RX + 0.5) * cos(a), LAKE_CY + (LAKE_RY + 0.5) * sin(a), 0.055))
-wf = [(0, 1 + k, 1 + (k + 1) % NSEG) for k in range(NSEG)]
-_new_obj("PE_LakeWaterDisk", wv, wf, m_lake_water, False)
-
-# -- 岸唇带 (内缘 +0.5 高 0.22 -> 外缘 +6.5 落 -0.02): 斜坡石壤 --
-sv = []
-for k in range(NSEG):
-    a = 2 * pi * k / NSEG
-    sv.append((*lake_pt(LAKE_RX + 0.5, LAKE_RY + 0.5, a), 0.22))
-for k in range(NSEG):
-    a = 2 * pi * k / NSEG
-    sv.append((*lake_pt(LAKE_RX + 6.5, LAKE_RY + 6.5, a), -0.02))
-sf = [(k, (k + 1) % NSEG, NSEG + (k + 1) % NSEG, NSEG + k) for k in range(NSEG)]
-_new_obj("PE_ShoreBand", sv, sf, m_lake_shore, False)
-
-# -- 半沉石 x6 + 芦苇丛 x6 (岸缘细节; 芦苇走 PE_GrassTuft -> wind.js 免费风摆) --
-for ri, angd in enumerate((120, 168, 205, 250, 295, 335)):
-    x, y = lake_pt(LAKE_RX - 1.0, LAKE_RY - 1.0, radians(angd))
-    add_sphere(f"PE_LakeRock{ri}", 1.0, (x, y, -0.12), mat=m_stone, seg=8, ring=5,
-               scale=(random.uniform(0.9, 1.6), random.uniform(0.6, 1.1), 0.4))
-REED_ROOT = hex_lin("#182A1E")[:3]
-for ci, angd in enumerate((100, 165, 210, 255, 300, 20)):
-    bx, by = lake_pt(LAKE_RX + 1.8, LAKE_RY + 1.8, radians(angd))
-    tip = hex_lin("#4E6A3A")[:3] if random.random() < 0.7 else hex_lin("#6A6238")[:3]
-    for k in range(7):
-        aa = radians(angd) + random.uniform(-0.2, 0.2)
-        rr_ = random.uniform(0.1, 1.2)
-        blade(f"PE_Reed{ci}_{k}", (bx + rr_ * cos(aa), by + rr_ * sin(aa), 0.02),
-              random.uniform(0.8, 1.3), 0.028, aa + random.uniform(-0.5, 0.5),
-              random.uniform(0.25, 0.6), m_tuft, REED_ROOT, tip)
-
-# -- 栈桥: 两级台阶 + 板面 (t 92.2~103.5, 顶 z 0.5, 宽 2.2) + 尽头平台 r2.2 --
-DECK_H = 0.5
-PLANK_T0, PLANK_T1 = 92.2, 103.5
-add_box("PE_PierStep0", (0.55, 2.4, 0.18), pier_pt(89.5, 0, 0.09),
-        rot=(0, 0, PIER_A), mat=m_wood)
-add_box("PE_PierStep1", (0.55, 2.4, 0.36), pier_pt(90.8, 0, 0.18),
-        rot=(0, 0, PIER_A), mat=m_wood)
-plank_n = 24
-for k in range(plank_n):
-    t = PLANK_T0 + 0.24 + k * ((PLANK_T1 - PLANK_T0 - 0.48) / (plank_n - 1))
-    add_box(f"PE_PierPlank{k}", (0.55, 2.2, 0.055),
-            pier_pt(t, random.uniform(-0.012, 0.012), DECK_H - 0.0275),
-            rot=(0, 0, PIER_A + random.uniform(-0.012, 0.012)), mat=m_wood)
-for pv in (-0.95, 0.95):
-    add_box(f"PE_PierStringer{pv}", (PLANK_T1 - PLANK_T0, 0.13, 0.15),
-            pier_pt((PLANK_T0 + PLANK_T1) / 2, pv, DECK_H - 0.14),
-            rot=(0, 0, PIER_A), mat=m_wood_d)
-for k in range(7):
-    t_ = 93.2 + k * 1.75
-    for pv in (-1.02, 1.02):
-        add_cyl(f"PE_PierPost{t_:.0f}_{pv}", 0.075, 1.9, pier_pt(t_, pv, -0.42),
-                mat=m_wood_d, verts=8)
-        add_cyl(f"PE_PierStub{t_:.0f}_{pv}", 0.035, 0.46, pier_pt(t_, pv, DECK_H + 0.23),
-                mat=m_wood_d, verts=5)
-for pv in (-1.02, 1.02):
-    cyl_between(f"PE_PierRailA{pv}", pier_pt(PLANK_T0 + 0.3, pv, DECK_H + 0.44),
-                pier_pt(PLANK_T1 - 0.3, pv, DECK_H + 0.44), 0.035, m_wood_d, verts=5)
-    cyl_between(f"PE_PierRailB{pv}", pier_pt(PLANK_T0 + 0.3, pv, DECK_H + 0.20),
-                pier_pt(PLANK_T1 - 0.3, pv, DECK_H + 0.20), 0.028, m_wood_d, verts=5)
-add_cyl("PE_PierPlatform", 2.2, 0.56, pier_pt(104.8, 0, DECK_H - 0.28),
-        mat=m_wood, verts=24)
-
-# -- 栈桥灯柱 x2 (缩比维多利亚) + 尽头铭牌 (双柱+发光板+三彩点, 「夜河渡船·敬请期待」) --
-for li, (lt_, lv_) in enumerate(((97.0, -1.02), (101.0, 1.02))):
-    lx, ly = pier_pt(lt_, lv_)[:2]
-    add_cyl(f"PE_PierLampBase{li}", 0.13, 0.1, (lx, ly, DECK_H + 0.05), mat=m_iron, verts=8)
-    add_cyl(f"PE_PierLampPole{li}", 0.045, 1.9, (lx, ly, DECK_H + 1.0), mat=m_iron, verts=6)
-    add_sphere(f"PE_PierLampGlass{li}", 0.2, (lx, ly, DECK_H + 2.05), mat=m_warm, seg=10, ring=6)
-    add_cone(f"PE_PierLampCap{li}", 0.26, 0.18, (lx, ly, DECK_H + 2.24), mat=m_metal_d, verts=6)
-    collider(lx, ly, 0.18)
-for sp_ in (-0.6, 0.6):
-    sx_, sy_ = pier_pt(104.8, sp_)[:2]
-    add_cyl(f"PE_PierSignPost{sp_}", 0.05, 1.15, (sx_, sy_, DECK_H + 0.575),
-            mat=m_wood_d, verts=6)
-    collider(sx_, sy_, 0.15)
-add_box("PE_PierSignBoard", (0.08, 1.6, 0.46), pier_pt(104.8, 0, DECK_H + 1.05),
-        rot=(0, 0, PIER_A), mat=m_sign_g)
-for k in range(3):
-    add_sphere(f"PE_PierSignDot{k}", 0.055, pier_pt(104.8, (k - 1) * 0.45, DECK_H + 1.05),
-               mat=m_dot[k], seg=8, ring=5)
-
-# -- 入口拱门 + 铭牌 (支路尽头, 对齐 -32.3°) --
-vine_arch("PE_Lake_arch", 72.5, -46.0, -32.3)
-zone_sign("PE_Lake_sign", 76.2, -45.5, 90)
-
-# -- 灯笼原型 x3 (低多边形棱面, sm=False; 藏地下 z=-8, 运行时提取后隐藏) --
-for li, (px_, py_, pr_, pseg_, pring_, pmat_) in enumerate((
-        (103.0, -68.0, 0.30, 10, 6, m_lake_lantern[0]),
-        (106.5, -64.5, 0.24, 8, 5, m_lake_lantern[1]),
-        (104.5, -63.0, 0.18, 8, 5, m_lake_lantern[2]))):
-    add_sphere(f"PE_LakeProto{li}", pr_, (px_, py_, -8.0), mat=pmat_,
-               seg=pseg_, ring=pring_, sm=False)
-
-# -- 湖泊碰撞: 岸线无 h 圆链 (96 采样, 栈桥口 ±4° 断开+侧翼封口) + 桥面 h 链 --
-for k in range(96):
-    angd = k * 360.0 / 96.0
-    dd = abs(((angd - PIER_MOUTH_DEG + 540.0) % 360.0) - 180.0)
-    if dd < 4.0:
-        continue
-    cx_, cy_ = lake_pt(LAKE_RX + 0.3, LAKE_RY + 0.3, radians(angd))
-    collider(cx_, cy_, 1.2)
-for fv in (-1.9, 1.9):    # 栈桥口侧翼封口 (防绕过桥从口子下水)
-    fx_, fy_ = pier_pt(91.5, fv)[:2]
-    collider(fx_, fy_, 1.0)
-for t_, h_ in ((89.5, 0.18), (90.8, 0.36)):   # 入口台阶 (顶面可站)
-    cx_, cy_ = pier_pt(t_, 0)[:2]
-    collider(cx_, cy_, 1.2, h=h_)
-for t_ in (93.0, 94.5, 96.0, 97.5, 99.0, 100.5, 102.0, 103.5):   # 桥面链
-    cx_, cy_ = pier_pt(t_, 0)[:2]
-    collider(cx_, cy_, 1.15, h=DECK_H)
-cx_, cy_ = pier_pt(104.8, 0)[:2]
-collider(cx_, cy_, 2.2, h=DECK_H)   # 尽头平台 (未来登船点)
-
-# -- 湖畔打卡点 x2 (栈桥尽头 / 东岸观景点) --
-POIS.append((88.6, -56.0, "pumpkin_lakePier"))
-POIS.append((140.7, -76.6, "pumpkin_lakeEast"))
-tmark("lake done")
+# 秘境预留区 (东南): 西边开口 y∈[-54,-48], 支路 -32.3° 正对缺口
+zone_fence("PE_ZoneThird", 78, 112, -78, -42, "W", -54, -48)
+zone_sign("PE_ZoneThird_sign", 76.2, -45.5, 90)
 
 tmark(f"props done (grass={len(tufts)} pumps={len(pump_plan)} flowers={len(flower_spots)})")
 
@@ -2181,10 +2034,10 @@ def blocked(x, y, margin):
 
 tree_spots = []
 tries = 0
-while len(tree_spots) < 26 and tries < 3000:
+while len(tree_spots) < 22 and tries < 3000:
     tries += 1
     ang = random.uniform(0, 2 * pi)
-    rr = random.uniform(26, 155)
+    rr = random.uniform(26, 135)
     x, y = rr * cos(ang), rr * sin(ang)
     if blocked(x, y, 2.6):
         continue
@@ -2262,10 +2115,9 @@ def add_cam(name, loc, target, lens=35):
     look_at(cam, target)
     return cam
 
-cam_aerial = add_cam("PE_CamAerial", (170, -170, 130), (0, 0, 4), lens=28)
+cam_aerial = add_cam("PE_CamAerial", (160, -160, 120), (0, 0, 4), lens=28)
 cam_street = add_cam("PE_CamStreet", (0.0, -105.0, 1.75), (0, -45, 5.5), lens=30)
 cam_corner = add_cam("PE_CamCorner", (26.0, -48.0, 2.2), (35.0, -40.0, 1.2), lens=38)
-cam_lake = add_cam("PE_CamLake", (58.0, -96.0, 5.5), (88.0, -55.0, 1.0), lens=32)
 
 sc.view_settings.view_transform = "Standard"
 sc.view_settings.exposure = 0.35
@@ -2365,12 +2217,11 @@ for lid, kd, (sx, sy) in LAUNCHER_SITES:
                                "dx": round(-sx / lapp, 3), "dz": round(sy / lapp, 3),
                                "mz": MUZZLE_LOCAL[kd][2]})
 manifest = {
-    "version": 4,
-    "note": "坐标为 glTF/app 空间 (x, z); 由 park_env.py v4 自动生成; h = 顶面高度(可站立), 缺省为无限高阻挡; rects = 轴对齐盒墙(可推挤); launchers = 烟花发射器锚点; lake = 迷魂湖椭圆水域 (运行时禁入/水声衰减/彩蛋触发)",
-    "boundaryR": 164.5,
-    "spawn": {"x": 0.0, "z": 164.0},
+    "version": 3,
+    "note": "坐标为 glTF/app 空间 (x, z); 由 park_env.py v3 自动生成; h = 顶面高度(可站立), 缺省为无限高阻挡; rects = 轴对齐盒墙(可推挤); launchers = 烟花发射器锚点",
+    "boundaryR": 144.5,
+    "spawn": {"x": 0.0, "z": 144.0},
     "boarding": {"x": 0.0, "z": 16.4},
-    "lake": {"cx": 105.0, "cz": 66.0, "rx": 34.0, "rz": 27.0},
     "launchers": manifest_launchers,
     "pois": [{"x": round(x, 2), "z": round(-y, 2), "label": lb} for x, y, lb in POIS],
     "rects": [
@@ -2426,8 +2277,7 @@ except Exception:
 
 for name, cam in (("01_aerial.png", cam_aerial),
                   ("02_street.png", cam_street),
-                  ("03_corner.png", cam_corner),
-                  ("04_lake.png", cam_lake)):
+                  ("03_corner.png", cam_corner)):
     render_still(name, cam)
 
 tris = 0

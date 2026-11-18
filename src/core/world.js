@@ -92,7 +92,7 @@ export function createWorld(scene) {
   const north = new THREE.PointLight("#ff9a5c", BASE.north, 110, 1.7); // 过山车预留区: 暖橙
   north.position.set(15, 9, -100);
   scene.add(north);
-  const east = new THREE.PointLight("#9b5bff", BASE.east, 90, 1.7);  // 迷魂湖西岸 (v4, 原秘境紫转为湖岸暮紫)
+  const east = new THREE.PointLight("#9b5bff", BASE.east, 90, 1.7);  // 秘境预留区: 暗紫
   east.position.set(95, 9, 60);
   scene.add(east);
 

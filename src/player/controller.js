@@ -88,8 +88,6 @@ export function createPlayer(camera, input, park) {
   }
   const circles = [...(park?.circles ?? []), ...extra];
   const boundaryR = park?.boundaryR ?? 60;
-  const lake = park?.lake ?? null; // 迷魂湖椭圆水域 (踩水守卫, v4)
-  let lakeWaterT = 0;              // 连续踩水时长 (超时浪推上岸)
 
   // 矩形碰撞体两类：
   //   solid（墙）—— colliders.json rects（市集亭体等精确盒墙, 无 h, 各高度推挤）
@@ -295,7 +293,7 @@ export function createPlayer(camera, input, park) {
       jumpBufT = 0;
     }
 
-    pushOut(dt); // 动态圆每帧推挤（静止也被旋转骑乘位推开）+ 湖面守卫
+    pushOut(); // 动态圆每帧推挤（静止也被旋转骑乘位推开）
 
     landDip *= Math.exp(-dt * 7);
     camera.position.set(pos.x, EYE + pos.y + Math.sin(bobT) * 0.035 - landDip, pos.z);
@@ -336,7 +334,7 @@ export function createPlayer(camera, input, park) {
 
   // 静止推挤：动态圆（旋转设施的骑乘位/铜杆）经过静止玩家时也要推开,
   // 否则障碍直接穿身。复用 tryMove 的圆推挤 + 边界钳制, 不含台阶/矩形逻辑。
-  function pushOut(dt = 0) {
+  function pushOut() {
     let nx = pos.x;
     let nz = pos.z;
     for (let it = 0; it < 2; it++) {
@@ -351,52 +349,6 @@ export function createPlayer(camera, input, park) {
           nz = c.z + (dz / d) * min;
         }
       }
-    }
-    // 迷魂湖守卫 (v4): 仅当玩家在湖椭圆内(ed<1)且无支撑点(踩水)时生效 ——
-    // 被"水流"沿径向携行 14m/s, 滞留 1.1s 由浪直接推上岸 (椭圆外 1.3, 岸线圆带之外)。
-    // 站在栈桥/平台等 h 顶面(groundAt>0)不受影响; 湖外(ed>=1)零干扰。
-    // (教训: 丢掉 ed<1 前置会把全园当水域, 入园即被携行 + 岸线永久振荡, 2026-11-18 事故)
-    if (lake && groundAt(nx, nz) < 0.05) {
-      const ed = Math.hypot((nx - lake.cx) / lake.rx, (nz - lake.cz) / lake.rz);
-      if (ed < 1) {
-        let ux = nx - lake.cx;
-        let uz = nz - lake.cz;
-        if (Math.hypot(ux, uz) < 0.02) { ux = -0.87; uz = -0.5; } // 湖心退化: 朝西岸推
-        const ul = Math.hypot(ux, uz);
-        const uxu = ux / ul;
-        const uzu = uz / ul;
-        const dn = Math.max(Math.hypot(uxu / lake.rx, uzu / lake.rz), 1e-6);
-        lakeWaterT += dt;
-        if (lakeWaterT > 1.1) {
-          // 浪推上岸: 沿径向落到椭圆外 1.3 处 (岸线圆带之外) —— 落点即解除守卫
-          const tl = 1.3 / dn;
-          nx = lake.cx + uxu * tl;
-          nz = lake.cz + uzu * tl;
-          pos.y = 0;
-          vy = 0;
-          grounded = true;
-          lakeWaterT = 0;
-        } else {
-          const t = 1.04 / dn;
-          const tx = lake.cx + uxu * t;
-          const tz = lake.cz + uzu * t;
-          const mdx = tx - nx;
-          const mdz = tz - nz;
-          const md = Math.hypot(mdx, mdz);
-          const stepMax = 14 * Math.max(dt, 0.001);
-          if (md > stepMax) {
-            nx += (mdx / md) * stepMax;
-            nz += (mdz / md) * stepMax;
-          } else {
-            nx = tx;
-            nz = tz;
-          }
-        }
-      } else {
-        lakeWaterT = 0; // 已在湖外: 守卫解除, 岸线碰撞圆接管 (杜绝守卫/圆推挤振荡)
-      }
-    } else {
-      lakeWaterT = 0;
     }
     const d0 = Math.hypot(nx, nz);
     const maxD = boundaryR - PR;

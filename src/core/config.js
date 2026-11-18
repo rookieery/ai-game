@@ -44,13 +44,6 @@ export const SETTINGS_GROUPS = [
     ],
   },
   {
-    name: "迷魂湖",
-    items: [
-      { key: "lakeGlow", label: "湖灯亮度", min: 20, max: 200, step: 5, def: 100, fmt: pct }, // 灯笼自发光 + 光柱联动
-      { key: "waterFlow", label: "水波速度", min: 20, max: 250, step: 5, def: 100, fmt: pct }, // 反射水时间推进 + 涟漪流速
-    ],
-  },
-  {
     name: "画面",
     items: [
       { key: "bloomStrength", label: "辉光强度", min: 0, max: 200, step: 5, def: 100, fmt: pct }, // 基准 0.30

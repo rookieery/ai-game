@@ -128,31 +128,6 @@ export function createAudio(hud) {
     lfo.start();
   }
 
-  // 湖面水声 (v4 迷魂湖): 低频带通噪声 + 慢 LFO 起伏, 音量随距湖距离衰减 (setLakeNear)
-  let lakeGain = null;
-  function startLakeLoop() {
-    const src = ctx.createBufferSource();
-    src.buffer = noiseBuffer(3);
-    src.loop = true;
-    const bp = ctx.createBiquadFilter();
-    bp.type = "bandpass";
-    bp.frequency.value = 170;
-    bp.Q.value = 0.7;
-    lakeGain = ctx.createGain();
-    lakeGain.gain.value = 0;
-    // 幅度起伏: 独立第二级增益 (基准 1, LFO ±30%), 不与距离增益互相污染
-    const swell = ctx.createGain();
-    swell.gain.value = 1;
-    const lfo = ctx.createOscillator();
-    lfo.frequency.value = 0.16;
-    const lfoG = ctx.createGain();
-    lfoG.gain.value = 0.3;
-    lfo.connect(lfoG).connect(swell.gain);
-    src.connect(bp).connect(lakeGain).connect(swell).connect(master);
-    src.start();
-    lfo.start();
-  }
-
   return {
     // 首次手势调用（入园点击）启动整个音频图
     ensure() {
@@ -167,7 +142,6 @@ export function createAudio(hud) {
       startAmbient();
       startBGM();
       startRideLoop();
-      startLakeLoop();
       started = true;
     },
     setMuted(m) {
@@ -181,13 +155,6 @@ export function createAudio(hud) {
       if (!rideGain) return;
       rideGain.gain.cancelScheduledValues(ctx.currentTime);
       rideGain.gain.linearRampToValueAtTime(on ? 0.12 : 0, ctx.currentTime + 0.8);
-    },
-    // 湖面水声距离增益 (0 远 .. 1 岸边), 由 fx/lake.js 每帧结算
-    setLakeNear(g) {
-      if (!lakeGain || !ctx) return;
-      const target = Math.min(1, Math.max(0, g)) * 0.09;
-      lakeGain.gain.cancelScheduledValues(ctx.currentTime);
-      lakeGain.gain.linearRampToValueAtTime(target, ctx.currentTime + 0.4);
     },
     // 收集风铃: 五声上行琶音
     chime(n) {
