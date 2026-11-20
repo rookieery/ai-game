@@ -1265,8 +1265,12 @@ def bag_lathe(bag, profile, sides=8, y_center=0.0, axis="Z", close_top=False):
         for k in range(sides):
             bag.faces.append((top + k, top + (k + 1) % sides, c, c))
 
-def make_wheel_obj(name, i_c, parent, car_mat, local_pos, r=0.15, w=0.10):
-    """独立车轮对象 (轴沿局部X, three.js 转 rotation.x 即滚动)."""
+def make_wheel_obj(name, i_c, parent, local_pos, r=0.15, w=0.10):
+    """独立车轮对象 (轴沿局部X, three.js 转 rotation.x 即滚动).
+
+    轮心契约: 顶点=以轮心为中心的轮形(不烘位置), 节点平移=轮心局部坐标 -> glb 中
+    NL_Wheel_* 节点 T=轮心、几何居中, rotation.x 原地自转即滚动。
+    若把 local_pos 烘进顶点而节点恒等, rotation.x 会绕车原点公转 -> 轮子甩上车顶。"""
     bag = Bag()
     # 胎面: 双环圆柱 axis X
     n_seg = 14
@@ -1291,12 +1295,15 @@ def make_wheel_obj(name, i_c, parent, car_mat, local_pos, r=0.15, w=0.10):
         k2 = (k + 1) % 8
         a0 = 2 * n_seg + k
         bag.faces.append((a0, a0 + 1, 2 * n_seg + 8 + k2, 2 * n_seg + 8 + k))
-    ob = bag.to_mesh(name, M["wheel"], collection=col_train,
-                     matrix=car_mat @ Matrix.Translation(Vector(local_pos)))
+    ob = bag.to_mesh(name, M["wheel"], collection=col_train)
     if ob:
         for poly in ob.data.polygons:
             poly.use_smooth = True
-        parent_keep(ob, parent)
+        # 普通父子 (basis=T(local_pos), parent_inverse=I): 站台帧旋转=恒等下 world 预览不变;
+        # 若走 parent_keep(烘 world + parent_inverse 抵消), 导出器把世界坐标烘进顶点
+        # -> glb 变"站台快照", 游戏重摆车根后姿态全错
+        ob.location = Vector(local_pos)
+        ob.parent = parent
 
 # ------------------------------------------------------- 单车局部建模 ---
 def build_car_local(ci):
@@ -1328,9 +1335,9 @@ def build_car_local(ci):
         for sgn in (1, -1):
             # 跑轮 (独立对象, 轮底切轨顶; 原符号反沉轨 0.296m)
             wheels.append(((sgn * 0.575, by, RAIL_Z + 0.062 + 0.15), 0.15, f"NL_Wheel_{ci}_{bi}_{'R' if sgn>0 else 'L'}"))
-            # 侧导轮 (外缘贴轨内侧 0.513; 原 0.415 悬空 6cm)
+            # 侧导轮 (外缘距轨内侧 5mm; 原 0.4755 精确贴靠 0.000mm -> three.js 轮缘/轨面 z-fight 黑闪)
             for off in (-0.10, 0.10):
-                lbox("wheel", sgn * 0.4755, by + off, RAIL_Z + 0.01, 0.075, 0.06, 0.18)
+                lbox("wheel", sgn * 0.4705, by + off, RAIL_Z + 0.01, 0.075, 0.06, 0.18)
             # 防脱轮 (轨底, 错位)
             lbox("wheel", sgn * 0.575, by + 0.20, RAIL_Z - 0.155, 0.075, 0.06, 0.18)
 
@@ -1518,12 +1525,14 @@ for ci in range(CAR_N):
     bmap, wheels, anchors = build_car_local(ci)
     car_mat = frame_matrix(pos, Rv, Tv, Uv)
     for mk, bg in bmap.items():
+        # matrix=None: 车局部数据不烘 car_mat; 普通父子 world=car_mat 预览不变,
+        # 导出器输出"车局部顶点+恒等节点" (契约见 src/rides/coaster.js frameAt)
         ob = bg.to_mesh(f"NL_C{ci}_{mk}", M[mk], smooth=(mk in ("paint", "seat")),
-                        collection=col_train, matrix=car_mat)
+                        collection=col_train)
         if ob:
-            parent_keep(ob, root)
+            ob.parent = root
     for (lw, r, wname) in wheels:
-        make_wheel_obj(wname, ci, root, car_mat, lw, r=r)
+        make_wheel_obj(wname, ci, root, lw, r=r)
     for key, (ax, ay, az) in anchors.items():
         if key == "pov":
             e = bpy.data.objects.new("NL_CamPov", None)

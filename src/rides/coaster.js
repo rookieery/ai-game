@@ -19,6 +19,7 @@ const _pos = new THREE.Vector3();
 const _tan = new THREE.Vector3();
 const _up = new THREE.Vector3();
 const _rv = new THREE.Vector3();
+const _negTan = new THREE.Vector3();
 
 export async function createCoaster(scene, manager) {
   const [staticRoot, trainRoot, cl] = await Promise.all([
@@ -45,14 +46,18 @@ export async function createCoaster(scene, manager) {
     V[i] = s.v;
   }
 
-  // 站台中点 = 列车静态停靠基准 (与 Blender 落位一致)
+  // 站台中点 = 列车静态停靠基准 (与 Blender mid_i=len//2 语义一致; 必须用中位数——
+  // 末样本是缝合样本(zone 沿袭"station"), 混进均值会把停车位拖偏 10.6m)
   let sHead = 0;
   {
-    let acc = 0, cnt = 0;
+    const st = [];
     for (let i = 0; i < N; i++) {
-      if (cl.samples[i].zone === "station") { acc += i * DS; cnt++; }
+      if (cl.samples[i].zone === "station") st.push(i * DS);
     }
-    sHead = cnt ? acc / cnt + (CAR_N / 2 - 0.5) * CAR_GAP : 0;
+    if (st.length) {
+      st.sort((a, b) => a - b);
+      sHead = st[Math.floor(st.length / 2)] + (CAR_N / 2 - 0.5) * CAR_GAP;
+    }
   }
 
   // 弧长 s 处采样 (线性插值 + 重正交)
@@ -78,11 +83,14 @@ export async function createCoaster(scene, manager) {
     );
     _up.addScaledVector(_tan, -_up.dot(_tan)).normalize();
     _rv.crossVectors(_tan, _up); // 车局部 +X (右)
-    // app 基 = A·[Rv Tv Uv] (列)
+    // glb 车局部轴契约 (scripts/dump_train_glb.mjs 实测): X=右, Y=上, Z=-前。
+    // (Blender 车局部 (x=右,y=前,z=上) 经 glTF +Y-up 导出换算 (x,z,-y) 后即此约定;
+    //  若沿用旧基 makeBasis(rv,tan,up) 会把车长轴掰到轨道竖向 -> 列车倒立)
+    _negTan.copy(_tan).negate();
     _m4.makeBasis(
       new THREE.Vector3(_rv.x, _rv.y, _rv.z),
-      new THREE.Vector3(_tan.x, _tan.y, _tan.z),
       new THREE.Vector3(_up.x, _up.y, _up.z),
+      new THREE.Vector3(_negTan.x, _negTan.y, _negTan.z),
     );
     car.position.copy(_pos);
     car.quaternion.setFromRotationMatrix(_m4);
@@ -106,6 +114,12 @@ export async function createCoaster(scene, manager) {
   });
   if (cars.filter(Boolean).length !== CAR_N) console.warn("[coaster] NL_Car_i 不全:", cars.length);
   if (wheels.length !== 24) console.warn("[coaster] 轮组数:", wheels.length);
+
+  // 手写管件(肩环/灯笼/钩臂)面序不保证一致, Blender 双面渲染无感, three.js 单面会成黑洞 -> 全双面保险
+  trainRoot.traverse((o) => {
+    const mats = Array.isArray(o.material) ? o.material : (o.material ? [o.material] : []);
+    for (const m of mats) m.side = THREE.DoubleSide;
+  });
 
   const state = {
     phase: "dwell", // dwell | run
