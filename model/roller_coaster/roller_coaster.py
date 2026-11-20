@@ -564,7 +564,7 @@ M = {
     "plattop": make_mat("NL_PlatTop", HEX["stone"], rough=0.8),
     "roof":   make_mat("NL_Roof",   HEX["steel"],  rough=0.7, metal=0.4),
     "sign":   make_mat("NL_Sign",   HEX["violet"], rough=0.6, emit=HEX["violet"], strength=0.5),
-    "signphos": make_mat("NL_SignPhos", HEX["steel"], rough=0.4, emit=HEX["green"], strength=4.0),
+    "signphos": make_mat("NL_SignPhos", HEX["steel"], rough=0.4, emit=HEX["green"], strength=1.0),  # 终审 P2b: 边框 4.0 压过主字 -> 1.0 (主1.5>框1.0 倒挂解除)
     "warmemit": make_mat("NL_Warm",  HEX["orange"], rough=0.5, emit=HEX["orange"], strength=5.0),
     "creamemit": make_mat("NL_Cream", HEX["warm"], rough=0.5, emit=HEX["warm"], strength=4.5),  # P2: §6 灯笼芯 4.0->4.5
     "paint":  make_mat("NL_Paint",  HEX["paint"],  rough=0.35, metal=0.75),
@@ -574,8 +574,8 @@ M = {
     "phos2":  make_mat("NL_Phos2",  HEX["steel"], rough=0.4, metal=0.3,
                        emit=HEX["green"], strength=5.0),   # P2: 列车磷光件 (轨道 NL_Phosphor 6.0 不变)
     "dark":   make_mat("NL_DarkIron", "#14161F", rough=0.5, metal=0.8),  # P2: 提前 (站台南瓜蒂也用)
-    "signglow": make_mat("NL_SignGlow", HEX["orange"], rough=0.5, emit=HEX["orange"], strength=1.5),  # P1-1: 站名专用低热发光(防Bloom融合)
-    "subglow": make_mat("NL_SubGlow", HEX["orange"], rough=0.5, emit=HEX["orange"], strength=1.0),   # P1-1: 副标更弱一档
+    "signglow": make_mat("NL_SignGlow", HEX["orange"], rough=0.5, emit=HEX["orange"], strength=1.5),  # 终审 P2b: 主字档位(预览分离已验证)
+    "subglow": make_mat("NL_SubGlow", HEX["orange"], rough=0.5, emit=HEX["orange"], strength=1.0),   # 终审 P2b: 副标 0.8 临界 -> 1.0
     "bead":   make_mat("NL_BeadGlow", HEX["warm"], rough=0.5, emit=HEX["warm"], strength=2.0),  # P1-2: 骨爪指尖光珠
     "seat":   make_mat("NL_Seat",   HEX["seat"],   rough=0.8),
     "tire":   make_mat("NL_Tire",   "#1A1A20",     rough=0.95),
@@ -891,12 +891,26 @@ for sgn in (-1, 1):
     bags["warmemit"].add_box(Vector((edge_x, (SY0 + SY1) / 2, PLAT_H - 0.30)),
                              Vector((1, 0, 0)), Vector((0, 1, 0)), Vector((0, 0, 1)),
                              (0.06, SY1 - SY0 - 1.0, 0.08))
-# 站台端坡道
-for sgn in (-1, 1):
+# 站台端部阶梯台 (单向环路动线 fix: 西=唯一入口[侧墙+1.5m阶梯槽+闸机], 东=唯一出口[侧墙+1.8m槽])
+# 每级 0.34 高 x 0.514 深, 顶级 2.38 与站台面齐平; 两侧实心墙与站台面齐平 -> 阶梯不可侧向攀入
+for sgn, _slot_w in ((-1, 1.5), (1, 1.8)):
     cx = SX + sgn * (PLAT_IN + 1.35)
-    bags["plat"].add_box(Vector((cx, SY0 - 1.6, PLAT_H / 2 - 0.1)),
-                         Vector((1, 0, 0)), Vector((0, 1, 0)), Vector((0, 0, 1)),
-                         (2.7, 3.6, PLAT_H - 0.2))
+    _half = 1.35 - _slot_w / 2       # 侧墙厚度
+    for _sw in (-1, 1):              # 两侧实心墙 (全高, 即阶梯槽侧壁)
+        bags["plat"].add_box(Vector((cx + _sw * (_slot_w / 2 + _half / 2), SY0 - 1.6, PLAT_H / 2 + 0.05)),
+                             Vector((1, 0, 0)), Vector((0, 1, 0)), Vector((0, 0, 1)),
+                             (_half, 3.6, PLAT_H + 0.05))
+    for _k5 in range(7):             # 中央阶梯槽
+        _h5 = 0.34 * (_k5 + 1)
+        _yc5 = (SY0 - 1.6) - 1.8 + (_k5 + 0.5) * (3.6 / 7)
+        bags["plat"].add_box(Vector((cx, _yc5, _h5 / 2)), Vector((1, 0, 0)),
+                             Vector((0, 1, 0)), Vector((0, 0, 1)), (_slot_w, 3.6 / 7, _h5))
+        bags["bead"].add_box(Vector((cx, _yc5 - (3.6 / 7) / 2 + 0.03, _h5 + 0.011)),
+                             Vector((1, 0, 0)), Vector((0, 1, 0)), Vector((0, 0, 1)),
+                             (_slot_w, 0.05, 0.02))          # 终审 P2c: 踏面前缘夜光条
+# 登台口铺面 (迷宫出口 -> 闸机的进场走廊地面, y 39.2-40.6)
+bags["dark"].add_box(Vector((7.6, 39.9, 0.015)), Vector((1, 0, 0)), Vector((0, 1, 0)),
+                     Vector((0, 0, 1)), (3.4, 1.2, 0.03))
 # 雨棚柱 + 顶 (P1: 柱落地, 原起于 PLAT_H 悬空 2.7m 断头)
 for sx_ in (SX - 4.0, SX + 4.0):
     for yy in (SY0 + 1.5, (SY0 + SY1) / 2, SY1 - 1.5):
@@ -945,51 +959,208 @@ bags["sign"].add_box(Vector((SX, SY1 + 1.2, 9.0)), Vector((1, 0, 0)),
                      Vector((0, 1, 0)), Vector((0, 0, 1)), (10.4, 0.25, 1.7))
 bags["signphos"].add_box(Vector((SX, SY1 + 1.08, 9.0)), Vector((1, 0, 0)),
                          Vector((0, 1, 0)), Vector((0, 0, 1)), (10.55, 0.1, 1.85))
-# 站牌发光大字「幽冥回环」(P2: 中文玩家 100m 外可读园名; 系统微软雅黑, 失败跳过)
+# 站牌发光大字 + FONT 文本基建 (A5 车厢号 / A6 统计牌复用; 统一在列车落位后转网格)
+_fnt = None
 try:
     _fnt = bpy.data.fonts.load("C:/Windows/Fonts/msyh.ttc")
-    _sign_face_y = SY1 + 1.2 - 0.155          # 站牌南立面
-    for _body, _sz, _zz, _mk in (("幽冥回环", 1.15, 9.26, "signglow"), ("NETHER LOOP", 0.40, 8.44, "subglow")):
-        _cu = bpy.data.curves.new("NL_SignTxtC", type="FONT")
-        _cu.body = _body
-        _cu.font = _fnt
-        _cu.size = _sz
-        _cu.extrude = 0.03
-        _cu.align_x = "CENTER"
-        _cu.space_character = 1.18          # P1-1: 字距+18% 防 33m 处亮核融合
-        _cu.materials.append(M[_mk])
-        _ob = bpy.data.objects.new("NL_SignText", _cu)
-        _ob.location = (SX, _sign_face_y, _zz)
-        _ob.rotation_euler = (radians(90), 0, 0)   # 文字面朝南 (-Y)
-        col_static.objects.link(_ob)
-    bpy.context.view_layer.update()
-    bpy.ops.object.select_all(action="DESELECT")
-    _txt_obs = [o for o in col_static.all_objects if o.name.startswith("NL_SignText")]
-    for _o in _txt_obs:
-        _o.select_set(True)
-    bpy.context.view_layer.objects.active = _txt_obs[0] if _txt_obs else None
-    if _txt_obs:
-        bpy.ops.object.convert(target="MESH")
-        print(f"SIGNTEXT_OK {len(_txt_obs)} 块大字已转网格")
 except Exception as _e:
-    print(f"SIGNTEXT_FAIL {type(_e).__name__} {_e}")
-# 排队围栏 (南入口两列)
-for fx in (SX - 5.6, SX + 5.6):
-    for ry in np.arange(40.0, SY0 - 1.0, 2.6):
-        bags["column"].add_beam((fx, ry, 0), (fx, ry, 1.1), 0.09, 0.09)
+    print(f"FONT_FAIL {type(_e).__name__} {_e}")
+
+def text_mesh(name, body, size, loc, mat, rot=(90, 0, 0), space=1.0, extrude=0.03):
+    if _fnt is None:
+        return None
+    _cu = bpy.data.curves.new(name + "C", type="FONT")
+    _cu.body = body
+    _cu.font = _fnt
+    _cu.size = size
+    _cu.extrude = extrude
+    _cu.align_x = "CENTER"
+    _cu.space_character = space
+    _cu.materials.append(mat)
+    _ob = bpy.data.objects.new(name, _cu)
+    _ob.location = loc
+    _ob.rotation_euler = (radians(rot[0]), radians(rot[1]), radians(rot[2]))
+    col_static.objects.link(_ob)
+    return _ob
+
+if _fnt:
+    _sign_face_y = SY1 + 1.2 - 0.155          # 站牌南立面
+    text_mesh("NL_SignText", "幽冥回环", 1.15, (SX, _sign_face_y, 9.26), M["signglow"],
+              space=1.18)                      # P1-1: 字距+18% 防 33m 亮核融合
+    text_mesh("NL_SignTextB", "NETHER LOOP", 0.40, (SX, _sign_face_y, 8.44), M["subglow"], space=1.18)
+# 排队迷宫 (A1/M3): 灯环西侧蛇形回廊 4 折 ~17m, 避开轨道回流走廊(x~11.5)与地面灯环带
+# (x3.2-6.0 在灯环外缘 6.2 以西; 出口导栏绕环北缘接西端坡道)
+def queue_fence(x0, y0, x1, y1):
+    L = hypot(x1 - x0, y1 - y0)
+    n = max(2, int(L / 2.2))
+    for k in range(n + 1):
+        u = k / n
+        px, py = x0 + (x1 - x0) * u, y0 + (y1 - y0) * u
+        bags["column"].add_beam((px, py, 0), (px, py, 1.1), 0.09, 0.09)
     for hz in (0.55, 1.05):
-        bags["steel"].add_beam((fx, 40.0, hz), (fx, SY0 - 1.0, hz), 0.06, 0.1)
-# 地面灯环 (站前小广场)
+        for k in range(n):
+            u0, u1 = k / n, (k + 1) / n
+            bags["steel"].add_beam(
+                Vector((x0 + (x1 - x0) * u0, y0 + (y1 - y0) * u0, hz)),
+                Vector((x0 + (x1 - x0) * u1, y0 + (y1 - y0) * u1, hz)), 0.06, 0.1)
+    for k in range(n):                                # 终审 P2c: 顶轨暖白低档光帽 (夜态动线引导)
+        u0, u1 = k / n, (k + 1) / n
+        bags["bead"].add_beam(
+            Vector((x0 + (x1 - x0) * u0, y0 + (y1 - y0) * u0, 1.10)),
+            Vector((x0 + (x1 - x0) * u1, y0 + (y1 - y0) * u1, 1.10)), 0.028, 0.028)
+
+for _q in ((3.2, 30.6, 6.0, 30.6),    # 南墙
+           (3.2, 30.6, 3.2, 39.8),    # 西墙
+           (6.0, 32.2, 6.0, 39.8),    # 东墙 (南端 y30.6-32.2 留入口)
+           (4.6, 32.9, 6.0, 32.9),    # 齿1 东起 -> 西通口
+           (3.2, 35.2, 4.6, 35.2),    # 齿2 西起 -> 东通口
+           (4.6, 37.5, 6.0, 37.5),    # 齿3 东起 -> 西通口
+           (3.2, 39.8, 5.0, 39.8)):   # 北墙 (x5.0-6.0 留出口, 即唯一入口)
+    queue_fence(*_q)
+# 进场走廊封闭 (终审 P0 修复): c 墙原为单段横贯西槽口(8.65-10.15)封死唯一登台路 -> 拆两段, 槽口让给闸机线
+for _q in ((6.0, 39.8, 6.0, 44.2),     # a: 迷宫东墙北延, 封西侧至站台角
+           (6.0, 44.2, 8.05, 44.2),    # b: 西北口袋北封 (接西阶梯侧墙)
+           (6.0, 40.6, 8.05, 40.6),    # c1: 走廊北墙西段 (至西侧墙, 不越槽口)
+           (10.75, 40.6, 12.25, 40.6), # c2: 走廊北墙东段 (东侧墙->东端块, 仍封轨道沟南缘)
+           (6.0, 39.2, 12.25, 39.2)):  # d: 走廊南墙 (唯一进口=迷宫缺口, 唯一出口=过闸)
+    queue_fence(*_q)
+
+# --- A2 验票闸门 x2 (终审 P0: 闸线横跨槽口本身, 行进向 +Y, 双转子全宽, 闸即门) ---
+for _gx in (8.65, 9.4, 10.15):                      # 三柱 (槽口两缘+中)
+    bags["column"].add_beam((_gx, 40.4, 0), (_gx, 40.4, 1.15), 0.07, 0.07)
+bags["steel"].add_beam(Vector((8.65, 40.4, 0.12)), Vector((10.15, 40.4, 0.12)), 0.06, 0.06)  # 底梁
+bags["steel"].add_beam(Vector((8.65, 40.4, 1.12)), Vector((10.15, 40.4, 1.12)), 0.06, 0.06)  # 顶梁
+for _gi, _gx in enumerate((9.03, 9.78)):
+    bags["dark"].add_box(Vector((_gx, 40.4, 0.33)), Vector((1, 0, 0)), Vector((0, 1, 0)),
+                         Vector((0, 0, 1)), (0.55, 0.22, 0.66))          # 柜体封 0-0.66
+    for _aa in (90, 210, 330):                       # 三臂闸翼 (轴沿 X, 行进向 +Y)
+        _ar = radians(_aa)
+        bags["phos"].add_beam(Vector((_gx, 40.4, 0.95)),
+                              Vector((_gx, 40.4 + 0.30 * cos(_ar), 0.95 + 0.30 * sin(_ar))), 0.035, 0.035)
+    _ge = bpy.data.objects.new(f"NL_Gate_{_gi}", None)     # M3/M4 闸翼开合锚点
+    _ge.location = (_gx, 40.4, 0.95)
+    col_static.objects.link(_ge)
+# 出口标识: 东阶梯槽南侧「出口 EXIT」+ 基座东翼导栏 (终审 P2: 柱位东移避灯环带, 距环心 >4.8)
+queue_fence(15.0, 40.6, 15.9, 39.4)
+for _sp in ((13.4, 39.05), (14.1, 39.05)):
+    bags["column"].add_beam((_sp[0], _sp[1], 0), (_sp[0], _sp[1], 1.9), 0.07, 0.07)
+bags["steel"].add_beam(Vector((13.4, 39.05, 1.82)), Vector((14.1, 39.05, 1.82)), 0.05, 0.05)
+text_mesh("NL_ExitSign", "出口 EXIT", 0.24, (13.75, 38.97, 1.45), M["oglow"], rot=(90, 0, 0), extrude=0.02)
+# 东出口反向上行阻挡 (M4 单向逻辑前的视觉栏): 三低桩 + 「仅下行」小牌
+for _sx3 in (12.95, 13.6, 14.25):
+    bags["dark"].add_box(Vector((_sx3, 40.5, 0.25)), Vector((1, 0, 0)), Vector((0, 1, 0)),
+                         Vector((0, 0, 1)), (0.08, 0.08, 0.5))
+bags["dark"].add_box(Vector((13.6, 40.38, 0.95)), Vector((1, 0, 0)), Vector((0, 1, 0)),
+                     Vector((0, 0, 1)), (0.62, 0.05, 0.30))
+text_mesh("NL_ExitDown", "↓ 仅下行", 0.17, (13.6, 40.33, 0.95), M["oglow"], rot=(90, 0, 0), extrude=0.012)
+
+# --- A3 发车钟 (西站台北端: 立柱+吊臂+铜钟, 暗铜微光) ---
+def bell_lathe(cx, cy, cz_top, h, r_max):
+    prof = [(0.00, 0.30 * r_max), (0.18 * h, 0.62 * r_max), (0.55 * h, 0.95 * r_max),
+            (0.82 * h, r_max), (h, 0.55 * r_max)]
+    sides = 10
+    base = len(bags["dark"].verts)     # 终审 P3: 钟体改暗铁 (原 NL_Dog 刹车红语义误用)
+    for (dz, dr) in prof:
+        for q in range(sides):
+            a = q / sides * 2 * pi
+            bags["dark"].verts.append(Vector((cx + cos(a) * dr, cy + sin(a) * dr, cz_top - dz)))
+    for li in range(len(prof) - 1):
+        for q in range(sides):
+            q2 = (q + 1) % sides
+            bags["dark"].faces.append((base + li * sides + q, base + li * sides + q2,
+                                       base + (li + 1) * sides + q2, base + (li + 1) * sides + q))
+    c_idx = len(bags["dark"].verts)
+    bags["dark"].verts.append(Vector((cx, cy, cz_top)))
+    for q in range(sides):
+        bags["dark"].faces.append((base + q, base + (q + 1) % sides, c_idx, c_idx))
+
+bags["column"].add_beam((9.4, 65.2, PLAT_H + 0.05), (9.4, 65.2, 3.62), 0.07, 0.07)
+bags["steel"].add_beam(Vector((9.4, 65.2, 3.58)), Vector((9.78, 65.2, 3.58)), 0.05, 0.05)
+bell_lathe(9.78, 65.2, 3.56, 0.24, 0.11)
+bags["dark"].add_box(Vector((9.78, 65.2, 3.30)), Vector((1, 0, 0)), Vector((0, 1, 0)),
+                     Vector((0, 0, 1)), (0.05, 0.05, 0.10))                  # 钟舌
+
+# --- A4 暗夜紫幡旗 (雨棚南北檐口三角旗串, 双面) ---
+for _fy in (SY0 + 0.25, SY1 - 0.25):
+    _fx = 6.3
+    while _fx < 16.7:
+        _b0 = len(bags["sign"].verts)
+        bags["sign"].verts += [Vector((_fx, _fy, 7.32)), Vector((_fx + 0.30, _fy, 7.32)),
+                               Vector((_fx + 0.15, _fy, 6.86))]
+        bags["sign"].faces.append((_b0, _b0 + 1, _b0 + 2))
+        bags["sign"].faces.append((_b0, _b0 + 2, _b0 + 1))                   # 背面
+        _fx += 1.5
+
+# --- A5 站台防滑条 (双侧, 暗色横条) ---
+for _cx2 in (SX - 2.1, SX + 2.1):
+    _yy = 44.8
+    while _yy < 65.4:
+        bags["dark"].add_box(Vector((_cx2, _yy, PLAT_H + 0.057)), Vector((1, 0, 0)),
+                             Vector((0, 1, 0)), Vector((0, 0, 1)), (2.2, 0.10, 0.014))
+        _yy += 1.1
+
+# --- A6 彩蛋三件: 回环内侧可走观景台 / 螺旋下南瓜田一角 / 尖叫统计牌(静态) ---
+_li2 = [i for i, r in enumerate(RS) if r[3] == "loop"]
+if _li2:
+    _lx = sum(RS[i][0].x for i in _li2) / len(_li2)
+    _lys = [RS[i][0].y for i in _li2]
+    _lcy = (min(_lys) + max(_lys)) / 2
+    _r_in = (max(_lys) - min(_lys)) / 2 - 2.6          # 环内净空 (扣轨/脊柱结构)
+    if _r_in >= 2.2:
+        _tw = min(1.6, _r_in * 0.42)                   # 平台半宽
+        # 环底弧 (heart z≈2.9) 从环心正下方跨过, 爬升段在 y~99-103/z3-4.5 穿越车体包络 ->
+        # 柱立轨带外侧 x±3.3, 悬臂梁抬台到 z6.5 (该高度轨管已退到 y±3.8, 台下乘客头顶净空 ~2.3m)
+        for _sx2 in (-1, 1):
+            for _sy2 in (-0.9, 0.9):
+                bags["column"].add_beam((_lx + _sx2 * 3.3, _lcy + _sy2, 0),
+                                        (_lx + _sx2 * 3.3, _lcy + _sy2, 7.1), 0.13, 0.13)
+        for _sy2 in (-0.9, 0.9):
+            bags["steel"].add_beam(Vector((_lx - 3.3, _lcy + _sy2, 7.05)),
+                                   Vector((_lx + 3.3, _lcy + _sy2, 7.05)), 0.10, 0.12)
+        bags["plattop"].add_box(Vector((_lx, _lcy, 7.22)), Vector((1, 0, 0)), Vector((0, 1, 0)),
+                                Vector((0, 0, 1)), (_tw * 2 + 0.2, _tw * 2 + 0.2, 0.12))
+        for _e0, _e1 in (((-_tw, -_tw), (_tw, -_tw)), ((_tw, -_tw), (_tw, _tw)),
+                         ((_tw, _tw), (-_tw, _tw)), ((-_tw, _tw), (-_tw, -_tw))):
+            _p0 = Vector((_lx + _e0[0], _lcy + _e0[1], 0))
+            _p1 = Vector((_lx + _e1[0], _lcy + _e1[1], 0))
+            _nl = (_p1 - _p0).length
+            _n2 = max(2, int(_nl / 1.6))
+            for _k3 in range(_n2 + 1):
+                _pp = _p0.lerp(_p1, _k3 / _n2)
+                bags["column"].add_beam((_pp.x, _pp.y, 7.28), (_pp.x, _pp.y, 8.35), 0.05, 0.05)
+            for _hz2 in (7.65, 8.20):
+                bags["steel"].add_beam(Vector((_p0.x, _p0.y, _hz2)), Vector((_p1.x, _p1.y, _hz2)), 0.045, 0.06)
+        # 东侧块式楼梯 18 级 x0.40/级 (终审 P2a: 0.42 超步高契约 0.40; 顶 7.20≈台面 7.22)
+        for _k4 in range(18):
+            bags["plattop"].add_box(Vector((_lx + 5.86 - _k4 * 0.27, _lcy, 0.20 * (_k4 + 1))),
+                                    Vector((1, 0, 0)), Vector((0, 1, 0)), Vector((0, 0, 1)),
+                                    (0.27, 1.10, 0.40 * (_k4 + 1)))
+        bags["plattop"].add_box(Vector((_lx + 1.35, _lcy, 7.22)), Vector((1, 0, 0)),
+                                Vector((0, 1, 0)), Vector((0, 0, 1)), (1.4, 1.30, 0.12))
+        print(f"A6_TOWER ({_lx:.1f},{_lcy:.1f}) 半宽{_tw:.2f} 悬臂台 z7.2 净空{_r_in:.2f}")
+# 南瓜田一角 (双螺丝钻下方, 九颗发光南瓜)
+for _pk in ((80.2, 11.0, 0.30), (81.6, 10.2, 0.22), (82.9, 11.4, 0.26), (84.1, 10.6, 0.19),
+            (80.8, 12.6, 0.24), (83.5, 12.9, 0.28), (82.0, 14.0, 0.20), (84.6, 13.8, 0.23),
+            (81.3, 15.7, 0.26)):
+    pumpkin_lantern(bags["warmemit"], _pk[0], _pk[1], _pk[2] * 0.58 + 0.02, _pk[2])
+# 尖叫统计牌 (零重力滚段旁, 静态面; 柱封板两端 y37/39)
+for _sp in ((84.5, 37.0), (84.5, 39.0)):
+    bags["column"].add_beam((_sp[0], _sp[1], 0), (_sp[0], _sp[1], 3.1), 0.10, 0.10)
+bags["sign"].add_box(Vector((84.5, 38.0, 2.72)), Vector((1, 0, 0)), Vector((0, 1, 0)),
+                     Vector((0, 0, 1)), (0.10, 2.0, 1.15))
+text_mesh("NL_ScreamSign", "本季尖叫 8642 次", 0.26, (84.44, 38.0, 2.72), M["oglow"],
+          rot=(90, 0, -90), extrude=0.02)   # 立起再转面西: 阅读方向-Y, 字头+Z
+# 地面灯环 (站前小广场; 单向环路 fix: 南移缩小让出进场走廊带 y39.2-40.6)
 ring_bag = Bag()
-RC = Vector((SX, 37.0, 0.06))
+RC = Vector((SX + 0.4, 34.3, 0.06))
 for a in range(48):
     a0 = a / 48 * 2 * pi
     a1 = (a + 1) / 48 * 2 * pi
-    r0, r1 = 4.6, 5.3
-    p00 = Vector((SX + r0 * cos(a0), 37.0 + r0 * sin(a0), 0.06))
-    p01 = Vector((SX + r1 * cos(a0), 37.0 + r1 * sin(a0), 0.06))
-    p10 = Vector((SX + r0 * cos(a1), 37.0 + r0 * sin(a1), 0.06))
-    p11 = Vector((SX + r1 * cos(a1), 37.0 + r1 * sin(a1), 0.06))
+    r0, r1 = 4.2, 4.8
+    p00 = Vector((SX + 0.4 + r0 * cos(a0), 34.3 + r0 * sin(a0), 0.06))
+    p01 = Vector((SX + 0.4 + r1 * cos(a0), 34.3 + r1 * sin(a0), 0.06))
+    p10 = Vector((SX + 0.4 + r0 * cos(a1), 34.3 + r0 * sin(a1), 0.06))
+    p11 = Vector((SX + 0.4 + r1 * cos(a1), 34.3 + r1 * sin(a1), 0.06))
     base = len(ring_bag.verts)
     ring_bag.verts += [p00, p01, p11, p10]
     ring_bag.faces.append((base, base + 1, base + 2, base + 3))
@@ -1353,6 +1524,22 @@ for ci in range(CAR_N):
         e.matrix_world = car_mat @ Matrix.Translation(Vector((ax, ay, az)))
         col_train.objects.link(e)
         parent_keep(e, root)
+
+# A5: 站台车厢号 01-06 (西站台地面发光字, 对齐各车停位)
+for _ci, _root in enumerate(car_obs):
+    text_mesh(f"NL_CarNum_{_ci}", f"{_ci + 1:02d}", 0.30,
+              (10.30, _root.matrix_world.translation.y, PLAT_H + 0.056),
+              M["oglow"], rot=(0, 0, 0), extrude=0.015)
+# 全部 FONT 对象统一转网格 (站牌大字/车厢号/统计牌)
+_txt_all = [o for o in col_static.all_objects if o.type == "FONT"]
+if _txt_all:
+    bpy.context.view_layer.update()
+    bpy.ops.object.select_all(action="DESELECT")
+    for _o in _txt_all:
+        _o.select_set(True)
+    bpy.context.view_layer.objects.active = _txt_all[0]
+    bpy.ops.object.convert(target="MESH")
+    print(f"TEXTMESH_OK {len(_txt_all)}")
 tmark("train v2")
 
 # --------------------------------------------------------- build meshes ---
@@ -1425,12 +1612,19 @@ def add_cam(name, loc, target, lens=40, ortho=False, scale=100.0):
     col_static.objects.link(cam)
     return cam
 
-cam_top = add_cam("NL_CamTop", (18, 96, 130), (18, 96, 0), ortho=True, scale=175.0)
+_xmin, _xmax = min(p[0].x for p in RS), max(p[0].x for p in RS)
+_ymin, _ymax = min(p[0].y for p in RS), max(p[0].y for p in RS)
+cam_top = add_cam("NL_CamTop", ((_xmin + _xmax) / 2, (_ymin + _ymax) / 2, 130),
+                  ((_xmin + _xmax) / 2, (_ymin + _ymax) / 2, 0),
+                  ortho=True, scale=max(_xmax - _xmin, _ymax - _ymin) + 16)   # 终审 P1: 布局包围盒全覆盖(含南区)
 cam_three = add_cam("NL_CamThree", (105, -18, 42), (18, 88, 6.0), lens=30)  # P2: 目标下移+上仰 8° 收回顶部死区(提升峰)
 cam_three.rotation_euler.rotate_axis("X", radians(8))
 cam_front = add_cam("NL_CamFront", (18, -34, 9), (18, 95, 19), lens=26)
-cam_loop = add_cam("NL_CamLoop", (98, 88, 16), (52, 110, 13), lens=44)
+cam_loop = add_cam("NL_CamLoop", (104, 76, 12), (80.6, 101, 8), lens=44)   # 终审 P1: 目标=环心(骨爪/墓碑/观景台入画)
 cam_station = add_cam("NL_CamStation", (32, 34, 5.5), (18, 62, 4.5), lens=40)
+cam_queue = add_cam("NL_CamQueue", (2.0, 22.0, 24.0), (5.8, 37.0, 0.8), lens=45)   # A1 排队迷宫取证机位
+cam_south = add_cam("NL_CamSouth", (92.0, 26.0, 12.0), (82.0, 13.0, 1.5), lens=48)  # A6 南区南瓜田取证
+cam_scream = add_cam("NL_CamScream", (78.5, 38.0, 4.2), (84.5, 38.0, 2.5), lens=50)  # A6 尖叫统计牌取证(西面)
 # 列车特写机位: 全部从车位姿矩阵计算, 禁止手填 (手填曾偏 50 度拍空轨道)
 def carpoint(car_i, dx, dy, dz):
     return tuple(car_obs[car_i].matrix_world @ Vector((dx, dy, dz)))
@@ -1442,6 +1636,8 @@ cam_bogie = add_cam("NL_CamBogie", carpoint(5, 2.2, -1.6, -2.5),
                     carpoint(5, 0.2, -0.6, -1.5), lens=30)  # P1-d: 尾车后下方仰视走行部 (原机位自 v1 起在站台体内拍空图)
 cam_train = add_cam("NL_CamTrain", carpoint(0, 7.0, 6.0, 2.8),
                     carpoint(3, 0, -4.5, 0.4), lens=24)      # P1-d: 鼻锥前方 3/4 俯瞰 24mm 广角, 头车近距最大
+cam_sign = add_cam("NL_CamSign", (11.5, 34.0, 9.0), (11.5, 67.0, 9.0), lens=40)  # 终审 P1: 站名 33m 定距验收机位
+
 # POV: 挂到头车 NL_CamPov 锚点正后方
 _pov = bpy.data.objects.get("NL_CamPov")
 if _pov:
@@ -1480,6 +1676,21 @@ fit_cam(cam_carside, carpoint(2, 0, 0, -0.35),
 fit_cam(cam_bogie, carpoint(5, 0.2, -0.6, -1.5),
         [carpoint(5, 0.78, -0.2, -0.75), carpoint(5, -0.55, -0.2, -0.75),
          carpoint(5, 0.78, -1.05, -2.25), carpoint(5, -0.55, -1.05, -2.25)])
+fit_cam(cam_queue, (5.8, 37.0, 0.8),
+        [(3.2, 30.6, 0.0), (7.6, 30.6, 0.0), (3.2, 43.2, 0.0), (7.6, 43.2, 1.2),
+         (7.5, 41.0, 1.2)])
+fit_cam(cam_loop, (80.6, 101, 8),                                    # 终审 P1: 回环簇取证(爪/碑/台全入画)
+        [(70.6, 90.5, 0.5), (90.6, 111.5, 0.5), (80.6, 101, 24.5),
+         (70.6, 111.5, 1.0), (90.6, 90.5, 1.0), (79.0, 99.4, 7.5), (82.2, 102.6, 7.5)])
+fit_cam(cam_station, (18, 62, 4.5),
+        [(8.0, 44.0, 2.4), (15.0, 44.0, 2.4), (8.0, 66.0, 3.0), (15.0, 66.0, 3.0),
+         (11.5, 67.2, 9.9)])
+fit_cam(cam_front, (16, 70, 7),
+        [(8.0, 44.0, 2.4), (15.0, 66.0, 3.0), (11.5, 67.2, 9.9), (6.3, 67.2, 9.6)])
+fit_cam(cam_south, (82.0, 13.0, 1.5),
+        [(79.5, 9.8, 0.1), (85.0, 9.8, 0.1), (79.5, 16.5, 0.6), (85.0, 16.5, 0.6)])
+fit_cam(cam_scream, (84.5, 38.0, 2.5),
+        [(83.5, 37.0, 0.1), (85.5, 39.0, 0.1), (83.5, 37.0, 3.2), (85.5, 39.0, 3.2)])
 
 sc.view_settings.view_transform = "Standard"
 sc.view_settings.exposure = 0.15
@@ -1520,6 +1731,7 @@ stills = [("01_top.png", cam_top), ("02_three_quarter.png", cam_three),
           ("08_bogie.png", cam_bogie), ("09_train_all.png", cam_train)]
 if "_pov" in dir() and _pov:
     stills.append(("10_pov.png", cam_pov))
+stills.append(("11_sign_33m.png", cam_sign))
 
 def render_still(name, cam):
     sc.camera = cam
@@ -1539,7 +1751,8 @@ tmark("stills rendered")
 
 # 验证渲染 (P1-d): Workbench 均光检视几何, 与夜景情绪稿分离; 夜景预览不再承担验收职责
 _verify = [("verify_03_front", cam_front), ("verify_04_loop", cam_loop),
-           ("verify_05_station", cam_station),
+           ("verify_05_station", cam_station), ("verify_12_queue", cam_queue),
+           ("verify_13_south", cam_south), ("verify_14_scream", cam_scream),
            ("verify_06_car_head", cam_carhead), ("verify_07_car_side", cam_carside),
            ("verify_09_train", cam_train)]
 if "_pov" in dir() and _pov:
