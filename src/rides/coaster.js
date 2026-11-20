@@ -137,6 +137,21 @@ export async function createCoaster(scene, manager) {
     for (const m of mats) m.side = THREE.DoubleSide;
   });
 
+  // ---- 装饰灯材质登记 (设置面板「过山车 · 装饰灯亮度」) ----
+  // 静态件(磷光描边/南瓜灯串/站牌/地面灯环/迷宫光帽) + 列车(南瓜壳/尾灯/轮磷光) 全部 NL_ 自发光材质
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+  const decoGlowMats = [];
+  for (const root of [staticRoot, trainRoot]) {
+    root.traverse((o) => {
+      const mats = Array.isArray(o.material) ? o.material : (o.material ? [o.material] : []);
+      for (const m of mats) {
+        if (!m.name || !m.name.startsWith("NL_") || !m.emissive) continue;
+        if (m.emissive.r + m.emissive.g + m.emissive.b < 1e-3) continue; // 非自发光
+        decoGlowMats.push({ m, base: m.emissiveIntensity ?? 1 });
+      }
+    });
+  }
+
   const state = {
     phase: "dwell", // dwell | run | crawl(过缝合点后站台爬行, 到停车位再驻留)
     s: sHead,
@@ -260,6 +275,12 @@ export async function createCoaster(scene, manager) {
     },
     // 调试/验收: 把头车 s 直接设到指定弧长 (截图取证用)
     seek(s) { state.s = ((s % L) + L) % L; state.phase = "run"; state.dwellT = DWELL; },
+
+    // 应用设置面板（百分比 -> 实际参数）
+    applySettings(s) {
+      const k = clamp(s.coasterDecoLight, 0, 200) / 100;
+      for (const { m, base } of decoGlowMats) m.emissiveIntensity = base * k;
+    },
 
     // ============ M4 乘坐 API ============
     board() {

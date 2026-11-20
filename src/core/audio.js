@@ -11,6 +11,8 @@ export function createAudio(hud) {
   let rideGain = null;
   let rideFilter = null;
   let bgmTimer = null;
+  let bgmGain = null;
+  let bgmWanted = true; // 设置面板「背景音乐」开关 (音频图未启动前先记意图, ensure 时生效)
 
   const NOTE = 0.42; // 一拍秒数
   const MELODY = [
@@ -50,13 +52,17 @@ export function createAudio(hud) {
   }
 
   function startBGM() {
+    // BGM 专用总线: 开关只切八音盒, 环境风/乘坐嗡鸣/风铃直连 master 不受控
+    bgmGain = ctx.createGain();
+    bgmGain.gain.value = bgmWanted ? 1 : 0;
+    bgmGain.connect(master);
     // 回声总线
     const delay = ctx.createDelay(1.0);
     delay.delayTime.value = 0.45;
     const fb = ctx.createGain();
     fb.gain.value = 0.3;
     delay.connect(fb).connect(delay);
-    delay.connect(master);
+    delay.connect(bgmGain);
     bgmBus = delay;
     // 前瞻调度
     let step = 0;
@@ -75,7 +81,7 @@ export function createAudio(hud) {
           g.gain.linearRampToValueAtTime(0.10, nextTime + 0.008);
           g.gain.exponentialRampToValueAtTime(0.001, nextTime + Math.max(dur * 1.6, 1.4));
           osc.connect(g);
-          g.connect(master);
+          g.connect(bgmGain);
           g.connect(bgmBus); // 送回声
           osc.start(nextTime);
           osc.stop(nextTime + 1.6);
@@ -149,6 +155,14 @@ export function createAudio(hud) {
       if (master) {
         master.gain.cancelScheduledValues(ctx.currentTime);
         master.gain.linearRampToValueAtTime(m ? 0 : 1, ctx.currentTime + 0.25);
+      }
+    },
+    // 背景音乐开关 (仅八音盒 BGM; 未启动时只记意图, ensure 后生效)
+    setBGM(on) {
+      bgmWanted = !!on;
+      if (bgmGain) {
+        bgmGain.gain.cancelScheduledValues(ctx.currentTime);
+        bgmGain.gain.linearRampToValueAtTime(bgmWanted ? 1 : 0, ctx.currentTime + 0.4);
       }
     },
     setRiding(on) {

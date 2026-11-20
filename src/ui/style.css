@@ -695,6 +695,51 @@ html, body, #app {
   margin-bottom: 4px;
 }
 
+/* 开关行：标签左，状态值 + switch 右（单行，无滑杆） */
+.set-head-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.set-switch {
+  width: 44px;
+  height: 22px;
+  position: relative;
+  cursor: pointer;
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(201, 162, 39, 0.25);
+  transition: background 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
+}
+
+.set-switch-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--ivory-dim);
+  transition: transform 0.25s var(--ease-seance), background 0.25s ease, box-shadow 0.25s ease;
+}
+
+.set-switch:hover {
+  border-color: var(--gold);
+}
+
+.set-switch.on {
+  background: rgba(201, 162, 39, 0.3);
+  border-color: var(--gold);
+  box-shadow: 0 0 10px rgba(201, 162, 39, 0.28);
+}
+
+.set-switch.on .set-switch-knob {
+  transform: translateX(22px);
+  background: var(--gold-bright);
+  box-shadow: 0 0 10px rgba(227, 185, 62, 0.65);
+}
+
 .set-label {
   font-size: 19px;
   letter-spacing: 0.08em;

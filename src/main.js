@@ -63,7 +63,9 @@ function applyAllSettings() {
   if (player) player.applySettings(settings.values);
   if (ferris) ferris.applySettings(settings.values);
   if (carousel) carousel.applySettings(settings.values);
+  if (coaster) coaster.applySettings(settings.values);
   if (wind) wind.applySettings(settings.values); // 风摆强度 + 南瓜灯亮度联动
+  audio.setBGM(settings.values.bgmOn !== false); // 背景音乐开关 (音频未启动时只记意图)
 }
 applyAllSettings(); // 恢复持久化配置（含舱内灯光默认 40%）
 settings.onChange(applyAllSettings);
@@ -139,6 +141,7 @@ async function boot() {
   // 幽冥回环 (M3): 静态件恒等放置(与园区共享原点) + 中心线驱动列车观赏运行
   hud.setLoadingProgress(0.93); // 起环
   coaster = await createCoaster(scene, manager);
+  coaster.applySettings(settings.values); // 过山车就位后补应用（含持久化配置）
   updates.push(coaster);
 
   // 验票闸机 (M4): 闸翼转子开合动画 + 闸线碰撞随开合禁用 (coaster.staticRoot 内解析 NL_Gate_*)

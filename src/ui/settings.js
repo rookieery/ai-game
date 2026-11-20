@@ -46,12 +46,36 @@ export function createSettingsPanel(settings, { onOpenChange } = {}) {
 
   hudRoot.append(gearBtn, drawer);
 
-  // ---------- 滑杆行 ----------
-  const rows = []; // { item, input, valEl }
+  // ---------- 滑杆行 / 开关行 ----------
+  const rows = []; // 滑杆 { item, input, valEl }
+  const switches = []; // 开关 { item, btn, valEl }
   for (const group of SETTINGS_GROUPS) {
     const section = el("section", "set-group");
     section.append(el("h3", null, group.name));
     for (const item of group.items) {
+      if (item.type === "switch") {
+        const row = el("div", "set-row");
+        const headRow = el("div", "set-head");
+        const valEl = el("span", "set-val", item.fmt(settings.get(item.key)));
+        const btn = el("button", "set-switch");
+        btn.type = "button";
+        btn.setAttribute("role", "switch");
+        btn.setAttribute("aria-label", item.label);
+        btn.append(el("span", "set-switch-knob"));
+        const right = el("span", "set-head-right");
+        right.append(valEl, btn);
+        headRow.append(el("label", "set-label", item.label), right);
+        row.append(headRow);
+        section.append(row);
+        const entry = { item, btn, valEl };
+        switches.push(entry);
+        syncSwitch(entry); // 初始 on 态 + aria-checked
+        btn.addEventListener("click", () => {
+          settings.set(item.key, !settings.get(item.key));
+          syncSwitch(entry); // store 无 UI 监听, 行内状态就地刷新
+        });
+        continue;
+      }
       const row = el("div", "set-row");
       const headRow = el("div", "set-head");
       const valEl = el("span", "set-val", item.fmt(settings.get(item.key)));
@@ -75,11 +99,19 @@ export function createSettingsPanel(settings, { onOpenChange } = {}) {
     body.append(section);
   }
 
+  function syncSwitch({ item, btn, valEl }) {
+    const v = !!settings.get(item.key);
+    btn.classList.toggle("on", v);
+    btn.setAttribute("aria-checked", String(v));
+    valEl.textContent = item.fmt(v);
+  }
+
   function syncAll() {
     for (const { item, input, valEl } of rows) {
       input.value = settings.get(item.key);
       valEl.textContent = item.fmt(settings.get(item.key));
     }
+    for (const s of switches) syncSwitch(s);
   }
 
   // ---------- 开合状态 ----------

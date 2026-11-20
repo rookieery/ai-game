@@ -25,11 +25,13 @@ export const SETTINGS_GROUPS = [
     items: [
       { key: "coasterFeel", label: "乘坐体感强度", min: 0, max: 100, step: 5, def: 60,
         fmt: (v) => (v === 0 ? "关闭" : `${v}%`) }, // POV 速度 FOV 拉伸 + 高频震动总开关; banking 侧倾随轨道天然存在
+      { key: "coasterDecoLight", label: "装饰灯亮度", min: 0, max: 200, step: 5, def: 100, fmt: pct }, // 磷光描边/南瓜灯串/站牌/灯环/列车车灯
     ],
   },
   {
     name: "园区",
     items: [
+      { key: "bgmOn", label: "背景音乐", type: "switch", def: true, fmt: (v) => (v ? "开" : "关") }, // 八音盒 BGM 总闸 (环境风/乘坐嗡鸣/风铃不受控)
       { key: "walkSpeed", label: "步行速度", min: 2, max: 16, step: 1, def: 4, fmt: (v) => `${v} 米/秒` }, // 疾走 = 步速 ×1.8
       { key: "parkLampLight", label: "园区照明亮度", min: 0, max: 200, step: 5, def: 100, fmt: pct },
       { key: "pumpkinGlow", label: "南瓜灯发光亮度", min: 0, max: 200, step: 5, def: 100, fmt: pct },
@@ -92,7 +94,9 @@ export function createSettings() {
       for (const g of SETTINGS_GROUPS) {
         for (const it of g.items) {
           const v = saved[it.key];
-          if (typeof v === "number" && Number.isFinite(v)) {
+          if (it.type === "switch") {
+            if (typeof v === "boolean") values[it.key] = v;
+          } else if (typeof v === "number" && Number.isFinite(v)) {
             values[it.key] = clamp(v, it.min, it.max);
           }
         }
