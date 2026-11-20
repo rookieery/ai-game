@@ -126,11 +126,13 @@ export function createPlayer(camera, input, park) {
   // ---------- 乘坐模式（过山车 M4）----------
   // 相机姿态相对车体 (四元数组合): camera.quaternion = fr.quat × 偏移欧拉,
   // 鼠标只改相对偏移 —— 过回环倒挂时世界系 Euler 会翻轴, 必须走四元数。
+  // 视线自由环视 (偏移不自动回中, 用户拍板 2026-11-20); R 键强阻尼平滑回正 (resetting)。
   // 体感: 震动振幅 ∝ feel × (v/vmax)², FOV 拉伸 60+16°×feel%×(v/vmax)^1.5 (feel=0 全关)。
   const ride = {
     active: false,
     getFrame: null,        // (dt) => { pos, quat, v } | null (coaster.getRideFrame)
     yawOff: 0, pitchOff: 0,
+    resetting: false,      // R 回正动画中 (鼠标一动即取消, 玩家接管)
     feel: 60,
     shakeT: 0,
   };
@@ -147,10 +149,17 @@ export function createPlayer(camera, input, park) {
     camera.position.copy(fr.pos).add(_off);
     _qi.setFromEuler(_dirE.set(ride.pitchOff, ride.yawOff, 0, "YXZ"));
     camera.quaternion.copy(fr.quat).multiply(_qi);
-    // 视线缓慢回中 (骑行时视线趋于前方)
-    const rc = Math.exp(-dt * 0.4);
-    if (Math.abs(ride.yawOff) < 0.01) ride.yawOff = 0; else ride.yawOff *= rc;
-    if (Math.abs(ride.pitchOff) < 0.01) ride.pitchOff = 0; else ride.pitchOff *= rc;
+    // R 回正: 强阻尼 (≈0.25s 归位, 不瞬切不晕); 鼠标一动即取消 (update 分派里置 false)
+    if (ride.resetting) {
+      const rk = Math.exp(-dt * 12);
+      ride.yawOff *= rk;
+      ride.pitchOff *= rk;
+      if (Math.abs(ride.yawOff) < 0.005 && Math.abs(ride.pitchOff) < 0.005) {
+        ride.yawOff = 0;
+        ride.pitchOff = 0;
+        ride.resetting = false;
+      }
+    }
     // 速度 FOV 拉伸 (阻尼趋近)
     const fovT = 60 + (ride.feel / 100) * 16 * Math.pow(Math.min(1, fr.v / RIDE_VMAX), 1.5);
     camera.fov += (fovT - camera.fov) * Math.min(1, dt * 6);
@@ -491,6 +500,7 @@ export function createPlayer(camera, input, park) {
       ride.getFrame = getFrame;
       ride.yawOff = 0;
       ride.pitchOff = 0;
+      ride.resetting = false;
       ride.shakeT = 0;
     },
     exitRide() {
@@ -499,9 +509,25 @@ export function createPlayer(camera, input, park) {
       camera.fov = 60;               // 防 FOV 泄漏
       camera.updateProjectionMatrix();
     },
-    resetRideView() { ride.yawOff = 0; ride.pitchOff = 0; },
+    // R 键/切机位回正: 强阻尼平滑归位 (updateRide 内动画, 鼠标一动即取消)
+    resetRideView() {
+      if (Math.abs(ride.yawOff) < 0.005 && Math.abs(ride.pitchOff) < 0.005) {
+        ride.yawOff = 0;
+        ride.pitchOff = 0;
+        ride.resetting = false;
+        return;
+      }
+      ride.resetting = true;
+    },
     rideActive: () => ride.active,
     setFeel(v) { ride.feel = Math.min(100, Math.max(0, v)); },
+    // 调试/取证钩: 视线偏移读写 (仿 cabinLocal 惯例)
+    rideView: () => (ride.active ? { yawOff: ride.yawOff, pitchOff: ride.pitchOff, resetting: ride.resetting } : null),
+    debugRideView(yaw, pitch) {
+      ride.yawOff = yaw;
+      ride.pitchOff = pitch;
+      ride.resetting = false;
+    },
     // 调试/测试钩子：舱本地坐标与坐站态（非舱内模式返回 null）
     cabinLocal() {
       return cabin.active
@@ -539,12 +565,15 @@ export function createPlayer(camera, input, park) {
     update(dt) {
       const m = input.consumeMouse();
       if (ride.active) {
-        // M4 乘坐: 鼠标只改相对车体的视线偏移, 相机四元数直写 (勿再覆写 Euler)
+        // M4 乘坐: 鼠标只改相对车体的视线偏移, 相机四元数直写 (勿再覆写 Euler)。
+        // 自由环视: yaw ±180° 可直视列车正后方, pitch ±1.25 与步行视角一致
+        const mouseMoved = input.locked && (m.dx !== 0 || m.dy !== 0);
         if (input.locked) {
           ride.yawOff -= m.dx * 0.0022;
-          ride.pitchOff = clamp(ride.pitchOff - m.dy * 0.0022, -1.1, 1.1);
-          ride.yawOff = clamp(ride.yawOff, -2.4, 2.4);
+          ride.pitchOff = clamp(ride.pitchOff - m.dy * 0.0022, -1.25, 1.25);
+          ride.yawOff = clamp(ride.yawOff, -Math.PI, Math.PI);
         }
+        if (mouseMoved) ride.resetting = false; // 玩家接管视角, 取消 R 回正
         updateRide(dt);
         return;
       }

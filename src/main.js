@@ -169,7 +169,7 @@ async function boot() {
       hud.transition(() => {
         coaster.board();
         player.enterRide((dt) => coaster.getRideFrame(camMode, dt));
-        hud.showPlaque("幽冥回环", "车长位视角 · V 切换追逐镜头 · E 排队下车 · O 调体感");
+        hud.showPlaque("幽冥回环", "自由环视 · V 切换追逐镜头 · R 回正视角 · E 排队下车");
         game.state = "riding";
       });
     },
@@ -211,7 +211,7 @@ async function boot() {
     if (game.ride === "coaster") {
       if (coaster.state.session.wantOff) {
         if (coaster.cancelDisembark()) {
-          hud.showPlaque("幽冥回环", "车长位视角 · V 切换追逐镜头 · E 排队下车 · O 调体感");
+          hud.showPlaque("幽冥回环", "自由环视 · V 切换追逐镜头 · R 回正视角 · E 排队下车");
           hud.toast("已取消下车排队");
         }
       } else if (coaster.queueDisembark()) {
@@ -254,6 +254,12 @@ async function boot() {
     coaster.setRideCam(camMode);
     player.resetRideView();
     hud.toast(camMode === "pov" ? "第一人称 · 车长位" : "第三人称 · 追逐镜头");
+  });
+
+  // M4: R 键回正视角 (自由环视后回到主视角; 强阻尼平滑归位, POV/追逐通用)
+  input.onPress("KeyR", () => {
+    if (game.state !== "riding" || game.ride !== "coaster") return;
+    player.resetRideView();
   });
 
   // M4: 到站停稳 + 压肩开启 → 自动下客 (黑幕转场送东 deck, 玩家步行东阶下场)

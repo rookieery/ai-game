@@ -71,6 +71,27 @@ const pov = await page.evaluate(() => {
 });
 ok("pov_pose_aligned", pov.dot > 0.9994 && pov.dist < 0.3, pov);
 
+// ③b 自由环视: 设偏移 → 2s 后不衰减 (移除自动回中的契约断言)
+const freeLook = await page.evaluate(async () => {
+  const pl = window.__game.player;
+  pl.debugRideView(1.5, 0.3);
+  await new Promise((r) => setTimeout(r, 2000));
+  const v = pl.rideView();
+  return { yaw: +v.yawOff.toFixed(3), pitch: +v.pitchOff.toFixed(3) };
+});
+ok("free_look_no_decay", Math.abs(freeLook.yaw - 1.5) < 0.01 && Math.abs(freeLook.pitch - 0.3) < 0.01, freeLook);
+
+// ③c R 回正: 平滑归位 (120ms 时仍残留 >0.2 证明阻尼不瞬切; 1s 内 <0.02 归位)
+await page.keyboard.press("KeyR");
+await page.waitForTimeout(120);
+const rMid = await page.evaluate(() => window.__game.player.rideView());
+await page.waitForTimeout(900);
+const rEnd = await page.evaluate(() => window.__game.player.rideView());
+ok("r_reset_smooth", rMid.resetting && Math.abs(rMid.yawOff) > 0.2, { yaw: +Math.abs(rMid.yawOff).toFixed(3) });
+ok("r_reset_settled", Math.abs(rEnd.yawOff) < 0.02 && Math.abs(rEnd.pitchOff) < 0.02, {
+  yaw: +Math.abs(rEnd.yawOff).toFixed(3), pitch: +Math.abs(rEnd.pitchOff).toFixed(3),
+});
+
 // ④ FOV 拉伸: seek 俯冲高速段 → fov 应 > 63 (feel 默认 60)
 await page.evaluate(() => window.__game.coaster.seek(120));
 await page.waitForTimeout(700);
