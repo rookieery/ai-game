@@ -10,6 +10,10 @@ const MAP = [
   ["model/carousel/carousel.glb", "public/assets/models/carousel.glb"],
   ["model/park_env/park_env.glb", "public/assets/models/park_env.glb"],
   ["model/park_env/colliders.json", "public/assets/models/colliders.json"],
+  ["model/roller_coaster/roller_coaster.glb", "public/assets/models/roller_coaster.glb"],
+  ["model/roller_coaster/roller_coaster_train.glb", "public/assets/models/roller_coaster_train.glb"],
+  ["model/roller_coaster/centerline.json", "public/assets/models/roller_coaster_centerline.json"],
+  ["model/roller_coaster/colliders_coaster.json", "public/assets/models/colliders_coaster.json"],
 ];
 
 for (const [src, dst] of MAP) {

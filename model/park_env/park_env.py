@@ -764,13 +764,12 @@ RING_IN = 34.0          # 内环
 RING_OUT = 90.0         # 外环
 # 放射支路: (角° blender, r_from, r_to)
 SPOKES = [
-    (78.0,   30.0, 70.0),    # 东北 -> 过山车预留区
+    (78.0,   30.0, 33.0),    # 东北 -> 过山车排队口 (M3: 预留区拆除, 支路截短到迷宫口)
     (-32.3,  30.0, 95.0),    # 东南 -> 秘境预留区
     (217.6,  30.0, 58.0),    # 西南 -> 幽灵港 (对准东缘缺口 y[-43,-37])
     (146.8,  30.0, 67.0),    # 西北 -> 许愿池
 ]
 CAR_SPUR = (21.8, 19.0, 33.0)   # 木马支路
-ZONE_COAST = (-30, 60, 70, 130)   # x0,x1,y0,y1
 ZONE_BAY   = (-88, -52, -55, -35)
 ZONE_THIRD = (78, 112, -78, -42)
 LAUNCHER = (22.0, -22.0)
@@ -802,8 +801,13 @@ def on_path(x, y, margin=0.0):
                 CAR_SPUR[2] * cos(a), CAR_SPUR[2] * sin(a)) < 1.5 + margin: return True
     if seg_dist(x, y, 0, -40, 34, -40) < 1.5 + margin:  return True    # 墓园横路
     if seg_dist(x, y, -31.5, -32, -0.5, -32) < 1.5 + margin: return True  # 市集横路
-    for x0, x1, y0, y1 in (ZONE_COAST, ZONE_BAY, ZONE_THIRD):
+    for x0, x1, y0, y1 in (ZONE_BAY, ZONE_THIRD):
         if x0 - margin < x < x1 + margin and y0 - margin < y < y1 + margin: return True
+    # 过山车地面结构 (M3: 站台+排队 / 南瓜田 / 观景塔 / 回流沟)
+    if 1.5 - margin < x < 17.5 + margin and 26 - margin < y < 68 + margin: return True
+    if 77 - margin < x < 87 + margin and 6 - margin < y < 19 + margin:     return True
+    if 76 - margin < x < 88 + margin and 94 - margin < y < 108 + margin:   return True
+    if 10 - margin < x < 13 + margin and 12 - margin < y < 45 + margin:    return True
     if hypot(x - 45, y - 18) < 13.5 + margin:           return True   # 木马
     if hypot(x - 34, y + 41) < 9.5 + margin:            return True   # 墓园草皮
     for _lid, _kd, (lx_, ly_) in LAUNCHER_SITES:
@@ -1369,7 +1373,7 @@ POIS.extend([
     (-12.0, -12.0, "pumpkin_plaza_w"),
     (30.5, -36.5, "pumpkin_grave"),
     (-22.0, -28.5, "pumpkin_stall"),
-    (13.5, 68.5, "pumpkin_coast"),
+    (5.5, 27.0, "pumpkin_coast"),    # M3: 原位 (13.5,68.5) 落入站台区 -> 迁排队迷宫口
     (-50.0, -38.5, "pumpkin_bay"),
     (79.0, -52.5, "pumpkin_east"),
     (-55.2, 35.2, "pumpkin_well"),
@@ -2000,10 +2004,6 @@ def zone_sign(name, x, y, rot_deg):
         collider(px_, py_, 0.2)
 
 # 过山车预留区 (北): 南边开口 x∈[11,19], 支路 78° 正对缺口
-zone_fence("PE_ZoneCoast", -30, 60, 70, 130, "S", 11, 19)
-zone_sign("PE_ZoneCoast_sign", 7.5, 68.6, 0)
-vine_arch("PE_ZoneCoast_arch", 15.0, 70.5, 90.0)
-
 # 幽灵港 (西南): 东边开口 y∈[-43,-37], 支路 217.6° 正对缺口
 zone_fence("PE_ZoneBay", -88, -52, -55, -35, "E", -43, -37)
 zone_sign("PE_ZoneBay_sign", -51.8, -33.0, 90)

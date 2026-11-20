@@ -99,6 +99,8 @@ export function createPlayer(camera, input, park) {
   for (let k = 0; k < 8; k++) {
     stepRects.push({ x: 0, z: 9.45 + k * 0.9, hw: 2.2, hd: 0.45, h: 1.55 - (k + 1) * 0.194 });
   }
+  // 过山车台阶顶面 (M3: colliders_coaster.json steps — 站台双 deck / 双槽 7 级 / 观景塔 18 级)
+  for (const s of park?.steps ?? []) stepRects.push(s);
   const rects = [...stallRects, ...stepRects];
 
   // ---------- 舱内模式状态 ----------

@@ -1024,6 +1024,9 @@ for _q in ((6.0, 39.8, 6.0, 44.2),     # a: 迷宫东墙北延, 封西侧至站�
            (10.75, 40.6, 12.25, 40.6), # c2: 走廊北墙东段 (东侧墙->东端块, 仍封轨道沟南缘)
            (6.0, 39.2, 12.25, 39.2)):  # d: 走廊南墙 (唯一进口=迷宫缺口, 唯一出口=过闸)
     queue_fence(*_q)
+# 回流沟护栏 (M3-B2): 刹车/进站段 x~11.5 两侧, 防玩家走上进站轨道 (顶轨暖白光帽兼作夜态导引)
+queue_fence(10.55, 13.5, 10.55, 40.5)
+queue_fence(12.45, 13.5, 12.45, 40.5)
 
 # --- A2 验票闸门 x2 (终审 P0: 闸线横跨槽口本身, 行进向 +Y, 双转子全宽, 闸即门) ---
 for _gx in (8.65, 9.4, 10.15):                      # 三柱 (槽口两缘+中)
@@ -1150,17 +1153,26 @@ bags["sign"].add_box(Vector((84.5, 38.0, 2.72)), Vector((1, 0, 0)), Vector((0, 1
                      Vector((0, 0, 1)), (0.10, 2.0, 1.15))
 text_mesh("NL_ScreamSign", "本季尖叫 8642 次", 0.26, (84.44, 38.0, 2.72), M["oglow"],
           rot=(90, 0, -90), extrude=0.02)   # 立起再转面西: 阅读方向-Y, 字头+Z
-# 地面灯环 (站前小广场; 单向环路 fix: 南移缩小让出进场走廊带 y39.2-40.6)
+# 入口立牌 (M3-B6 实机发现: 大牌在雨棚正后, 地面视角被 24.5m 棚顶全遮 -> 大牌当天际线地标,
+# 近距可读由排队口双柱牌承担; oglew 4.0 档 = EXIT 牌实机已证可读档位)
+for _sp in ((3.8, 27.5), (7.2, 27.5)):
+    bags["column"].add_beam((_sp[0], _sp[1], 0), (_sp[0], _sp[1], 4.6), 0.12, 0.12)
+bags["sign"].add_box(Vector((5.5, 27.5, 3.95)), Vector((1, 0, 0)), Vector((0, 1, 0)),
+                     Vector((0, 0, 1)), (3.6, 0.16, 1.30))
+text_mesh("NL_EntrySign", "幽冥回环", 0.55, (5.5, 27.41, 4.12), M["oglow"], rot=(90, 0, 0), extrude=0.025)
+text_mesh("NL_EntrySignB", "NETHER LOOP", 0.18, (5.5, 27.41, 3.55), M["subglow"], rot=(90, 0, 0), extrude=0.02)
+
+# 地面灯环 (M3: 三移至东广场 (17.5,30.5) —— 回流沟护栏上线, 原位会被双护栏切割)
 ring_bag = Bag()
-RC = Vector((SX + 0.4, 34.3, 0.06))
+RC = Vector((17.5, 30.5, 0.06))
 for a in range(48):
     a0 = a / 48 * 2 * pi
     a1 = (a + 1) / 48 * 2 * pi
     r0, r1 = 4.2, 4.8
-    p00 = Vector((SX + 0.4 + r0 * cos(a0), 34.3 + r0 * sin(a0), 0.06))
-    p01 = Vector((SX + 0.4 + r1 * cos(a0), 34.3 + r1 * sin(a0), 0.06))
-    p10 = Vector((SX + 0.4 + r0 * cos(a1), 34.3 + r0 * sin(a1), 0.06))
-    p11 = Vector((SX + 0.4 + r1 * cos(a1), 34.3 + r1 * sin(a1), 0.06))
+    p00 = Vector((17.5 + r0 * cos(a0), 30.5 + r0 * sin(a0), 0.06))
+    p01 = Vector((17.5 + r1 * cos(a0), 30.5 + r1 * sin(a0), 0.06))
+    p10 = Vector((17.5 + r0 * cos(a1), 30.5 + r0 * sin(a1), 0.06))
+    p11 = Vector((17.5 + r1 * cos(a1), 30.5 + r1 * sin(a1), 0.06))
     base = len(ring_bag.verts)
     ring_bag.verts += [p00, p01, p11, p10]
     ring_bag.faces.append((base, base + 1, base + 2, base + 3))
@@ -1817,5 +1829,73 @@ for i, (pos, Tv, Uv, zn) in enumerate(RS):
 with open(OUT / "centerline.json", "w", encoding="utf-8") as f:
     json.dump(data, f, ensure_ascii=False)
 tmark(f"centerline.json: {len(data['samples'])} samples")
+
+# ------------------------------------------ colliders_coaster.json (M3-B2) ----
+# 玩家碰撞表 (app 坐标: x=x, z=-y): 与控制器语义对齐 —
+#   rects = 轴对齐盒墙(推挤); steps = 顶面平台矩形 {h=顶面高, 台阶≤0.34 可迈上}; circles = 柱/物件(无h=阻挡)
+_R = []   # solid walls
+_S = []   # step platforms
+_C = []   # circles
+def wall(x0, y0, x1, y1, t=0.14):
+    cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
+    hx, hy = max(abs(x1 - x0) / 2, t), max(abs(y1 - y0) / 2, t)
+    _R.append({"x": round(cx, 2), "z": round(-cy, 2), "hw": round(hx, 2), "hd": round(hy, 2)})
+# 排队迷宫 7 段 + 进场走廊 4 段 + 闸线 + 出口东翼
+wall(3.2, 30.6, 6.0, 30.6); wall(3.2, 30.6, 3.2, 39.8); wall(6.0, 32.2, 6.0, 39.8)
+wall(4.6, 32.9, 6.0, 32.9); wall(3.2, 35.2, 4.6, 35.2); wall(4.6, 37.5, 6.0, 37.5)
+wall(3.2, 39.8, 5.0, 39.8)
+wall(6.0, 39.8, 6.0, 44.2); wall(6.0, 44.2, 8.05, 44.2)
+wall(6.0, 40.6, 8.05, 40.6); wall(10.75, 40.6, 12.25, 40.6)
+wall(6.0, 39.2, 12.25, 39.2)
+wall(8.65, 40.4, 10.15, 40.4)                       # 闸线 (M4 改交互开合)
+wall(15.0, 39.4, 15.9, 40.6, t=0.2)                 # 出口东翼
+# 回流沟双护栏
+wall(10.55, 13.5, 10.55, 40.5); wall(12.45, 13.5, 12.45, 40.5)
+# 阶梯槽四道侧墙 (全高实心)
+for _wx in (8.35, 10.45, 12.475, 14.725):
+    _R.append({"x": _wx, "z": -42.4, "hw": 0.30, "hd": 1.80})
+# 站台双 deck (顶面 2.38) + 双槽 7 级台阶
+for _dx in (9.4, 13.6):
+    _S.append({"x": _dx, "z": -55.0, "hw": 1.35, "hd": 11.0, "h": 2.38})
+_d7 = 3.6 / 7
+for _k in range(7):
+    yc = 40.6 + (_k + 0.5) * _d7
+    _S.append({"x": 9.4, "z": round(-yc, 2), "hw": 0.75, "hd": round(_d7 / 2 + 0.02, 3), "h": round(0.34 * (_k + 1), 2)})
+    _S.append({"x": 13.6, "z": round(-yc, 2), "hw": 0.90, "hd": round(_d7 / 2 + 0.02, 3), "h": round(0.34 * (_k + 1), 2)})
+# 观景塔: 台面 + 搭板 + 18 级楼梯 (lx=80.6, lcy=101)
+_S.append({"x": 80.6, "z": -101.0, "hw": 1.14, "hd": 1.14, "h": 7.28})
+_S.append({"x": 81.95, "z": -101.0, "hw": 0.70, "hd": 0.65, "h": 7.28})
+for _k in range(18):
+    _S.append({"x": round(80.6 + 5.86 - _k * 0.27, 2), "z": -101.0,
+               "hw": 0.135, "hd": 0.55, "h": round(0.40 * (_k + 1), 2)})
+# 柱位圆: 雨棚柱6 / 站牌龙门2 / 钟柱 / 出口牌2 / 塔柱4 / 统计牌2
+for _cx2 in (7.5, 15.5):
+    for _cy2 in (45.5, 55.0, 64.5):
+        _C.append({"x": _cx2, "z": round(-_cy2, 2), "r": 0.15})
+for _cx2 in (6.3, 16.7):
+    _C.append({"x": _cx2, "z": -67.2, "r": 0.20})
+_C.append({"x": 9.4, "z": -65.2, "r": 0.12})
+for _cx2 in (13.4, 14.1):
+    _C.append({"x": _cx2, "z": -39.05, "r": 0.12})
+for _cx2 in (77.3, 83.9):
+    for _cy2 in (100.1, 101.9):
+        _C.append({"x": _cx2, "z": round(-_cy2, 2), "r": 0.18})
+for _cy2 in (37.0, 39.0):
+    _C.append({"x": 84.5, "z": round(-_cy2, 2), "r": 0.14})
+for _cx2 in (3.8, 7.2):
+    _C.append({"x": _cx2, "z": -27.5, "r": 0.16})
+# 南瓜田 9 颗
+for _pk in ((80.2, 11.0, 0.30), (81.6, 10.2, 0.22), (82.9, 11.4, 0.26), (84.1, 10.6, 0.19),
+            (80.8, 12.6, 0.24), (83.5, 12.9, 0.28), (82.0, 14.0, 0.20), (84.6, 13.8, 0.23),
+            (81.3, 15.7, 0.26)):
+    _C.append({"x": _pk[0], "z": round(-_pk[1], 2), "r": round(_pk[2] * 0.9, 2)})
+coaster_colliders = {
+    "version": 1,
+    "note": "过山车玩家碰撞表 (app 坐标); 由 roller_coaster.py 建模常数生成; steps.h=顶面高度(≤0.34级差可迈上), rects=盒墙, circles 无h=阻挡",
+    "rects": _R, "steps": _S, "circles": _C,
+}
+with open(OUT / "colliders_coaster.json", "w", encoding="utf-8") as f:
+    json.dump(coaster_colliders, f, ensure_ascii=False, indent=1)
+print(f"colliders_coaster.json: rects={len(_R)} steps={len(_S)} circles={len(_C)}")
 
 print("\nDONE")

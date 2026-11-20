@@ -8,6 +8,7 @@ import { createAudio } from "./core/audio.js";
 import { loadGLB, createLoadingManager } from "./park/loader.js";
 import { createFerrisWheel } from "./rides/ferris.js";
 import { createCarousel } from "./rides/carousel.js";
+import { createCoaster } from "./rides/coaster.js";
 import { createPostFX } from "./fx/postfx.js";
 import { createMist } from "./fx/mist.js";
 import { createFireworks } from "./fx/fireworks.js";
@@ -36,6 +37,7 @@ const game = { state: "boot", ride: null }; // boot -> walk -> boarding -> ridin
 let player = null;
 let ferris = null;
 let carousel = null;
+let coaster = null;
 let interact = null;
 let wind = null;
 let entered = false;
@@ -82,6 +84,16 @@ async function boot() {
   window.__park = park;
   fireworks.setLaunchers(park?.launchers); // 6 站发射器 { id, kind, x, z, dx, dz, mz }
 
+  // 过山车碰撞表 (M3): 合并进 park (rects=盒墙 / circles=柱 / steps=台阶顶面由控制器接管)
+  try {
+    const cc = await (await fetch("/assets/models/colliders_coaster.json")).json();
+    park.rects = [...(park?.rects ?? []), ...cc.rects];
+    park.circles = [...(park?.circles ?? []), ...cc.circles];
+    park.steps = cc.steps ?? [];
+  } catch {
+    console.warn("[park] colliders_coaster.json 加载失败, 过山车区无碰撞");
+  }
+
   player = createPlayer(camera, input, park);
   player.applySettings(settings.values); // 恢复持久化步速（applyAllSettings 初次执行时 player 尚未创建）
 
@@ -112,6 +124,11 @@ async function boot() {
   carousel = createCarousel(carouselRoot, { player });
   carousel.applySettings(settings.values);
   updates.push(carousel);
+
+  // 幽冥回环 (M3): 静态件恒等放置(与园区共享原点) + 中心线驱动列车观赏运行
+  hud.setLoadingProgress(0.93); // 起环
+  coaster = await createCoaster(scene, manager);
+  updates.push(coaster);
 
   // 交互
   interact = createInteract({
@@ -231,6 +248,7 @@ window.__game = {
   get player() { return player; },
   get ferris() { return ferris; },
   get carousel() { return carousel; },
+  get coaster() { return coaster; },
   get interact() { return interact; },
   get fireworks() { return fireworks; },
   get camera() { return camera; },
