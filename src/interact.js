@@ -3,6 +3,7 @@ import { KIND_NAME } from "./fx/fireworks.js";
 
 export function createInteract({
   input, player, park, hud, getState, onBoard, onBoardCarousel, onCollect, audio, fireworks,
+  coaster, coasterGate, onOpenGate, onBoardCoaster,
 }) {
   const boarding = park?.boarding ?? { x: 0, z: 16.4 };
   // 显灵木马平台 (45,-18) r8.0: 台面上 (y≈0.62) 靠近中柱侧 r<7.6 出提示
@@ -53,6 +54,27 @@ export function createInteract({
       nearLauncher = -1;
       let label = "";
 
+      // M4 座位登车: 站台上靠近停靠头车车长位 (列车 dwell 停靠且无乘坐会话)
+      const bSpot = coaster?.getBoardSpot?.();
+      if (bSpot && p.y > 2.0 && coaster.state.phase === "dwell" && !coaster.state.session.active &&
+          dist2(p.x, p.z, bSpot.x, bSpot.z) < 1.9) {
+        active = { run: onBoardCoaster };
+        label = "登上幽冥回环 · 车长位";
+      }
+      // M4 过山车闸机: 走廊内侧靠近提示开闸 (p.z<-39.35 限走廊带内, 防提示隔南墙泄漏;
+      // 站台侧不出提示 = 西口只进不出)
+      const gSpot = coasterGate?.getSpot?.();
+      if (!active && gSpot && p.y < 0.6 && p.z > -40.2 && p.z < -39.35 && coasterGate.isClosed() &&
+          dist2(p.x, p.z, gSpot.x, gSpot.z) < 2.4) {
+        active = { run: onOpenGate };
+        label = "开闸进站";
+      }
+      // M4 指路: 走廊南墙外侧 (广场侧) 靠近闸机 —— 该处无入口, 指向迷宫东口 (纯指引, 无 E 动作)
+      if (!active && gSpot && p.y < 0.6 && p.z > -39.0 &&
+          dist2(p.x, p.z, gSpot.x, gSpot.z) < 5.0) {
+        hud.showPrompt("排队请走迷宫入口 · 沿光带护栏向西南", "↙");
+        return;
+      }
       // 登舱锚点二选一：地面登舱点；或站台停靠舱旁（脚高 > 1.4 ⇒ 在站台上，
       // 舱位吸附在轮面最低点 = 世界原点附近，锚点取停靠舱侧后 1.6m）
       const onPlat = p.y > 1.4;

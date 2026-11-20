@@ -15,7 +15,8 @@ const SPRINT_RATIO = 1.8; // 疾走 = 步速 ×1.8（保持原 4.0/7.2 比例）
 // 垂直运动（园区跳跃/台阶）：平台顶面支撑 + 解析式重力积分
 const GRAV = 20;       // 重力加速度
 const JUMP_V = 6.9;    // 起跳速度（跳高 ≈ JUMP_V²/2G ≈ 1.19m, 覆盖木桶顶 0.955）
-const STEP = 0.30;     // 一脚可直接迈上的高度差（登舱台阶每级 0.194）
+const STEP = 0.35;     // 一脚可直接迈上的高度差（登舱台阶每级 0.194; M4: 0.30→0.35 兑现过山车
+                       // 0.34 级台阶「可迈上」契约——colliders note 明文 0.34 可迈, 旧值实测迈不上)
 const COYOTE = 0.1;    // 土狼时间：离地后仍可起跳的窗口
 const BUFFER = 0.15;   // 跳跃预输入缓冲
 const GRACE = 0.05;    // 顶面支撑判定的边缘容差
@@ -121,6 +122,41 @@ export function createPlayer(camera, input, park) {
     active: false,
     getFrame: null,                  // () => { pos, quat, eye }
   };
+
+  // ---------- 乘坐模式（过山车 M4）----------
+  // 相机姿态相对车体 (四元数组合): camera.quaternion = fr.quat × 偏移欧拉,
+  // 鼠标只改相对偏移 —— 过回环倒挂时世界系 Euler 会翻轴, 必须走四元数。
+  // 体感: 震动振幅 ∝ feel × (v/vmax)², FOV 拉伸 60+16°×feel%×(v/vmax)^1.5 (feel=0 全关)。
+  const ride = {
+    active: false,
+    getFrame: null,        // (dt) => { pos, quat, v } | null (coaster.getRideFrame)
+    yawOff: 0, pitchOff: 0,
+    feel: 60,
+    shakeT: 0,
+  };
+  const RIDE_VMAX = 21;    // 体感归一 (centerline vmax≈20.96)
+
+  function updateRide(dt) {
+    const fr = ride.getFrame ? ride.getFrame(dt) : null;
+    if (!fr) return;
+    ride.shakeT += dt * (1 + fr.v * 0.35);
+    const k = (ride.feel / 100) * Math.pow(Math.min(1, fr.v / RIDE_VMAX), 2);
+    const sx = (Math.sin(ride.shakeT * 31.7) + 0.6 * Math.sin(ride.shakeT * 47.3)) * 0.010 * k;
+    const sy = (Math.sin(ride.shakeT * 38.1) + 0.6 * Math.sin(ride.shakeT * 52.9)) * 0.008 * k;
+    _off.set(sx, sy, 0).applyQuaternion(fr.quat);
+    camera.position.copy(fr.pos).add(_off);
+    _qi.setFromEuler(_dirE.set(ride.pitchOff, ride.yawOff, 0, "YXZ"));
+    camera.quaternion.copy(fr.quat).multiply(_qi);
+    // 视线缓慢回中 (骑行时视线趋于前方)
+    const rc = Math.exp(-dt * 0.4);
+    if (Math.abs(ride.yawOff) < 0.01) ride.yawOff = 0; else ride.yawOff *= rc;
+    if (Math.abs(ride.pitchOff) < 0.01) ride.pitchOff = 0; else ride.pitchOff *= rc;
+    // 速度 FOV 拉伸 (阻尼趋近)
+    const fovT = 60 + (ride.feel / 100) * 16 * Math.pow(Math.min(1, fr.v / RIDE_VMAX), 1.5);
+    camera.fov += (fovT - camera.fov) * Math.min(1, dt * 6);
+    camera.updateProjectionMatrix();
+  }
+  const _dirE = new THREE.Euler();
 
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
@@ -384,7 +420,8 @@ export function createPlayer(camera, input, park) {
         }
       }
       for (const rc of rects) {
-        if (!rc.solid) continue; // 台阶平台不推挤（可走上）
+        if (!rc.solid || rc.disabled) continue; // 台阶平台不推挤（可走上）; M4 闸线开闸时禁用
+        if (rc.blockFrom === "z+" && nz >= pos.z) continue; // M4 单向墙按移动方向放行: +z 南下(含横向)畅通, 仅挡 -z 北上逆爬
         const qx = clamp(nx, rc.x - rc.hw, rc.x + rc.hw);
         const qz = clamp(nz, rc.z - rc.hd, rc.z + rc.hd);
         const ddx = nx - qx;
@@ -448,6 +485,23 @@ export function createPlayer(camera, input, park) {
       grounded = true;
       landDip = 0;
     },
+    // M4 乘坐（过山车）: 相机姿态相对车体, 偏移由鼠标驱动
+    enterRide(getFrame) {
+      ride.active = true;
+      ride.getFrame = getFrame;
+      ride.yawOff = 0;
+      ride.pitchOff = 0;
+      ride.shakeT = 0;
+    },
+    exitRide() {
+      ride.active = false;
+      ride.getFrame = null;
+      camera.fov = 60;               // 防 FOV 泄漏
+      camera.updateProjectionMatrix();
+    },
+    resetRideView() { ride.yawOff = 0; ride.pitchOff = 0; },
+    rideActive: () => ride.active,
+    setFeel(v) { ride.feel = Math.min(100, Math.max(0, v)); },
     // 调试/测试钩子：舱本地坐标与坐站态（非舱内模式返回 null）
     cabinLocal() {
       return cabin.active
@@ -467,17 +521,33 @@ export function createPlayer(camera, input, park) {
     registerCircles(list) {
       for (const c of list) circles.push(c);
     },
+    // M4: 按 tag 开关实心矩形（闸机开闸禁用闸线碰撞）。
+    // 内部 rects 是 park.rects 的 spread 拷贝表, 外部改原对象无效, 必须走此 API
+    setRectDisabled(tag, disabled) {
+      for (const rc of rects) if (rc.tag === tag) rc.disabled = disabled;
+    },
     setView(y, p) {
       yaw = y;
       pitch = Math.max(-1.25, Math.min(1.25, p));
     },
-    // 应用设置面板（园区步速; 接口与 world/mist 等系统一致, main.applyAllSettings 调用）
+    // 应用设置面板（园区步速 + M4 乘坐体感; 接口与 world/mist 等系统一致, main.applyAllSettings 调用）
     applySettings(s) {
       walkSpeed = Math.min(16, Math.max(2, s.walkSpeed ?? WALK_BASE));
       sprintSpeed = walkSpeed * SPRINT_RATIO;
+      ride.feel = Math.min(100, Math.max(0, s.coasterFeel ?? 60));
     },
     update(dt) {
       const m = input.consumeMouse();
+      if (ride.active) {
+        // M4 乘坐: 鼠标只改相对车体的视线偏移, 相机四元数直写 (勿再覆写 Euler)
+        if (input.locked) {
+          ride.yawOff -= m.dx * 0.0022;
+          ride.pitchOff = clamp(ride.pitchOff - m.dy * 0.0022, -1.1, 1.1);
+          ride.yawOff = clamp(ride.yawOff, -2.4, 2.4);
+        }
+        updateRide(dt);
+        return;
+      }
       if (input.locked) {
         yaw -= m.dx * 0.0022;
         pitch = Math.max(-1.25, Math.min(1.25, pitch - m.dy * 0.0022));

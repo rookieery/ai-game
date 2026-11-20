@@ -1010,17 +1010,19 @@ def queue_fence(x0, y0, x1, y1):
             Vector((x0 + (x1 - x0) * u1, y0 + (y1 - y0) * u1, 1.10)), 0.028, 0.028)
 
 for _q in ((3.2, 30.6, 6.0, 30.6),    # 南墙
-           (3.2, 30.6, 3.2, 39.8),    # 西墙
+           (3.2, 30.6, 3.2, 44.2),    # 西墙 (M4 北延封西北绕行, 与 b 北封闭合)
            (6.0, 32.2, 6.0, 39.8),    # 东墙 (南端 y30.6-32.2 留入口)
            (4.6, 32.9, 6.0, 32.9),    # 齿1 东起 -> 西通口
            (3.2, 35.2, 4.6, 35.2),    # 齿2 西起 -> 东通口
            (4.6, 37.5, 6.0, 37.5),    # 齿3 东起 -> 西通口
-           (3.2, 39.8, 5.0, 39.8)):   # 北墙 (x5.0-6.0 留出口, 即唯一入口)
+           (3.2, 39.8, 4.7, 39.8)):   # 北墙 (M4: 出口加宽 x4.7-6.0=1.16m, 原 0.86m 仅 0.1m 中心容差)
     queue_fence(*_q)
 # 进场走廊封闭 (终审 P0 修复): c 墙原为单段横贯西槽口(8.65-10.15)封死唯一登台路 -> 拆两段, 槽口让给闸机线
-for _q in ((6.0, 39.8, 6.0, 44.2),     # a: 迷宫东墙北延, 封西侧至站台角
-           (6.0, 44.2, 8.05, 44.2),    # b: 西北口袋北封 (接西阶梯侧墙)
-           (6.0, 40.6, 8.05, 40.6),    # c1: 走廊北墙西段 (至西侧墙, 不越槽口)
+# M4 修复: a 墙南端 39.8 -> 40.74 (原封死「迷宫出口→走廊」接口致全线断路; 截短后重开口子 z40.74-39.8=0.94m);
+#   b 墙西延至西墙 (3.2, 封西北旁路, 保「单进单出」)
+for _q in ((6.0, 40.74, 6.0, 44.2),    # a: 迷宫东墙北延 (南端让出走廊西口)
+           (3.2, 44.2, 8.05, 44.2),    # b: 西北口袋北封 (西延接迷宫西墙)
+           (6.5, 40.6, 8.05, 40.6),    # c1: 走廊北墙西段 (M4: 西端 6.0->6.5, 原角圆把西口压窄到 0.36m 无法通行)
            (10.75, 40.6, 12.25, 40.6), # c2: 走廊北墙东段 (东侧墙->东端块, 仍封轨道沟南缘)
            (6.0, 39.2, 12.25, 39.2)):  # d: 走廊南墙 (唯一进口=迷宫缺口, 唯一出口=过闸)
     queue_fence(*_q)
@@ -1036,13 +1038,21 @@ bags["steel"].add_beam(Vector((8.65, 40.4, 1.12)), Vector((10.15, 40.4, 1.12)), 
 for _gi, _gx in enumerate((9.03, 9.78)):
     bags["dark"].add_box(Vector((_gx, 40.4, 0.33)), Vector((1, 0, 0)), Vector((0, 1, 0)),
                          Vector((0, 0, 1)), (0.55, 0.22, 0.66))          # 柜体封 0-0.66
+    # M4: 三臂闸翼拆独立节点 NL_GateArm_{gi}, 顶点相对轴心 (枢轴 = NL_Gate 锚点),
+    # 普通父子挂锚点下 -> 游戏转 NL_Gate_{gi} rotation.x 即开合
+    # (转子 120° 旋转首末位姿重合: 关闭位与烘焙位姿逐点一致, 90/210/330 -> 210/330/450≡90)
+    _hinge = Vector((_gx, 40.4, 0.95))
+    _arm = Bag()
     for _aa in (90, 210, 330):                       # 三臂闸翼 (轴沿 X, 行进向 +Y)
         _ar = radians(_aa)
-        bags["phos"].add_beam(Vector((_gx, 40.4, 0.95)),
-                              Vector((_gx, 40.4 + 0.30 * cos(_ar), 0.95 + 0.30 * sin(_ar))), 0.035, 0.035)
+        _arm.add_beam(Vector((0, 0, 0)),
+                      Vector((0, 0.30 * cos(_ar), 0.30 * sin(_ar))), 0.035, 0.035)
     _ge = bpy.data.objects.new(f"NL_Gate_{_gi}", None)     # M3/M4 闸翼开合锚点
-    _ge.location = (_gx, 40.4, 0.95)
+    _ge.location = tuple(_hinge)
     col_static.objects.link(_ge)
+    _go = _arm.to_mesh(f"NL_GateArm_{_gi}", M["phos"], collection=col_static)
+    if _go:
+        _go.parent = _ge
 # 出口标识: 东阶梯槽南侧「出口 EXIT」+ 基座东翼导栏 (终审 P2: 柱位东移避灯环带, 距环心 >4.8)
 queue_fence(15.0, 40.6, 15.9, 39.4)
 for _sp in ((13.4, 39.05), (14.1, 39.05)):
@@ -1371,6 +1381,7 @@ def build_car_local(ci):
 
     # --- 座椅 + 肩式压肩 (每排) ---
     anchors = {}
+    specials = []   # M4: 需挂锚点下的开合网格 (压肩), 装配段在锚点 empty 建好后创建
     for ri, ry in enumerate(ROW_Y):
         if is_head and ri == 0:
             continue                      # 头车前排让位幽灵灯笼区
@@ -1385,21 +1396,32 @@ def build_car_local(ci):
             lbox("dark", sx + sgn * 0.235, ry - 0.24, -HO + 0.86, 0.09, 0.13, 0.30)   # 侧翼抱肩
             anchors[f"seat_{ri}{'R' if sgn>0 else 'L'}"] = (sx, ry, 0.40)  # P2: 坐面(-0.45)上方0.85m 眼位 (原0.05, 短0.35m)
         lbox("seat", 0, ry, -HO + 0.63, 0.035, 0.40, 0.09)               # 中央分流鳍
-        # 肩式压肩: 双立柱 + U 形肩环 + 软垫 + 液压缸
+        # 肩式压肩: 双立柱 + 液压缸 (静态, 材质袋) | U 形肩环 + 肩垫 (M4 拆独立开合节点)
         hy = ry - 0.34
         for sgn in (1, -1):
             lbox("paint", sgn * 0.55, hy, -HO + 0.48, 0.07, 0.09, 0.62)  # 立柱
             lbeam("steel", (sgn * 0.53, ry - 0.10, -HO + 0.42), (sgn * 0.55, hy, -HO + 0.55), 0.05, 0.05)  # 液压缸
             lbox("dark", sgn * 0.53, ry - 0.10, -HO + 0.40, 0.075, 0.075, 0.16)      # 缸体
-        arc = []
+        # M4: U 形肩环+肩垫 独立节点 (NL_LapBarMesh_ = U环/paint, NL_LapBarPad_ = 肩垫/seat),
+        # 顶点相对枢轴 (枢轴 = NL_LapBar 锚点 = U 环顶), 游戏转锚点 rotation.x 即开合;
+        # 普通父子挂锚点下 (契约同车轮: 勿烘位姿), 闭合位 = 建模位 (与旧烘焙位逐点一致)
+        _hinge = Vector((0, hy - 0.02, -HO + 0.62))
+        _lb = Bag()
+        _arc = []
         for k in range(13):
             a = k / 12 * pi
-            arc.append((cos(a) * 0.55, hy - 0.02, sin(a) * 0.16 + (-HO + 0.44)))
-        bag_tube(B("paint"), arc, 0.036, sides=8)                        # U 形肩环
-        for k in (3, 4, 5, 6, 7, 8, 9):                                   # 肩垫(环内侧)
+            _arc.append(Vector((cos(a) * 0.55, hy - 0.02, sin(a) * 0.16 + (-HO + 0.44))) - _hinge)
+        bag_tube(_lb, _arc, 0.036, sides=8)                              # U 形肩环
+        _lp = Bag()
+        for k in (3, 4, 5, 6, 7, 8, 9):                                   # 肩垫(环内侧, 皮革色随 seat 材质)
             a = k / 12 * pi
-            lbox("seat", cos(a) * 0.50, hy - 0.02, sin(a) * 0.145 + (-HO + 0.425),
-                 0.085 if abs(cos(a)) > 0.3 else 0.5, 0.075, 0.055)
+            _lp.add_box(Vector((cos(a) * 0.50, hy - 0.02, sin(a) * 0.145 + (-HO + 0.425))) - _hinge,
+                        Vector((1, 0, 0)), Vector((0, 1, 0)), Vector((0, 0, 1)),
+                        (0.085 if abs(cos(a)) > 0.3 else 0.5, 0.075, 0.055))
+        specials.append({"name": f"NL_LapBarMesh_{ci}_{ri}", "bag": _lb,
+                         "mat": "paint", "smooth": True, "anchor": f"lapbar_{ri}"})
+        specials.append({"name": f"NL_LapBarPad_{ci}_{ri}", "bag": _lp,
+                         "mat": "seat", "smooth": True, "anchor": f"lapbar_{ri}"})
         anchors[f"rest_{ri}"] = (0, hy, 0.30)
         anchors[f"lapbar_{ri}"] = (0, hy - 0.02, -HO + 0.62)   # P2: §3 NL_LapBar 压肩开合锚点 (U 环顶)
 
@@ -1494,7 +1516,7 @@ def build_car_local(ci):
         anchors["pov"] = (0, 0.80, 0.12)
         anchors["pov"] = (0, 0.74, 0.18)
 
-    return bmap, wheels, anchors
+    return bmap, wheels, anchors, specials
 
 # ------------------------------------------------------------- 落位 ---
 def frame_at_s(s):
@@ -1522,7 +1544,7 @@ for ci in range(CAR_N):
     parent_keep(root, train_root)
     car_obs.append(root)
 
-    bmap, wheels, anchors = build_car_local(ci)
+    bmap, wheels, anchors, specials = build_car_local(ci)
     car_mat = frame_matrix(pos, Rv, Tv, Uv)
     for mk, bg in bmap.items():
         # matrix=None: 车局部数据不烘 car_mat; 普通父子 world=car_mat 预览不变,
@@ -1533,6 +1555,7 @@ for ci in range(CAR_N):
             ob.parent = root
     for (lw, r, wname) in wheels:
         make_wheel_obj(wname, ci, root, lw, r=r)
+    anchor_objs = {}
     for key, (ax, ay, az) in anchors.items():
         if key == "pov":
             e = bpy.data.objects.new("NL_CamPov", None)
@@ -1545,6 +1568,13 @@ for ci in range(CAR_N):
         e.matrix_world = car_mat @ Matrix.Translation(Vector((ax, ay, az)))
         col_train.objects.link(e)
         parent_keep(e, root)
+        anchor_objs[key] = e
+    # M4 开合网格: 普通父子挂锚点 (location 恒 0, 顶点已相对枢轴) -> 游戏转锚点即开合
+    for sp in specials:
+        ob = sp["bag"].to_mesh(sp["name"], M[sp["mat"]], smooth=sp.get("smooth", False),
+                               collection=col_train)
+        if ob:
+            ob.parent = anchor_objs[sp["anchor"]]
 
 # A5: 站台车厢号 01-06 (西站台地面发光字, 对齐各车停位)
 for _ci, _root in enumerate(car_obs):
@@ -1849,12 +1879,12 @@ def wall(x0, y0, x1, y1, t=0.14):
     cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
     hx, hy = max(abs(x1 - x0) / 2, t), max(abs(y1 - y0) / 2, t)
     _R.append({"x": round(cx, 2), "z": round(-cy, 2), "hw": round(hx, 2), "hd": round(hy, 2)})
-# 排队迷宫 7 段 + 进场走廊 4 段 + 闸线 + 出口东翼
-wall(3.2, 30.6, 6.0, 30.6); wall(3.2, 30.6, 3.2, 39.8); wall(6.0, 32.2, 6.0, 39.8)
+# 排队迷宫 7 段 + 进场走廊 4 段 + 闸线 + 出口东翼 (M4: 西墙北延/北墙缺口加宽/a 截短重开接口/b 西延封旁路)
+wall(3.2, 30.6, 6.0, 30.6); wall(3.2, 30.6, 3.2, 44.2); wall(6.0, 32.2, 6.0, 39.8)
 wall(4.6, 32.9, 6.0, 32.9); wall(3.2, 35.2, 4.6, 35.2); wall(4.6, 37.5, 6.0, 37.5)
-wall(3.2, 39.8, 5.0, 39.8)
-wall(6.0, 39.8, 6.0, 44.2); wall(6.0, 44.2, 8.05, 44.2)
-wall(6.0, 40.6, 8.05, 40.6); wall(10.75, 40.6, 12.25, 40.6)
+wall(3.2, 39.8, 4.7, 39.8)
+wall(6.0, 40.74, 6.0, 44.2); wall(3.2, 44.2, 8.05, 44.2)
+wall(6.5, 40.6, 8.05, 40.6); wall(10.75, 40.6, 12.25, 40.6)
 wall(6.0, 39.2, 12.25, 39.2)
 wall(8.65, 40.4, 10.15, 40.4)                       # 闸线 (M4 改交互开合)
 wall(15.0, 39.4, 15.9, 40.6, t=0.2)                 # 出口东翼

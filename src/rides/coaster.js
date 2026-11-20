@@ -12,6 +12,13 @@ const CAR_N = 6;
 const CAR_GAP = 2.35;
 const WHEEL_R = 0.15;
 const DWELL = 12.0; // 站台驻留秒数
+// ---- M4 乘坐会话常数 ----
+const LAPBAR_OPEN = 1.5;      // 压肩开启角 rad (绕 NL_LapBar 锚点局部 X=车右轴, 抬向前上方)
+const LAPBAR_CLOSE_T = 0.8;   // 压肩闭合时长 s
+const LAPBAR_OPEN_T = 0.7;    // 压肩开启时长 s
+const DISPATCH_T = 2.4;       // 压肩锁闭后的发车倒计时 s
+const CHASE_BACK = 7.2;       // 追逐机位: 头车后方弧长 m
+const CHASE_UP = 1.7;         // 追逐机位: 中心线上方高度 m
 
 // blender 帧 -> app 旋转基 (A: (x,y,z)->(x,z,-y), det+1)
 const _m4 = new THREE.Matrix4();
@@ -60,40 +67,43 @@ export async function createCoaster(scene, manager) {
     }
   }
 
-  // 弧长 s 处采样 (线性插值 + 重正交)
-  function frameAt(s, car) {
+  // 弧长 s 处采样 (线性插值 + 重正交), 无节点写入版 (追逐机位/锚点合成共用)
+  function sampleFrame(s) {
     const f = ((s % L) + L) % L / DS;
     const i0 = Math.min(N - 2, Math.floor(f));
     const u = f - i0;
     const i1 = i0 + 1;
-    _pos.set(
+    const pos = new THREE.Vector3(
       P[i0 * 3] + (P[i1 * 3] - P[i0 * 3]) * u,
       P[i0 * 3 + 1] + (P[i1 * 3 + 1] - P[i0 * 3 + 1]) * u,
       P[i0 * 3 + 2] + (P[i1 * 3 + 2] - P[i0 * 3 + 2]) * u,
     );
-    _tan.set(
+    const tan = new THREE.Vector3(
       T[i0 * 3] + (T[i1 * 3] - T[i0 * 3]) * u,
       T[i0 * 3 + 1] + (T[i1 * 3 + 1] - T[i0 * 3 + 1]) * u,
       T[i0 * 3 + 2] + (T[i1 * 3 + 2] - T[i0 * 3 + 2]) * u,
     ).normalize();
-    _up.set(
+    const up = new THREE.Vector3(
       U[i0 * 3] + (U[i1 * 3] - U[i0 * 3]) * u,
       U[i0 * 3 + 1] + (U[i1 * 3 + 1] - U[i0 * 3 + 1]) * u,
       U[i0 * 3 + 2] + (U[i1 * 3 + 2] - U[i0 * 3 + 2]) * u,
     );
-    _up.addScaledVector(_tan, -_up.dot(_tan)).normalize();
-    _rv.crossVectors(_tan, _up); // 车局部 +X (右)
+    up.addScaledVector(tan, -up.dot(tan)).normalize();
+    const rv = new THREE.Vector3().crossVectors(tan, up); // 车局部 +X (右)
     // glb 车局部轴契约 (scripts/dump_train_glb.mjs 实测): X=右, Y=上, Z=-前。
     // (Blender 车局部 (x=右,y=前,z=上) 经 glTF +Y-up 导出换算 (x,z,-y) 后即此约定;
     //  若沿用旧基 makeBasis(rv,tan,up) 会把车长轴掰到轨道竖向 -> 列车倒立)
-    _negTan.copy(_tan).negate();
-    _m4.makeBasis(
-      new THREE.Vector3(_rv.x, _rv.y, _rv.z),
-      new THREE.Vector3(_up.x, _up.y, _up.z),
-      new THREE.Vector3(_negTan.x, _negTan.y, _negTan.z),
+    const negTan = tan.clone().negate();
+    const quat = new THREE.Quaternion().setFromRotationMatrix(
+      new THREE.Matrix4().makeBasis(rv, up, negTan),
     );
-    car.position.copy(_pos);
-    car.quaternion.setFromRotationMatrix(_m4);
+    return { pos, tan, up, quat };
+  }
+
+  function frameAt(s, car) {
+    const sf = sampleFrame(s);
+    car.position.copy(sf.pos);
+    car.quaternion.copy(sf.quat);
     car.updateMatrix(); // 子节点(轮/锚点)矩阵链
   }
 
@@ -107,13 +117,19 @@ export async function createCoaster(scene, manager) {
   // ---- 列车节点 ----
   const cars = [];
   const wheels = []; // {node, }
+  let camPov = null;   // NL_CamPov 头车前排视线锚点 (POV 机位, 车局部 Z=-前)
+  const lapBars = [];  // NL_LapBar_* 压肩开合锚点 ×11 (子网格 NL_LapBarMesh/Pad 随转)
   trainRoot.traverse((o) => {
     const m = o.name && o.name.match(/^NL_Car_(\d)$/);
     if (m) cars[+m[1]] = o;
     else if (o.name && o.name.startsWith("NL_Wheel_")) wheels.push(o);
+    else if (o.name === "NL_CamPov") camPov = o;
+    else if (o.name && o.name.startsWith("NL_LapBar_")) lapBars.push(o);
   });
   if (cars.filter(Boolean).length !== CAR_N) console.warn("[coaster] NL_Car_i 不全:", cars.length);
   if (wheels.length !== 24) console.warn("[coaster] 轮组数:", wheels.length);
+  if (!camPov) console.warn("[coaster] NL_CamPov 缺失, POV 机位不可用");
+  if (lapBars.length !== 11) console.warn("[coaster] NL_LapBar_* 数:", lapBars.length);
 
   // 手写管件(肩环/灯笼/钩臂)面序不保证一致, Blender 双面渲染无感, three.js 单面会成黑洞 -> 全双面保险
   trainRoot.traverse((o) => {
@@ -127,35 +143,114 @@ export async function createCoaster(scene, manager) {
     v: 0,
     dwellT: DWELL,
     laps: 0,
+    hold: false, // M4 站台联锁 (main 每帧按 walk+站台位置驱动): true=冻结发车倒计时
+    session: null, // M4 乘坐会话 (下方 session 对象的活动引用, 取证可读)
   };
+
+  // ============ M4 乘坐会话 ============
+  // 乘坐复用观赏运行的 v(s) 物理, 仅在三个既有分支点插桩 (dwell 发车源 / 缝合点停站选择 /
+  // crawl 对位停站), 无会话时逐帧等价 M3。下客=仅站台 (用户拍板): 排队后到站停稳 →
+  // 压肩开启 → onDisembarkReady 回调, main 接管黑幕转场。
+  const session = {
+    active: false,
+    wantOff: false, // 途中排队下一站下车 (到站停稳前可取消)
+    offFired: false,
+    lapbar: 1, // 0 开 .. 1 闭 (动画值)
+    dispatchT: 0,
+  };
+  state.session = session;
+  let lapbarTarget = 1;
+  let onDisembarkReady = null; // main 注入
+
+  // 登车交互点 = 停靠位 NL_Seat_01L 世界坐标 (首帧摆位后解析一次, 停车姿态恒定)
+  let boardSpot = null;
+  function getBoardSpot() {
+    if (!boardSpot) {
+      const seat = trainRoot.getObjectByName("NL_Seat_01L");
+      if (seat) {
+        seat.updateWorldMatrix(true, false);
+        const p = seat.getWorldPosition(new THREE.Vector3());
+        boardSpot = { x: +p.x.toFixed(3), z: +p.z.toFixed(3) };
+      } else {
+        boardSpot = { x: 11.16, z: -60.96 }; // 兜底 (dump 实测值)
+      }
+    }
+    return boardSpot;
+  }
+  const getDropSpot = () => ({ x: 13.2, z: -60.2 }); // 东 deck (站台几何, 与列车无关)
+
+  function stepLapbar(dt) {
+    const speed = dt / (lapbarTarget > session.lapbar ? LAPBAR_CLOSE_T : LAPBAR_OPEN_T);
+    const d = lapbarTarget - session.lapbar;
+    if (d !== 0) {
+      session.lapbar = Math.abs(d) <= speed ? lapbarTarget : session.lapbar + Math.sign(d) * speed;
+    }
+    const rot = LAPBAR_OPEN * (1 - session.lapbar);
+    for (const lb of lapBars) lb.rotation.x = rot;
+    if (session.active && session.wantOff && session.lapbar <= 0.02 && !session.offFired) {
+      session.offFired = true;
+      onDisembarkReady?.();
+    }
+  }
+
+  function startDisembark() {
+    lapbarTarget = 0; // 开启 → 开完触发 onDisembarkReady (stepLapbar 内判定)
+  }
+
+  let prevHold = false;
+  let chaseInit = false;
+  const _chasePos = new THREE.Vector3();
+  const _worldUp = new THREE.Vector3(0, 1, 0);
+  const _upMix = new THREE.Vector3();
+  const _povPos = new THREE.Vector3();
+  const _povDummy = new THREE.Object3D();
 
   // 首帧摆位 (与 Blender 静态停靠一致, 无跳变)
   for (let i = 0; i < CAR_N; i++) frameAt(sHead - i * CAR_GAP, cars[i]);
 
   return {
     state,
+    staticRoot, // M4: 闸机模块从中解析 NL_Gate_*/NL_GateArm_*
     trainRoot,
     cars,
     update(dt) {
+      // M4 站台联锁释放补偿: hold 解除时若 dwell 所剩无几, 补到 4s 防瞬间弹射
+      if (!state.hold && prevHold && !session.active && state.phase === "dwell" && state.dwellT < 2) {
+        state.dwellT = 4;
+      }
+      prevHold = state.hold;
+      stepLapbar(dt);
       if (state.phase === "dwell") {
-        state.dwellT -= dt;
+        if (state.hold) {
+          // 站台联锁: 冻结倒计时, 列车保持停靠
+        } else if (session.active) {
+          // 乘坐会话: 压肩锁闭后计发车倒计时
+          if (session.lapbar >= 0.999) {
+            session.dispatchT -= dt;
+            if (session.dispatchT <= 0) state.phase = "run";
+          }
+        } else {
+          state.dwellT -= dt;
+          if (state.dwellT <= 1.5) lapbarTarget = 1; // 观赏循环发车前收压肩 (下客后保持开至临近发车)
+          if (state.dwellT <= 0) { state.phase = "run"; state.dwellT = DWELL; }
+        }
         state.v = 0;
-        if (state.dwellT <= 0) { state.phase = "run"; state.dwellT = DWELL; }
       } else {
         const v = vAt(state.s);
         state.v = v;
         const sPrev = state.s;
         state.s = (state.s + v * dt) % L;
         if (state.phase === "run" && state.s < sPrev) {
-          // 过缝合点: 不就地驻留(缝合点=站台门槛, 后5节会留在 -24° 刹车坡上),
-          // 转 crawl 以 v 表站台爬行速度滑行到停车位 sHead 再驻留
+          // 过缝合点: 不就地驻留(缝合点=站台门槛, 后5节会留在 -24° 刹车坡上)。
+          // 未乘坐或已排队下车 → crawl 爬行进站; 乘坐未排队 → 连圈不停站
           state.laps++;
-          state.phase = "crawl";
+          state.phase = (!session.active || session.wantOff) ? "crawl" : "run";
         }
         if (state.phase === "crawl" && state.s >= sHead) {
           state.s = sHead; // 精确对位停正(车厢号停位), 过冲 ≤0.04m 瞬回无感
           state.phase = "dwell";
           state.dwellT = DWELL;
+          if (session.active && session.wantOff) startDisembark();
         }
         // 轮转 (rotation.x 契约轴) — 爬行段车轮继续转
         const w = (v / WHEEL_R) * dt;
@@ -165,5 +260,59 @@ export async function createCoaster(scene, manager) {
     },
     // 调试/验收: 把头车 s 直接设到指定弧长 (截图取证用)
     seek(s) { state.s = ((s % L) + L) % L; state.phase = "run"; state.dwellT = DWELL; },
+
+    // ============ M4 乘坐 API ============
+    board() {
+      if (session.active) return; // 幂等
+      session.active = true;
+      session.wantOff = false;
+      session.offFired = false;
+      lapbarTarget = 1; // 压肩闭合 (0.8s) → 锁闭后 dispatchT 倒计时 → 发车
+      session.dispatchT = DISPATCH_T;
+    },
+    // 途中 E: 排队下一站下车; dwell 期直接开压肩。返回是否入队
+    queueDisembark() {
+      if (!session.active || session.wantOff) return false;
+      session.wantOff = true;
+      if (state.phase === "dwell") startDisembark(); // 刚登车就反悔: 立即开压肩
+      return true;
+    },
+    // 再按 E 取消排队 (仅限途中, 到站停稳压肩已开则不可取消)。返回是否取消成功
+    cancelDisembark() {
+      if (!session.active || !session.wantOff || state.phase === "dwell") return false;
+      session.wantOff = false;
+      return true;
+    },
+    // main 在转场黑幕内调用: 清会话; 压肩保持开至观赏循环临近发车 (dwell≤1.5s 收拢)
+    disembark() {
+      session.active = false;
+      session.wantOff = false;
+      session.offFired = false;
+    },
+    setHold(h) { state.hold = !!h; },
+    setRideCam(mode) { if (mode === "chase") chaseInit = false; }, // 切追逐: 重置阻尼起点防甩镜
+    // 相机帧 (controller.updateRide 每帧调用; 未乘坐返回 null)
+    //   pov: NL_CamPov 世界位姿 (车帧 × 锚点局部), 切线看向
+    //   chase: 头车后方 CHASE_BACK 弧长 + CHASE_UP 高度, 位置指数阻尼; lookAt 头车,
+    //          up = 0.65 世界 Y + 0.35 帧_up (过回环不倒挂, 过螺丝钻不整周滚转)
+    getRideFrame(mode, dt) {
+      if (!session.active) return null;
+      if (mode === "chase") {
+        const back = sampleFrame(state.s - CHASE_BACK);
+        _povPos.copy(back.pos).addScaledVector(back.up, CHASE_UP);
+        if (!chaseInit) { _chasePos.copy(_povPos); chaseInit = true; }
+        else _chasePos.lerp(_povPos, 1 - Math.exp(-6 * (dt ?? 0.016)));
+        const head = sampleFrame(state.s);
+        _upMix.copy(head.up).multiplyScalar(0.35).addScaledVector(_worldUp, 0.65).normalize();
+        _m4.lookAt(_chasePos, head.pos, _upMix);
+        return { pos: _chasePos, quat: new THREE.Quaternion().setFromRotationMatrix(_m4), v: state.v };
+      }
+      frameAt(state.s, _povDummy);
+      _povPos.copy(camPov.position).applyQuaternion(_povDummy.quaternion).add(_povDummy.position);
+      return { pos: _povPos.clone(), quat: _povDummy.quaternion.clone(), v: state.v };
+    },
+    getBoardSpot,
+    getDropSpot,
+    set onDisembarkReady(fn) { onDisembarkReady = fn; },
   };
 }

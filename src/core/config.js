@@ -21,6 +21,13 @@ export const SETTINGS_GROUPS = [
     ],
   },
   {
+    name: "过山车",
+    items: [
+      { key: "coasterFeel", label: "乘坐体感强度", min: 0, max: 100, step: 5, def: 60,
+        fmt: (v) => (v === 0 ? "关闭" : `${v}%`) }, // POV 速度 FOV 拉伸 + 高频震动总开关; banking 侧倾随轨道天然存在
+    ],
+  },
+  {
     name: "园区",
     items: [
       { key: "walkSpeed", label: "步行速度", min: 2, max: 16, step: 1, def: 4, fmt: (v) => `${v} 米/秒` }, // 疾走 = 步速 ×1.8

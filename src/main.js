@@ -9,6 +9,7 @@ import { loadGLB, createLoadingManager } from "./park/loader.js";
 import { createFerrisWheel } from "./rides/ferris.js";
 import { createCarousel } from "./rides/carousel.js";
 import { createCoaster } from "./rides/coaster.js";
+import { createCoasterGate } from "./rides/coasterGate.js";
 import { createPostFX } from "./fx/postfx.js";
 import { createMist } from "./fx/mist.js";
 import { createFireworks } from "./fx/fireworks.js";
@@ -38,6 +39,7 @@ let player = null;
 let ferris = null;
 let carousel = null;
 let coaster = null;
+let coasterGate = null;
 let interact = null;
 let wind = null;
 let entered = false;
@@ -93,6 +95,15 @@ async function boot() {
   } catch {
     console.warn("[park] colliders_coaster.json 加载失败, 过山车区无碰撞");
   }
+  // M4 登车动线碰撞 (须在 createPlayer 拷贝 rects 前注入; tag/blockFrom 字段随 spread 带入控制表):
+  //  ① 闸线 rect 打 tag (坐标唯一匹配, epsilon 防浮点表示差异) —— 闸机开闸时经 setRectDisabled 禁用
+  const gateRect = park.rects?.find((r) => Math.abs(r.x - 9.4) < 1e-6 && Math.abs(r.z + 40.4) < 1e-6);
+  if (gateRect) gateRect.tag = "coasterGate";
+  else console.warn("[coaster] 未找到闸线碰撞 rect (9.4,-40.4), 开闸将不生效");
+  // ② 东槽单向墙: 只挡走廊侧 -z 北上逆爬 (移动方向判定见 controller.tryMove), 下行 +z 畅通, 跳跃无效
+  park.rects.push({ x: 13.6, z: -40.45, hw: 0.85, hd: 0.12, blockFrom: "z+" });
+  // ③ 站台内缘防坠墙 x2: 堵双 deck 间轨道凹坑 (已核对不挡双槽动线与登车交互半径)
+  park.rects.push({ x: 10.75, z: -55, hw: 0.12, hd: 11.2 }, { x: 12.25, z: -55, hw: 0.12, hd: 11.2 });
 
   player = createPlayer(camera, input, park);
   player.applySettings(settings.values); // 恢复持久化步速（applyAllSettings 初次执行时 player 尚未创建）
@@ -130,11 +141,38 @@ async function boot() {
   coaster = await createCoaster(scene, manager);
   updates.push(coaster);
 
+  // 验票闸机 (M4): 闸翼转子开合动画 + 闸线碰撞随开合禁用 (coaster.staticRoot 内解析 NL_Gate_*)
+  coasterGate = createCoasterGate(coaster.staticRoot, {
+    player,
+    onSolid: (passable) => player.setRectDisabled("coasterGate", passable),
+  });
+  updates.push(coasterGate);
+
   // 交互
+  let camMode = "pov"; // M4 过山车乘坐视角: pov | chase
   interact = createInteract({
     input, hud, audio,
     player, park, fireworks,
+    coaster, coasterGate,
     getState: () => game.state,
+    onOpenGate() {
+      if (game.state !== "walk") return;
+      coasterGate.tryOpen();
+    },
+    onBoardCoaster() {
+      if (game.state !== "walk" || coaster.state.phase !== "dwell" || coaster.state.session.active) return;
+      game.state = "boarding";
+      game.ride = "coaster";
+      audio.setRiding(true);
+      camMode = "pov";
+      coaster.setRideCam("pov");
+      hud.transition(() => {
+        coaster.board();
+        player.enterRide((dt) => coaster.getRideFrame(camMode, dt));
+        hud.showPlaque("幽冥回环", "车长位视角 · V 切换追逐镜头 · E 排队下车 · O 调体感");
+        game.state = "riding";
+      });
+    },
     onBoard() {
       if (game.state !== "walk") return;
       game.state = "boarding";
@@ -167,9 +205,20 @@ async function boot() {
   });
   updates.push(interact);
 
-  // 乘坐中 E 下客（按 ride 分流: 摩天轮回地面登舱点 / 木马下马回平台）
+  // 乘坐中 E 下客（按 ride 分流: 过山车=排队下一站下车; 摩天轮回地面登舱点 / 木马下马回平台）
   input.onPress("KeyE", () => {
     if (game.state !== "riding") return;
+    if (game.ride === "coaster") {
+      if (coaster.state.session.wantOff) {
+        if (coaster.cancelDisembark()) {
+          hud.showPlaque("幽冥回环", "车长位视角 · V 切换追逐镜头 · E 排队下车 · O 调体感");
+          hud.toast("已取消下车排队");
+        }
+      } else if (coaster.queueDisembark()) {
+        hud.showPlaque("幽冥回环", "已排队下车 · 到站自动下客 · 再按 E 取消");
+      }
+      return;
+    }
     const kind = game.ride;
     game.state = "exiting";
     audio.setRiding(false);
@@ -198,6 +247,31 @@ async function boot() {
     if (lid >= 0) fireworks.fire(lid);
   });
 
+  // M4: V 键切换过山车乘坐视角 (POV ↔ 第三人称追逐; 切换重置阻尼起点与视线偏移防甩镜)
+  input.onPress("KeyV", () => {
+    if (game.state !== "riding" || game.ride !== "coaster") return;
+    camMode = camMode === "pov" ? "chase" : "pov";
+    coaster.setRideCam(camMode);
+    player.resetRideView();
+    hud.toast(camMode === "pov" ? "第一人称 · 车长位" : "第三人称 · 追逐镜头");
+  });
+
+  // M4: 到站停稳 + 压肩开启 → 自动下客 (黑幕转场送东 deck, 玩家步行东阶下场)
+  coaster.onDisembarkReady = () => {
+    if (game.state !== "riding") return;
+    game.state = "exiting";
+    audio.setRiding(false);
+    hud.transition(() => {
+      player.exitRide();
+      coaster.disembark();
+      const drop = coaster.getDropSpot();
+      player.teleport(drop.x, drop.z); // 首帧 groundAt 吸附 deck 顶 2.38
+      game.ride = null;
+      hud.hidePlaque();
+      game.state = "walk";
+    });
+  };
+
   // 指针锁定（面板打开时不出「点击画面」提示，避免与抽屉重叠）
   input.onLockChange((locked) => hud.setLookHint(entered && !locked && !settingsUI.isOpen));
   canvas.addEventListener("click", () => {
@@ -218,6 +292,11 @@ async function boot() {
     update(dt) {
       // 站台安全联锁：站在登舱站台（脚高 > 1.4）时轮体缓停吸附舱位
       ferris.setHold(game.state === "walk" && player.pos.y > 1.4);
+      // M4 过山车站台联锁: walk 态站上站台时列车保持停靠 (乘坐中 state≠walk 自然放行)
+      coaster.setHold(
+        game.state === "walk" && player.pos.y > 2.0 &&
+        player.pos.z < -43.5 && player.pos.x > 7.5 && player.pos.x < 15.5,
+      );
       player.update(dt);
       interact.update();
     },
@@ -249,6 +328,7 @@ window.__game = {
   get ferris() { return ferris; },
   get carousel() { return carousel; },
   get coaster() { return coaster; },
+  get coasterGate() { return coasterGate; },
   get interact() { return interact; },
   get fireworks() { return fireworks; },
   get camera() { return camera; },
