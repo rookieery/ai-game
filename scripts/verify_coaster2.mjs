@@ -61,13 +61,15 @@ const perf = await page.evaluate(async () => {
   return out;
 });
 
-// 驻留回归: 直接跳到缝合样本前一米, 高速区间验证 wrap
+// 驻留回归: 跳到缝合样本前 1m, 验证 wrap→crawl 爬行进站→sHead 停正→dwell (方案A 契约)
 const dwell = await page.evaluate(async () => {
   const c = window.__game.coaster;
-  c.seek(1.0);              // 缝合点后 1m (v≈2 的进场段), 一圈 503m @均速~10 → 太久; 改为直接测 wrap: seek(L-0.5)
   c.seek(502.5);
-  await new Promise((r) => setTimeout(r, 2000));
-  return { phase: c.state.phase, laps: c.state.laps, v: +c.state.v.toFixed(2) };
+  await new Promise((r) => setTimeout(r, 2500)); // 过缝(剩0.9m@1.5) + 爬行 2s
+  const mid = { phase: c.state.phase, s: +c.state.s.toFixed(2), v: +c.state.v.toFixed(2), laps: c.state.laps };
+  await new Promise((r) => setTimeout(r, 9500)); // 爬完 ~17m @2m/s 到停车位
+  const end = { phase: c.state.phase, s: +c.state.s.toFixed(2), v: c.state.v, laps: c.state.laps };
+  return { mid, end };
 });
 
 console.log(JSON.stringify({ perf, dwell, consoleErrors: errors.slice(0, 6) }, null, 1));

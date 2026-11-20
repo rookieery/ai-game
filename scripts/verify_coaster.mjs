@@ -75,12 +75,15 @@ await page.evaluate(() => window.__game.coaster.seek(175)); // 回环中
 await page.waitForTimeout(600);
 await shot("09_train_loop", 60, -85, -0.42, 0.35, 100);
 
-// 9) 驻留回归: seek 到缝合点前, 应进 dwell
+// 9) 驻留回归: seek 到缝合点前, 过缝应转 crawl 爬行进站, 到 sHead 停正再 dwell (方案A 契约)
 report.dwell = await page.evaluate(async () => {
   const c = window.__game.coaster;
   c.seek(c.state.L ? c.state.L - 2 : 500);
-  await new Promise((r) => setTimeout(r, 1500));
-  return { phase: c.state.phase, laps: c.state.laps };
+  await new Promise((r) => setTimeout(r, 3000)); // 过缝 + 爬行前段
+  const mid = { phase: c.state.phase, s: +c.state.s.toFixed(2), laps: c.state.laps };
+  await new Promise((r) => setTimeout(r, 9000)); // 爬完 ~17m @2m/s
+  const end = { phase: c.state.phase, s: +c.state.s.toFixed(2), laps: c.state.laps };
+  return { mid, end };
 });
 
 // 10) FPS / draw call 采样: 广场 + 站台 + 回环下

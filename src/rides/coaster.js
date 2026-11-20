@@ -4,7 +4,7 @@
 //   roller_coaster.glb      静态件 (恒等放置, 与园区共享原点: blender +Y 北 = app -Z)
 //   roller_coaster_train.glb  NL_TrainRoot > NL_Car_i > (车体网格 + NL_Wheel_* + 锚点)
 // 坐标映射: app = (bx, bz, -by)  (glTF 导出烘焙同款, 节点平移已验证一致)
-// 运行: v(s) 能量守恒速度表驱动弧长 s; 站台驻留 12s; 闭环天然循环 (首末缝合样本)
+// 运行: v(s) 能量守恒速度表驱动弧长 s; 过缝合点后站台爬行至停车位再驻留 12s; 闭环天然循环 (首末缝合样本)
 import * as THREE from "three";
 import { loadGLB } from "../park/loader.js";
 
@@ -122,7 +122,7 @@ export async function createCoaster(scene, manager) {
   });
 
   const state = {
-    phase: "dwell", // dwell | run
+    phase: "dwell", // dwell | run | crawl(过缝合点后站台爬行, 到停车位再驻留)
     s: sHead,
     v: 0,
     dwellT: DWELL,
@@ -146,8 +146,18 @@ export async function createCoaster(scene, manager) {
         state.v = v;
         const sPrev = state.s;
         state.s = (state.s + v * dt) % L;
-        if (state.s < sPrev) { state.laps++; state.phase = "dwell"; } // 过缝合点回站
-        // 轮转 (rotation.x 契约轴)
+        if (state.phase === "run" && state.s < sPrev) {
+          // 过缝合点: 不就地驻留(缝合点=站台门槛, 后5节会留在 -24° 刹车坡上),
+          // 转 crawl 以 v 表站台爬行速度滑行到停车位 sHead 再驻留
+          state.laps++;
+          state.phase = "crawl";
+        }
+        if (state.phase === "crawl" && state.s >= sHead) {
+          state.s = sHead; // 精确对位停正(车厢号停位), 过冲 ≤0.04m 瞬回无感
+          state.phase = "dwell";
+          state.dwellT = DWELL;
+        }
+        // 轮转 (rotation.x 契约轴) — 爬行段车轮继续转
         const w = (v / WHEEL_R) * dt;
         for (const wheel of wheels) wheel.rotation.x -= w;
       }
