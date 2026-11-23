@@ -217,6 +217,7 @@ export async function createCoaster(scene, manager) {
   const _chasePos = new THREE.Vector3();
   const _worldUp = new THREE.Vector3(0, 1, 0);
   const _upMix = new THREE.Vector3();
+  const _view = new THREE.Vector3();
   const _povPos = new THREE.Vector3();
   const _povDummy = new THREE.Object3D();
 
@@ -315,16 +316,25 @@ export async function createCoaster(scene, manager) {
     // 相机帧 (controller.updateRide 每帧调用; 未乘坐返回 null)
     //   pov: NL_CamPov 世界位姿 (车帧 × 锚点局部), 切线看向
     //   chase: 头车后方 CHASE_BACK 弧长 + CHASE_UP 高度, 位置指数阻尼; lookAt 头车,
-    //          up = 0.65 世界 Y + 0.35 帧_up (过回环不倒挂, 过螺丝钻不整周滚转)
+    //          up = 0.8 世界 Y + 0.2 帧_up (过回环不倒挂, 过螺丝钻/紧回旋不整周滚转; v5.1 调权)
     getRideFrame(mode, dt) {
       if (!session.active) return null;
       if (mode === "chase") {
         const back = sampleFrame(state.s - CHASE_BACK);
         _povPos.copy(back.pos).addScaledVector(back.up, CHASE_UP);
-        if (!chaseInit) { _chasePos.copy(_povPos); chaseInit = true; }
+        // v5.1: seek/跳变级位置差 (>5m, 正常帧仅 v*dt≈0.2m) 直接吸附, 防阻尼追赶半途拍到陈旧机位
+        if (!chaseInit || _povPos.distanceTo(_chasePos) > 5) { _chasePos.copy(_povPos); chaseInit = true; }
         else _chasePos.lerp(_povPos, 1 - Math.exp(-6 * (dt ?? 0.016)));
         const head = sampleFrame(state.s);
-        _upMix.copy(head.up).multiplyScalar(0.35).addScaledVector(_worldUp, 0.65).normalize();
+        _view.copy(head.pos).sub(_chasePos).normalize();
+        if (_view.y < -0.55) {
+          // v5.1: 高位俯视/竖直俯冲段 —— up = 世界Y在视平面上的投影 (crane 连续滚转)。
+          // 教训: 陡下视时仍用 (0.8Y+0.2帧up) 正交化会翻滚 (up·z·z.y 乘积项必然为负,
+        // v5.1 首测 upCork -0.27/-0.43 即此); 投影式 up 的 y 分量 = 1-vy² ≥ 0 恒不翻
+          _upMix.set(0, 1, 0).addScaledVector(_view, -_view.y).normalize();
+        } else {
+          _upMix.copy(head.up).multiplyScalar(0.2).addScaledVector(_worldUp, 0.8).normalize();
+        }
         _m4.lookAt(_chasePos, head.pos, _upMix);
         return { pos: _chasePos, quat: new THREE.Quaternion().setFromRotationMatrix(_m4), v: state.v };
       }

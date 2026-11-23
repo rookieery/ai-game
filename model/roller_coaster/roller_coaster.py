@@ -3,10 +3,10 @@
 幽冥回环 NETHER LOOP v1 - 玩家可乘坐钢铁过山车 (game-ready glTF asset)
 Run: blender --background --python roller_coaster.py
 
-北区官方预留位 (Blender +Y=北, 园区原点=摩天轮):
-  站台 (18, 54..78) 车头朝北 -> 15° 偏东链条提升(33m) -> 75° 首俯冲
-  -> 东扫弯 -> 克洛索衣德大回环 -> 右扫向南 -> 3 连驼峰 -> 零重力滚
-  -> 双螺丝钻 -> 西南下降螺旋 -> 刹车 -> S 弯回站
+北区官方预留位 (Blender +Y=北, 园区原点=摩天轮) — v8.4 马蹄包络:
+  站台 (11.5,44) 车头朝北 -> 螺旋链提升(右弯40°, 顶冠z25) -> -80°近垂直俯冲
+  -> 扫出拉平+东转 -> 经典水滴环(世界轴转正 r7.5±3.3) -> 零重力滚 -> 双螺丝钻
+  -> 短陡坡爬升 -> 行进漂移螺旋(顺时针2圈 边旋边向站台向漂移+渐扭bank) -> 刹车回站
 真实铁律: 曲率 G1 连续(弧段积分), 能量守恒+阻力仿真 v(s), 回环顶 g>=0.8,
   峰值 <=4.0g 瞬时(真实 Batman 级), banking 由横向 g<=1.2 反解。
 输出: roller_coaster.glb(静态) + roller_coaster_train.glb(列车)
@@ -16,7 +16,7 @@ import bpy
 import json
 import math
 import time
-from math import radians, pi, cos, sin, atan2, hypot, sqrt, degrees, asin
+from math import radians, pi, cos, sin, tan, atan2, hypot, sqrt, degrees, asin, acos
 from pathlib import Path
 import numpy as np
 from mathutils import Vector, Quaternion, Matrix
@@ -158,21 +158,137 @@ class Turtle:
         self.end(f"turn {deg:.0f}deg r{r:.0f} bank{bank:.0f}")
 
     def loop(self, r_mid, taper, zone="loop"):
-        """克洛索衣德回环: r(t)=r_mid+taper*cos(t), 顶=底+2*r_mid."""
+        """克洛索衣德回环 (v8 世界轴版): r(t)=r_mid+taper*cos(t), 顶=底+2*r_mid.
+        旋转轴从入口帧 B=T×U 改为[水平航向×Z]的世界水平轴 —— 老版残余滚转会带歪环面
+        (v6.3 实测倾 37.3°); 环面法向恒水平 => 环严格垂直于地面, 形状与 v4 经典水滴一致
+        (只转正, 不改形, 底部两股交叉). 出口帧=入口帧, 下游定线零扰动."""
         self.begin(zone)
-        B = self.T.cross(self.U).normalized()
+        Zv = Vector((0, 0, 1))
+        h = Vector((self.T.x, self.T.y, 0.0))
+        h = h.normalized() if h.length > 1e-6 else Vector((0.0, 1.0, 0.0))
+        B = h.cross(Zv).normalized()
+        p_in, t_in = self.pos.copy(), self.T.copy()
         th = 0.0
         while th < 2 * pi:
             r = r_mid + taper * cos(th)
-            d = P["ds_raw"] / r
-            d = min(d, radians(6))
+            d = min(P["ds_raw"] / max(1.5, r), radians(6), 2 * pi - th)   # 末步钳制: 精确转满 2pi
             self.T = rot_about(self.T, B, d)
             self.U = rot_about(self.U, B, d)
             self.pos += self.T * (r * d)
             th += d
             self._s += r * d
             self._mark()
-        self.end(f"loop r{r_mid:.1f}+/-{taper:.1f}")
+        dp = self.pos - p_in
+        dh = degrees(acos(max(-1.0, min(1.0, self.T.dot(t_in)))))
+        print(f"LOOP rm{r_mid:.1f}±{taper:.1f} 入口({p_in.x:.1f},{p_in.y:.1f},{p_in.z:.1f}) "
+              f"出口Δ=({dp.x:.1f},{dp.y:.1f},{dp.z:.1f}) 航向Δ={dh:.2f}°")
+        self.end(f"loop r{r_mid:.1f}+/-{taper:.1f} world-axis")
+
+    def vloop(self, r_mid, taper, lat=2.2, zone="loop"):
+        """v7.1 世界系垂直水滴环 (干净形态): 在[含当前航向 h 的竖直平面]内积分
+          r(th) = r_mid + taper*cos(th), 切线 = h*cos(th) + Z*sin(th).
+        对称水滴形, 进出口同高同航向, 前进量 D = taper*pi (垂直环固有几何, 两股前后错开).
+        (v7.0 的 u_asym/lat 工程修饰把环做成了"断裂螺旋"观感 — 用户反馈后移除;
+         底部瞬时 g 放宽到 4.2 换取形状干净, 顶部能量余量已复核 v_top~7)"""
+        self.begin(zone)
+        h = Vector((self.T.x, self.T.y, 0.0))
+        if h.length < 1e-6:
+            h = Vector((0, 1, 0))
+        h = h.normalized()
+        Z = Vector((0, 0, 1))
+        self.T = h
+        self.U = Z
+        P0 = self.pos.copy()
+        nrm = h.cross(Z)                      # 平面法向 (crosstie 错位方向)
+        pts = [P0.copy()]
+        ths = [0.0]
+        th = 0.0
+        while th < 2 * pi:
+            r = r_mid + taper * cos(th)
+            d = min(P["ds_raw"] / max(1.5, r), radians(6))
+            tang = h * cos(th) + Z * sin(th)
+            pts.append(pts[-1] + tang * (r * d))
+            th += d
+            ths.append(th)
+        # 出口半段横向 crosstie 错位 (真实环底部两股错开形态; 无落差, 环仍对称干净).
+        # ramp 窗口 0.25pi — 交叉点须已错开 >=2.2 (轨道包络净距, v7.0 无错版实测交叉 0.6m 穿模)
+        for i in range(len(pts)):
+            if ths[i] > pi:
+                _u2 = min(1.0, (ths[i] - pi) / (pi * 0.25))
+                pts[i] += nrm * (lat * _u2 * _u2 * (3 - 2 * _u2))
+        # 闭环残差回摊: 只吸收离散积分残差 (<0.3m); 设计前进量 D 与 lat 错位末值保留
+        tgt_end = P0 + h * (taper * pi) + nrm * lat
+        resid = pts[-1] - tgt_end
+        n = len(pts)
+        pts = [p - resid * (i / (n - 1)) for i, p in enumerate(pts)]
+        if resid.length > 0.6:
+            print(f"VLOOP_WARN resid={resid.length:.2f}m 超限")
+        # 数值切线 + 世界竖直投影 U
+        for i in range(n):
+            a = pts[max(0, i - 1)]
+            b = pts[min(n - 1, i + 1)]
+            Tv = (b - a)
+            if Tv.length < 1e-9:
+                Tv = self.T
+            Tv = Tv.normalized()
+            Uv = Z - Tv * Z.dot(Tv)
+            if Uv.length < 1e-6:
+                Uv = self.U
+            Uv = Uv.normalized()
+            self.pos = pts[i]
+            self.T, self.U = Tv, Uv
+            if i > 0:
+                self._mark()
+                self._s += (pts[i] - pts[i - 1]).length
+        self.T = h
+        self.U = Z
+        self.pos = pts[-1]
+        _h_top = max(p.z for p in pts) - pts[0].z
+        print(f"VLOOP rm{r_mid:.1f} t{taper:.1f} H={_h_top:.1f} D={taper*pi:.1f} "
+              f"r_bot={r_mid+taper:.1f} r_top={r_mid-taper:.1f}")
+        self.end(f"vloop rm{r_mid:.1f} t{taper:.1f} H{_h_top:.1f}")
+
+    def retrue(self, L, zone="sweep"):
+        """v7 归正直线: 行进 L 米, 同时把 U 缓动回世界竖直、T 的 pitch 缓动归零.
+        根治 bank 元素 (planar_turn/screw_turn) 的滚转全息泄漏 — 实测扫出拉平出口
+        U 残余 37.4°, 直接带歪下游回环; 叠旋弧段 +0.86° 上坡漂移也是同一根因."""
+        self.begin(zone)
+        n = max(2, int(L / P["ds_raw"]))
+        Z = Vector((0, 0, 1))
+
+        def roll_err():
+            Ustar = (Z - self.T * Z.dot(self.T)).normalized()
+            c = max(-1.0, min(1.0, self.U.dot(Ustar)))
+            ang = acos(c)
+            if self.U.cross(Ustar).dot(self.T) < 0:
+                ang = -ang
+            return ang
+
+        roll0 = roll_err()
+        pitch0 = asin(max(-1.0, min(1.0, self.T.z)))
+        phi_done = 0.0
+        for i in range(n):
+            u = (i + 0.5) / n
+            w = u * u * (3 - 2 * u)
+            # 滚转: 目标累计到 w*roll0
+            phi = roll0 * w
+            self.U = rot_about(self.U, self.T, phi - phi_done)
+            phi_done = phi
+            # 俯仰: 目标 (1-w)*pitch0 -> 0
+            tgt = pitch0 * (1 - w)
+            cur = asin(max(-1.0, min(1.0, self.T.z)))
+            err = tgt - cur
+            if abs(err) > 1e-6:
+                B = self.T.cross(self.U).normalized()
+                Bh = (B - Z * B.dot(Z))
+                Bh = Bh.normalized() if Bh.length > 1e-5 else B
+                self.T = rot_about(self.T, Bh, err)
+                self.U = rot_about(self.U, Bh, err)
+            self._step()
+        # 收尾吸附 (残差 <0.5°, 轨面拐点不可见)
+        self.T = Vector((self.T.x, self.T.y, 0.0)).normalized()
+        self.U = (Z - self.T * Z.dot(self.T)).normalized()
+        self.end(f"retrue L={L:.0f} roll{degrees(roll0):+.1f} p{degrees(pitch0):+.2f}")
 
     def screw_turn(self, deg, r, bank=0.0, pitch_from=None, pitch_to=None,
                    zone=None, sgn_note=""):
@@ -198,11 +314,13 @@ class Turtle:
             cur = asin(max(-1, min(1, self.T.z)))
             err = tgt - cur
             if abs(err) > 1e-5:
-                B = self.T.cross(self.U).normalized()
-                Bh = B - Z * B.dot(Z)
-                if Bh.length < 1e-5:
-                    Bh = B
-                Bh = Bh.normalized()
+                # v8 轴修正: 水平航向×Z 与航向正交且恒水平, 修俯仰不偷改航向
+                # (老 T×U 被 bank 带歪, 修俯仰时耦合出 ~33° 航向泄漏, 扫出弯实测漂 142.9°/设计110°)
+                hh = Vector((self.T.x, self.T.y, 0.0))
+                if hh.length > 1e-6:
+                    Bh = hh.normalized().cross(Z)
+                else:
+                    Bh = self.T.cross(self.U).normalized()
                 self.T = rot_about(self.T, Bh, err)
                 self.U = rot_about(self.U, Bh, err)
             # banking 渐变
@@ -283,7 +401,8 @@ class Turtle:
             return Vector((c.x + rr * cos(a_st), c.y + rr * sin(a_st), 0))
 
         best = None
-        for rr in (16.0, 20.0, 24.0):
+        _ropts = (max(11.0, r), max(11.0, r) + 4.0, max(11.0, r) + 8.0)
+        for rr in _ropts:
             for a1 in np.linspace(-135, 135, 1081):
                 h1 = th_s + a1
                 P1 = arc_from_start(Ps, th_s, a1, rr)
@@ -363,52 +482,198 @@ class Turtle:
             if th <= 6 and self.pos.z - h_target < 0.5:
                 break
 
+    def turn3d(self, deg, r, bank=0.0, dz=0.0, zone=None):
+        """v8 带俯仰的平面转弯: 平面等角旋转 + 正弦俯仰剖面 (dz>0 降 / dz<0 升).
+        俯仰修正轴 = [水平航向×Z] (与 screw_turn 的 T×U 不同 —— 后者被 bank 带歪时会
+        耦合出航向泄漏); 俯仰幅值 slopeMax 二分数值解, 使 Σ ds·sin(pitch) 精确=|dz|.
+        根治 planar_turn dz 剪切 (pos 降了但切线仍水平, 切线误差=坡度角)."""
+        if zone: self.begin(zone)
+        total = radians(deg)
+        n = max(2, int(abs(total) * r / P["ds_raw"]))
+        step = total / n
+        Z = Vector((0, 0, 1))
+        sm_lo, sm_hi = 0.0, radians(60)
+        for _ in range(30):
+            mid = (sm_lo + sm_hi) / 2
+            acc = sum(sin(mid * sin(pi * (i + 0.5) / n)) for i in range(n)) * P["ds_raw"]
+            if acc < abs(dz):
+                sm_lo = mid
+            else:
+                sm_hi = mid
+        sm_max = (sm_lo + sm_hi) / 2
+        dsgn = 1.0 if dz >= 0 else -1.0
+        phi_prev = 0.0
+        sgn = 1 if deg >= 0 else -1
+        for i in range(n):
+            u = (i + 0.5) / n
+            self.T = rot_about(self.T, Z, -step)
+            self.U = rot_about(self.U, Z, -step)
+            tgt = -sm_max * sin(pi * u) * dsgn
+            cur = asin(max(-1, min(1, self.T.z)))
+            err = tgt - cur
+            if abs(err) > 1e-6:
+                hh = Vector((self.T.x, self.T.y, 0.0))
+                if hh.length > 1e-6:
+                    B = hh.normalized().cross(Z)
+                    self.T = rot_about(self.T, B, err)
+                    self.U = rot_about(self.U, B, err)
+            ramp = 1.0 if abs(total) < 0.05 else min(1.0, min(u, 1 - u) / 0.30)
+            ramp = ramp * ramp * (3 - 2 * ramp)
+            phi = radians(bank) * ramp * sgn
+            self.U = rot_about(self.U, self.T, phi - phi_prev)
+            phi_prev = phi
+            self._step()
+        self.U = (self.U - self.T * self.U.dot(self.T)).normalized()
+        self.end(f"turn3D {deg:.0f}deg r{r:.0f} bank{bank:.0f} dz{dz:+.1f}")
+
 # ---------------------------------------------------------------- layout ---
+def helix_turn(self, total_deg, r, drop, left=False, bank=40.0, zone="helix"):
+    """真·下降螺旋 (v6.4): plan 等角旋转 + 恒坡度下降 + 几何理想倾角.
+    纯运动学定义路径 (无 pitch 反馈), bank 仅倾斜 U 外观 —— 零漂移, 层距精确.
+    left=False 顺时针 (入口段西侧绕行), True 逆时针."""
+    self.begin(zone)
+    total = radians(total_deg)
+    n = max(24, int(abs(total) * r / P["ds_raw"]))
+    dth = (total if left else -total) / n   # left=True: CCW 绕 Z 正向
+    slope = radians(degrees(atan2(drop, abs(total) * r)))
+    step_len = abs(total) * r / n
+    bank_r = radians(bank)
+    Zv = Vector((0, 0, 1))
+    for _ in range(n):
+        self.T = rot_about(self.T, Zv, dth)
+        Th = Vector((self.T.x, self.T.y, 0)).normalized()
+        self.T = (Th * cos(slope) - Zv * sin(slope)).normalized()
+        self.U = (Zv - self.T * Zv.dot(self.T)).normalized()
+        self.U = rot_about(self.U, self.T, bank_r)
+        self.pos += self.T * step_len
+        self._s += step_len                            # v11 修复: v6.4 潜伏 bug —— helix_turn 从不累计 _s,
+        self._mark()                                   # 元素 s 跨度为零被 G-CHECK 跳过且下游 zone 全错位 (首装即炸)
+    self.end(f"helix {total_deg:.0f}deg r{r:.0f} drop{drop:.1f} {'L' if left else 'R'}")
+
+Turtle.helix_turn = helix_turn                      # v11 接线: 三层折叠螺旋首次投入使用
+
+def drift_helix(self, total_deg, r, drop, c1, ctrl, bank0=32.0, bank1=58.0, zone="helix"):
+    """v12 行进螺旋: 顺时针下降, 圆心沿二次贝塞尔 (入口圆心->ctrl->c1) 漂移.
+    入口: 列车朝南, 位于圆心 C0=(pos.x-r, pos.y) 正东点; 顺时针整圈出口在西点朝北
+    (total_deg 须为 360 整倍数). drop 用 smoothstep 剖面: 首末坡度 0 (与前后段 G1 衔接),
+    中段最大坡度 = 1.5*avg (轨道方向与地面成角); bank 从 bank0 渐扭到 bank1 (轨道自身扭曲)."""
+    self.begin(zone)
+    c0 = Vector((self.pos.x - r, self.pos.y))
+    Zv = Vector((0, 0, 1))
+    n = max(96, int(abs(total_deg) / 360 * 2 * pi * r / P["ds_raw"]))
+    z0 = self.pos.z
+    prev = self.pos.copy()
+    for i in range(1, n + 1):
+        u = i / n
+        th = radians(total_deg) * u
+        # 贝塞尔参数 smoothstep 缓入缓出: 末段圆心速度->0, 出口切线不被漂移拽偏 (v12 首版
+        # 线性参数实测出口航向被拖偏 -16°, 刹车 39m 斜进 x 漂 -11m)
+        uu = u * u * (3 - 2 * u)
+        C = c0 * ((1 - uu) * (1 - uu)) + ctrl * (2 * uu * (1 - uu)) + c1 * (uu * uu)
+        ang = -th                                   # 顺时针 (俯视)
+        zoff = drop * uu                            # smoothstep 坡度剖面
+        self.pos = Vector((C.x + r * cos(ang), C.y + r * sin(ang), z0 - zoff))
+        step = self.pos - prev
+        L = step.length
+        if L > 1e-9:
+            self.T = step.normalized()
+            Uv = (Zv - self.T * Zv.dot(self.T)).normalized()
+            w = u * u * (3 - 2 * u)
+            Uv = rot_about(Uv, self.T, radians(bank0 + (bank1 - bank0) * w))
+            self.U = Uv
+            self._s += L
+            self._mark()
+        prev = self.pos.copy()
+    # 出口解析切线吸附: smoothstep 坡度末速为 0, 末点切线 = 纯旋转分量 (西点+顺时针 = 朝北);
+    # 数值弦每步 ~2.9° 会残留 ~1.5° 航向偏斜 -> 刹车 39m 斜进 (v12 二版实测 x 漂 -1.1)
+    ang_end = -radians(total_deg)
+    self.T = Vector((sin(ang_end), -cos(ang_end), 0.0)).normalized()
+    self.end(f"drift_helix {total_deg:.0f}deg r{r:.1f} drop{drop:.1f} -> c1({c1.x:.1f},{c1.y:.1f})")
+
+Turtle.drift_helix = drift_helix                    # v12 接线: 行进漂移螺旋
+
 def build_centerline(qx=0.0, qy=0.0):
-    """v4 定线 (顺时针大环, r146 围栏内):
-    站台(14,38)朝北 -> 螺旋弯链提升 r65 右弯56° -> 峰(50,121)h27
-    -> 右马蹄旋降105° -> 大回环 -> 爬升h17 -> 零重力滚 -> 右转40
-    -> 双螺丝钻 r5.2 -> 旋降西转 -> 驼峰串x3 西返 -> 两弧闭环求解器回站"""
+    """v8 定线 (马蹄包络: 老版骨架 + 新元素挂环带; 用户三轮确认的 v8.4 方案):
+    站台(11.5,44)朝北 -> 螺旋链提升(右弯40° r65, pitch→45, 顶冠 z≈25.2, 北端南收换围栏余量)
+    -> 顶冠拉平+缓冲 -> -80° 近垂直俯冲(直落加深, 凹弧拉平整体落谷底, 消半空 S 拐点)
+    -> 扫出拉平(俯冲+东转合一) -> retrue×2 归正
+    -> 高速贴地东转70° r34 bank61 (turn3d 降高按谷底实测差 → 环入口贴地 z≈5.07)
+    -> 经典水滴环 r7.5±3.3 (世界水平轴, 只转正不改形, v4 原版参数, 底部两股交叉)
+    -> 环出口缓俯降至贴地 z2.63 -> 零重力滚9m -> 爬坡(30°) -> 双螺丝钻
+    -> 短陡坡25°(+2.7m, summit z13.8) -> 行进漂移螺旋 (drift_helix 顺时针2整圈 r8,
+    圆心贝塞尔向站台向漂移 每圈错位~25m, smoothstep坡度中段~9°, bank 32->58 渐扭)
+    -> 西点切线朝北接刹车回站 (v12)"""
     X0, Y0 = 11.5, 44.0
     t = Turtle((X0, Y0, P["station_h"]), (0, 1, 0), zone="station")
     t.forward(22.0, zone="station")
     t.forward(7.0, zone="dispatch")
-    t.planar_turn(8, 40, bank=4, zone="lift")
-    # --- 螺旋弯链提升: 全程右弯 56deg (0->35 / 35 / 35->0), h3 -> 27 ---
-    t.screw_turn(+20, 65, bank=0, pitch_from=0, pitch_to=+35, zone="lift")
-    t.screw_turn(+16, 65, bank=0, pitch_from=+35, pitch_to=+35, zone="lift")
-    t.screw_turn(+20, 65, bank=0, pitch_from=+35, pitch_to=0, zone="lift")
+    # --- 西缘: 螺旋链提升 (老版骨架; 顶冠压低到 ~25 换围栏余量, v4 曾贴脸 142.1) ---
+    t.screw_turn(40, 65, 0, 0, 45, zone="lift")
+    _p1 = degrees(asin(max(-1.0, min(1.0, t.T.z))))
+    t.forward((24.3 - t.pos.z) / sin(radians(_p1)), zone="lift")
+    t.vturn(-_p1, 4.0, zone="lift")
     t.crest_h = t.pos.z
-    # --- 首俯冲: 45deg 陡入 + 105deg 右旋拉出 (旋降 -45->-10), 出口 ~θ175 h9 ---
-    t.vturn(-45, 13, zone="drop")
-    t.screw_turn(+105, 24, bank=34, pitch_from=-45, pitch_to=-10, zone="drop")
-    t.screw_turn(0.01, 20, pitch_from=-10, pitch_to=0, zone="drop")
-    # --- 大回环 r7.5 (底 h9, 顶 24, 顶点 +0.56g, 入口 4.2g 瞬时 Batman级) ---
-    t.loop(r_mid=7.5, taper=3.3)
-    # --- 爬升 h~18.5 (压螺丝钻入速, g ~2.6) ---
-    t.screw_turn(+6, 30, bank=4, pitch_from=0, pitch_to=+18, zone="climb")
-    t.forward(40.0, zone="climb")
-    t.screw_turn(0.01, 30, pitch_from=+18, pitch_to=0, zone="climb")
-    # --- 零重力滚 360 ---
-    t.roll_straight(30, 360, zone="zerog")
-    # --- 双螺丝钻 r5.8 (入速 ~14, g ~3.5) ---
-    t.corkscrew(5.8, 1.0, right=True, zone="corkscrew", advance=9.0)
+    t.forward(14.5, zone="lift")                       # v13: 4->14.5m 顶冠平段容纳完整六节车厢 (14.1m);
+                                                       # 平段水平不增能, 下游沿 hdg40 刚性平移 (10.5m) 已核: 围栏 140.5<142 ✓
+    # --- 北端: 近垂直俯冲 (-80°; 精确 -90 会让 T 水平分量退化, 扫出拉平平面随机化) ---
+    t.vturn(-80, 3.4, zone="drop")
+    # --- v9 俯冲重塑 (用户确认): 原弧线与 -80° 方向不变, 直落段加深, 凹弧拉平整体下移到谷底
+    #     (旧症: 直落仅 4m 即在 z≈17.5 半空反凹, 俯冲中段形成 S 拐点) ---
+    _z_dive = t.pos.z
+    _z_pull_end = 5.87                                 # 拉平终点 (uturn 再降 ~0.8, 环入口 z≈5.07 不动)
+    _pull_dz = 8.0                                     # 拉平弧竖降 (v8.4 实测 17.46->9.47)
+    _str_drop = (_z_dive - (_z_pull_end + _pull_dz)) / sin(radians(80))
+    t.forward(_str_drop, zone="drop")
+    t.screw_turn(70, 13, 40, -80, 0, zone="drop")      # 扫出拉平: 俯冲+东转合一 (形状不变, 落位下移)
+    t.retrue(8.0, zone="valley")
+    t.retrue(4.0, zone="valley")
+    _z_valley = t.pos.z
+    # --- 高速贴地东转70° r34 bank61 (东缘 x≈68-78): 降高按谷底实测差, 环入口 z 与 v8.4 一致 ---
+    _uturn_dz = _z_valley - 5.07
+    t.turn3d(70, 34, 61, _uturn_dz, zone="uturn")
+    print(f"DROP_V9 dive_end_z={_z_dive:.2f} straight={_str_drop:.2f} "
+          f"valley_z={_z_valley:.2f} uturn_dz={_uturn_dz:+.2f}")
+    # --- 东缘: 经典水滴环 (世界水平轴; v4 原版参数, 底部两股交叉为经典形态特征) ---
+    t.forward(5.0, zone="valley")
+    t.loop(7.5, 3.3)
+    # --- v10 贴地带紧凑化 (用户确认: 零重力滚保留, 高度 2.63 不变, 区间 44.5->37.7m):
+    #     俯降 22°/r12 (谷底 g3.9<4.2) + 滚直段 9m + 爬升 30° 与尾部 ramp 同坡度 ---
+    _z_loop_exit = t.pos.z
+    _low_z = 2.55                                      # 滚直段轨面目标 (实测半高 2.68, 预扣离散浮差 -> 实落 ≈2.63)
+    _dip_r, _dip_deg = 12.0, 22.0
+    _dz_arc = _dip_r * (1 - cos(radians(_dip_deg)))    # 单竖弧竖降 0.875
+    _dz_str = (_z_loop_exit - _dz_arc) - (_low_z + _dz_arc)
+    t.vturn(-_dip_deg, _dip_r, zone="zerog")
+    t.forward(_dz_str / sin(radians(_dip_deg)), zone="zerog")
+    t.vturn(_dip_deg, _dip_r, zone="zerog")
+    t.roll_straight(9.0, 360, zone="zerog")
+    # --- 爬坡 30° (轴高 10.5 不变 -> 螺丝钻形态不变) ---
+    _climb_deg = 30.0
+    t.screw_turn(0.01, 20, 0, 0, _climb_deg, zone="climb")
+    t.forward((10.5 - t.pos.z) / sin(radians(_climb_deg)), zone="climb")
+    t.screw_turn(0.01, 20, 0, _climb_deg, 0, zone="climb")
+    print(f"LOW_V10 loop_exit_z={_z_loop_exit:.2f} "
+          f"roll_len=9.0 zerog_z={t.pos.z:.2f}")
     t.forward(2.0, zone="sweep")
     t.corkscrew(5.8, 1.0, right=True, zone="corkscrew", advance=9.0)
     t.forward(2.0, zone="sweep")
-    # --- 东南 160deg 大回旋掉头 (招牌收尾元素, 旋降; 185->160: 出口航向偏西, 终段 S 弯可解) ---
-    t.screw_turn(+160, 30, bank=22, pitch_from=0, pitch_to=-8, zone="uturn")
-    # --- 末段 (P0 闭环重写): 改平 -> 闭环器到站台正南 -> 刹车段降高 -> 精确闭合到 s=0 位姿 ---
-    # 原缺陷: uturn 出口 -8deg 俯角未改平, close_to 直线段一路下扎 + descend_to 目标 3.8 过冲,
-    # 末端悬空断轨 6.5m (站台区双轨并排). 现在: 平面精确闭合 (X0, Y0-26) -> 刹车段降回站高 -> 直段补到 Y0.
-    _pitch = degrees(asin(max(-1.0, min(1.0, t.T.z))))
-    if _pitch < -0.2:
-        t.vturn(-_pitch, 24.0, zone="return")
-    t.close_to((X0 + qx, Y0 - 26.0 + qy), 0.0, bank=8.0, zone="return")
-    t.begin("brake")                       # 下降段+进场直段 = 刹车段 (v(s) 平滑减速 + 刹车鳍)
-    t.descend_to(P["station_h"], r=20.0)
-    if Y0 - t.pos.y > 0.05:
-        t.forward(Y0 - t.pos.y, zone="brake")
+    t.corkscrew(5.8, 1.0, right=True, zone="corkscrew", advance=9.0)
+    # --- v12 尾部重构 / v14 螺旋放大 (用户确认): 钻出口即爬坡 -> 行进漂移螺旋 -> 相切刹车 ---
+    # 25° 爬坡 (+2.7m 能量上限, summit z13.8, v_top~8.1) -> drift_helix 顺时针 2 整圈
+    # r12 (v14: 8->12, 圈径24m), 圆心贝塞尔 (65.5,4)->(43,-30)->(23.5,5): 每圈向站台
+    # 方向错位 ~18m, 中段南潜避木马净空圈 r13.5@(45,18) (北弧距≥17.6); smoothstep
+    # 坡度中段 ~6°; bank 30->55 渐扭; 西点出口朝北相切 x11.5 刹车线, 刹车 ~39m
+    t.vturn(25, 9.0, zone="ramp")                      # 短陡坡上
+    t.vturn(-25, 9.0, zone="ramp")                     # 坡顶回平
+    t.forward((13.8 - t.pos.z) / sin(radians(25)), zone="ramp")  # 爬到 summit z13.8
+    t.drift_helix(900, 12.0 - 0.51 * qx, t.pos.z - 3.0, Vector((23.5, 5.0)),
+                  Vector((52, -38)), bank0=30.0, bank1=55.0, zone="helix")  # 2圈+半圈进西点, 出口 (11.5,5) 朝北 z3; ctrl 深南潜+先东摆: 第一圈西北弧距木马心≥15
+    # (v12 调试探针已移除)
+    # --- 西缘: 刹车回站 (沿 x=11.5 直北, 不用 close_to —— v7 实测解会斜穿摩天轮盘面) ---
+    t.begin("brake")
+    t.retrue(6.0, zone="brake")                        # 缝口必须水平到站
+    if Y0 + qy - t.pos.y > 0.05:
+        t.forward(Y0 + qy - t.pos.y, zone="brake")
     # 闭合校验 (P0)
     gp = t.pos - Vector((X0, Y0, P["station_h"]))
     print(f"CLOSE_3D {gp.length:.3f}m  end=({t.pos.x:.3f},{t.pos.y:.3f},{t.pos.z:.3f})")
@@ -427,11 +692,11 @@ def frame_matrix(pos, Rv, Tv, Uv):
 t = build_centerline()
 # 自动校准闭环: close_to 解析解 vs ds_raw 积分有 ~1-2m 漂移, 反向补偿目标点迭代消除 (P0)
 qx = qy = 0.0
-for _cal in range(3):
+for _cal in range(5):
     t = build_centerline(qx, qy)
     _dr = t.pos - Vector((t.x0, t.y0, P["station_h"]))
     print(f"CALIB{_cal} drift=({_dr.x:+.2f},{_dr.y:+.2f},{_dr.z:+.2f}) |xy|={hypot(_dr.x, _dr.y):.2f}")
-    if hypot(_dr.x, _dr.y) < 0.4:
+    if hypot(_dr.x, _dr.y) < 0.10:
         break
     qx -= _dr.x
     qy -= _dr.y
@@ -493,8 +758,10 @@ for i in range(len(RS)):
     zn = zone_at(S_ARR[i])
     if zn == "lift":
         v2 = 3.2 ** 2
+    elif zn == "chainrun":          # v7: 第二提升链前的入链减速段 (平滑咬链, 防 v 突跳)
+        v2 = max(3.4 ** 2, v2 - 2 * 4.5 * P["ds_out"])
     elif zn in ("brakes", "brake", "station_in"):
-        v2 = max(1.5 ** 2, v2 - 2 * 4.2 * P["ds_out"])
+        v2 = max(1.5 ** 2, v2 - 2 * 5.5 * P["ds_out"])   # v7: 回流变短, 刹车 4.2->5.5 m/s²
     elif zn == "station":
         v2 = 2.0 ** 2
     else:
@@ -1112,56 +1379,56 @@ for _cx2 in (SX - 2.1, SX + 2.1):
                              Vector((0, 1, 0)), Vector((0, 0, 1)), (2.2, 0.10, 0.014))
         _yy += 1.1
 
-# --- A6 彩蛋三件: 回环内侧可走观景台 / 螺旋下南瓜田一角 / 尖叫统计牌(静态) ---
-_li2 = [i for i, r in enumerate(RS) if r[3] == "loop"]
-if _li2:
-    _lx = sum(RS[i][0].x for i in _li2) / len(_li2)
-    _lys = [RS[i][0].y for i in _li2]
-    _lcy = (min(_lys) + max(_lys)) / 2
-    _r_in = (max(_lys) - min(_lys)) / 2 - 2.6          # 环内净空 (扣轨/脊柱结构)
-    if _r_in >= 2.2:
-        _tw = min(1.6, _r_in * 0.42)                   # 平台半宽
-        # 环底弧 (heart z≈2.9) 从环心正下方跨过, 爬升段在 y~99-103/z3-4.5 穿越车体包络 ->
-        # 柱立轨带外侧 x±3.3, 悬臂梁抬台到 z6.5 (该高度轨管已退到 y±3.8, 台下乘客头顶净空 ~2.3m)
-        for _sx2 in (-1, 1):
-            for _sy2 in (-0.9, 0.9):
-                bags["column"].add_beam((_lx + _sx2 * 3.3, _lcy + _sy2, 0),
-                                        (_lx + _sx2 * 3.3, _lcy + _sy2, 7.1), 0.13, 0.13)
-        for _sy2 in (-0.9, 0.9):
-            bags["steel"].add_beam(Vector((_lx - 3.3, _lcy + _sy2, 7.05)),
-                                   Vector((_lx + 3.3, _lcy + _sy2, 7.05)), 0.10, 0.12)
-        bags["plattop"].add_box(Vector((_lx, _lcy, 7.22)), Vector((1, 0, 0)), Vector((0, 1, 0)),
-                                Vector((0, 0, 1)), (_tw * 2 + 0.2, _tw * 2 + 0.2, 0.12))
-        for _e0, _e1 in (((-_tw, -_tw), (_tw, -_tw)), ((_tw, -_tw), (_tw, _tw)),
-                         ((_tw, _tw), (-_tw, _tw)), ((-_tw, _tw), (-_tw, -_tw))):
-            _p0 = Vector((_lx + _e0[0], _lcy + _e0[1], 0))
-            _p1 = Vector((_lx + _e1[0], _lcy + _e1[1], 0))
-            _nl = (_p1 - _p0).length
-            _n2 = max(2, int(_nl / 1.6))
-            for _k3 in range(_n2 + 1):
-                _pp = _p0.lerp(_p1, _k3 / _n2)
-                bags["column"].add_beam((_pp.x, _pp.y, 7.28), (_pp.x, _pp.y, 8.35), 0.05, 0.05)
-            for _hz2 in (7.65, 8.20):
-                bags["steel"].add_beam(Vector((_p0.x, _p0.y, _hz2)), Vector((_p1.x, _p1.y, _hz2)), 0.045, 0.06)
-        # 东侧块式楼梯 18 级 x0.40/级 (终审 P2a: 0.42 超步高契约 0.40; 顶 7.20≈台面 7.22)
-        for _k4 in range(18):
-            bags["plattop"].add_box(Vector((_lx + 5.86 - _k4 * 0.27, _lcy, 0.20 * (_k4 + 1))),
-                                    Vector((1, 0, 0)), Vector((0, 1, 0)), Vector((0, 0, 1)),
-                                    (0.27, 1.10, 0.40 * (_k4 + 1)))
-        bags["plattop"].add_box(Vector((_lx + 1.35, _lcy, 7.22)), Vector((1, 0, 0)),
-                                Vector((0, 1, 0)), Vector((0, 0, 1)), (1.4, 1.30, 0.12))
-        print(f"A6_TOWER ({_lx:.1f},{_lcy:.1f}) 半宽{_tw:.2f} 悬臂台 z7.2 净空{_r_in:.2f}")
-# 南瓜田一角 (双螺丝钻下方, 九颗发光南瓜)
-for _pk in ((80.2, 11.0, 0.30), (81.6, 10.2, 0.22), (82.9, 11.4, 0.26), (84.1, 10.6, 0.19),
-            (80.8, 12.6, 0.24), (83.5, 12.9, 0.28), (82.0, 14.0, 0.20), (84.6, 13.8, 0.23),
-            (81.3, 15.7, 0.26)):
+# --- A6 彩蛋: 俯冲谷观景台 (贴地俯冲扫出+东转90°北侧 (20,118); 台上看贴地飞行/东转/俯冲) ---
+_vx, _vy = 20.0, 118.0
+_A6_LX, _A6_LCY = _vx, _vy
+_A6_TOWER_BUILT = True
+_li_loop = [i for i, r in enumerate(RS) if r[3] == "loop"]
+if _li_loop:
+    _LOOP_C = Vector((sum(RS[i][0].x for i in _li_loop) / len(_li_loop),
+                      sum(RS[i][0].y for i in _li_loop) / len(_li_loop), 0.0))
+else:
+    _LOOP_C = Vector((_A6_LX, _A6_LCY, 0.0))
+_tw = 1.6
+for _sx2 in (-1, 1):
+    for _sy2 in (-1.1, 1.1):
+        bags["column"].add_beam((_vx + _sx2 * 2.2, _vy + _sy2, 0),
+                                (_vx + _sx2 * 2.2, _vy + _sy2, 6.4), 0.13, 0.13)
+for _sy2 in (-1.1, 1.1):
+    bags["steel"].add_beam(Vector((_vx - 2.2, _vy + _sy2, 6.35)),
+                           Vector((_vx + 2.2, _vy + _sy2, 6.35)), 0.10, 0.12)
+bags["plattop"].add_box(Vector((_vx, _vy, 6.47)), Vector((1, 0, 0)), Vector((0, 1, 0)),
+                        Vector((0, 0, 1)), (_tw * 2 + 0.2, _tw * 2 + 0.2, 0.12))
+for _e0, _e1 in (((-_tw, -_tw), (_tw, -_tw)), ((_tw, -_tw), (_tw, _tw)),
+                 ((_tw, _tw), (-_tw, _tw)), ((-_tw, _tw), (-_tw, -_tw))):
+    _p0 = Vector((_vx + _e0[0], _vy + _e0[1], 0))
+    _p1 = Vector((_vx + _e1[0], _vy + _e1[1], 0))
+    _nl = (_p1 - _p0).length
+    _n2 = max(2, int(_nl / 1.6))
+    for _k3 in range(_n2 + 1):
+        _pp = _p0.lerp(_p1, _k3 / _n2)
+        bags["column"].add_beam((_pp.x, _pp.y, 6.53), (_pp.x, _pp.y, 7.6), 0.05, 0.05)
+    for _hz2 in (6.9, 7.45):
+        bags["steel"].add_beam(Vector((_p0.x, _p0.y, _hz2)), Vector((_p1.x, _p1.y, _hz2)), 0.045, 0.06)
+# 西侧楼梯 18 级 x0.40 (顶 7.2 ≈ 台面)
+for _k4 in range(18):
+    bags["plattop"].add_box(Vector((_vx - 5.86 + _k4 * 0.27, _vy, 0.20 * (_k4 + 1))),
+                            Vector((1, 0, 0)), Vector((0, 1, 0)), Vector((0, 0, 1)),
+                            (0.27, 1.10, 0.40 * (_k4 + 1)))
+bags["plattop"].add_box(Vector((_vx - 1.35, _vy, 7.22)), Vector((1, 0, 0)),
+                        Vector((0, 1, 0)), Vector((0, 0, 1)), (1.4, 1.30, 0.12))
+print(f"A6_DECK ({_vx:.1f},{_vy:.1f}) 俯冲谷观景台 z7.2")
+# 南瓜田一角 (v5.1: 双螺丝钻下方 x42.6-45.8 西侧带, 九颗发光南瓜; 心线绕轴摆幅 ±5.8, 地面净空 ~2.5m)
+for _pk in ((43.0, 62.0, 0.30), (44.4, 61.4, 0.22), (45.8, 62.6, 0.26), (42.6, 63.8, 0.19),
+            (44.2, 64.6, 0.24), (45.6, 65.4, 0.28), (43.2, 66.8, 0.20), (44.8, 67.6, 0.23),
+            (43.6, 69.2, 0.26)):
     pumpkin_lantern(bags["warmemit"], _pk[0], _pk[1], _pk[2] * 0.58 + 0.02, _pk[2])
-# 尖叫统计牌 (零重力滚段旁, 静态面; 柱封板两端 y37/39)
-for _sp in ((84.5, 37.0), (84.5, 39.0)):
+# 尖叫统计牌 (v10: 双螺丝钻西侧 (70,19-21) 随钻北移 9m, 面向东轨 x78)
+for _sp in ((70.0, 19.0), (70.0, 21.0)):
     bags["column"].add_beam((_sp[0], _sp[1], 0), (_sp[0], _sp[1], 3.1), 0.10, 0.10)
-bags["sign"].add_box(Vector((84.5, 38.0, 2.72)), Vector((1, 0, 0)), Vector((0, 1, 0)),
+bags["sign"].add_box(Vector((70.0, 20.0, 2.72)), Vector((1, 0, 0)), Vector((0, 1, 0)),
                      Vector((0, 0, 1)), (0.10, 2.0, 1.15))
-text_mesh("NL_ScreamSign", "本季尖叫 8642 次", 0.26, (84.44, 38.0, 2.72), M["oglow"],
+text_mesh("NL_ScreamSign", "本季尖叫 8642 次", 0.26, (69.94, 20.0, 2.72), M["oglow"],
           rot=(90, 0, -90), extrude=0.02)   # 立起再转面西: 阅读方向-Y, 字头+Z
 # 入口立牌 (M3-B6 实机发现: 大牌在雨棚正后, 地面视角被 24.5m 棚顶全遮 -> 大牌当天际线地标,
 # 近距可读由排队口双柱牌承担; oglew 4.0 档 = EXIT 牌实机已证可读档位)
@@ -1668,14 +1935,16 @@ _ymin, _ymax = min(p[0].y for p in RS), max(p[0].y for p in RS)
 cam_top = add_cam("NL_CamTop", ((_xmin + _xmax) / 2, (_ymin + _ymax) / 2, 130),
                   ((_xmin + _xmax) / 2, (_ymin + _ymax) / 2, 0),
                   ortho=True, scale=max(_xmax - _xmin, _ymax - _ymin) + 16)   # 终审 P1: 布局包围盒全覆盖(含南区)
-cam_three = add_cam("NL_CamThree", (105, -18, 42), (18, 88, 6.0), lens=30)  # P2: 目标下移+上仰 8° 收回顶部死区(提升峰)
-cam_three.rotation_euler.rotate_axis("X", radians(8))
-cam_front = add_cam("NL_CamFront", (18, -34, 9), (18, 95, 19), lens=26)
-cam_loop = add_cam("NL_CamLoop", (104, 76, 12), (80.6, 101, 8), lens=44)   # 终审 P1: 目标=环心(骨爪/墓碑/观景台入画)
+cam_three = add_cam("NL_CamThree", (118, -6, 46), ((_xmin + _xmax) / 2, (_ymin + _ymax) / 2, 8.0),
+                    lens=30)   # v5.1: 三分之二点机位随新足迹包围盒
+cam_front = add_cam("NL_CamFront", (18, -34, 9), (14, 102, 20), lens=26)
+_loop_c = _LOOP_C if _LOOP_C else Vector((_A6_LX, _A6_LCY, 0.0))
+cam_loop = add_cam("NL_CamLoop", (_loop_c.x + 23.4, _loop_c.y - 25.0, 12), (_loop_c.x, _loop_c.y, 8),
+                   lens=44)   # v5.1: 目标=新环心(骨爪/墓碑/观景台入画)
 cam_station = add_cam("NL_CamStation", (32, 34, 5.5), (18, 62, 4.5), lens=40)
 cam_queue = add_cam("NL_CamQueue", (2.0, 22.0, 24.0), (5.8, 37.0, 0.8), lens=45)   # A1 排队迷宫取证机位
-cam_south = add_cam("NL_CamSouth", (92.0, 26.0, 12.0), (82.0, 13.0, 1.5), lens=48)  # A6 南区南瓜田取证
-cam_scream = add_cam("NL_CamScream", (78.5, 38.0, 4.2), (84.5, 38.0, 2.5), lens=50)  # A6 尖叫统计牌取证(西面)
+cam_south = add_cam("NL_CamSouth", (50.0, 30.0, 12.0), (42.0, 22.0, 1.0), lens=48)  # A6 南瓜田取证 (螺丝钻东侧)
+cam_scream = add_cam("NL_CamScream", (34.5, 39.4, 4.2), (41.5, 46.0, 2.5), lens=50)  # A6 尖叫统计牌取证(西南)
 # 列车特写机位: 全部从车位姿矩阵计算, 禁止手填 (手填曾偏 50 度拍空轨道)
 def carpoint(car_i, dx, dy, dz):
     return tuple(car_obs[car_i].matrix_world @ Vector((dx, dy, dz)))
@@ -1730,18 +1999,20 @@ fit_cam(cam_bogie, carpoint(5, 0.2, -0.6, -1.5),
 fit_cam(cam_queue, (5.8, 37.0, 0.8),
         [(3.2, 30.6, 0.0), (7.6, 30.6, 0.0), (3.2, 43.2, 0.0), (7.6, 43.2, 1.2),
          (7.5, 41.0, 1.2)])
-fit_cam(cam_loop, (80.6, 101, 8),                                    # 终审 P1: 回环簇取证(爪/碑/台全入画)
-        [(70.6, 90.5, 0.5), (90.6, 111.5, 0.5), (80.6, 101, 24.5),
-         (70.6, 111.5, 1.0), (90.6, 90.5, 1.0), (79.0, 99.4, 7.5), (82.2, 102.6, 7.5)])
+fit_cam(cam_loop, (_loop_c.x, _loop_c.y, 8),                         # v5.1: 回环簇取证(爪/碑/台全入画)
+        [(_loop_c.x - 10, _loop_c.y - 10.5, 0.5), (_loop_c.x + 10, _loop_c.y + 10.5, 0.5),
+         (_loop_c.x, _loop_c.y, 23.5), (_loop_c.x - 10, _loop_c.y + 10.5, 1.0),
+         (_loop_c.x + 10, _loop_c.y - 10.5, 1.0), (_A6_LX - 1.6, _A6_LCY - 1.6, 7.5),
+         (_A6_LX + 1.6, _A6_LCY + 1.6, 7.5)])
 fit_cam(cam_station, (18, 62, 4.5),
         [(8.0, 44.0, 2.4), (15.0, 44.0, 2.4), (8.0, 66.0, 3.0), (15.0, 66.0, 3.0),
          (11.5, 67.2, 9.9)])
 fit_cam(cam_front, (16, 70, 7),
         [(8.0, 44.0, 2.4), (15.0, 66.0, 3.0), (11.5, 67.2, 9.9), (6.3, 67.2, 9.6)])
-fit_cam(cam_south, (82.0, 13.0, 1.5),
-        [(79.5, 9.8, 0.1), (85.0, 9.8, 0.1), (79.5, 16.5, 0.6), (85.0, 16.5, 0.6)])
-fit_cam(cam_scream, (84.5, 38.0, 2.5),
-        [(83.5, 37.0, 0.1), (85.5, 39.0, 0.1), (83.5, 37.0, 3.2), (85.5, 39.0, 3.2)])
+fit_cam(cam_south, (42.0, 22.0, 1.0),
+        [(40.5, 18.0, 0.1), (44.5, 18.0, 0.1), (40.5, 26.5, 0.6), (44.5, 26.5, 0.6)])
+fit_cam(cam_scream, (41.5, 46.0, 2.5),
+        [(40.5, 45.0, 0.1), (42.5, 47.0, 0.1), (40.5, 45.0, 3.2), (42.5, 47.0, 3.2)])
 
 sc.view_settings.view_transform = "Standard"
 sc.view_settings.exposure = 0.15
@@ -1901,11 +2172,11 @@ for _k in range(7):
     yc = 40.6 + (_k + 0.5) * _d7
     _S.append({"x": 9.4, "z": round(-yc, 2), "hw": 0.75, "hd": round(_d7 / 2 + 0.02, 3), "h": round(0.34 * (_k + 1), 2)})
     _S.append({"x": 13.6, "z": round(-yc, 2), "hw": 0.90, "hd": round(_d7 / 2 + 0.02, 3), "h": round(0.34 * (_k + 1), 2)})
-# 观景塔: 台面 + 搭板 + 18 级楼梯 (lx=80.6, lcy=101)
-_S.append({"x": 80.6, "z": -101.0, "hw": 1.14, "hd": 1.14, "h": 7.28})
-_S.append({"x": 81.95, "z": -101.0, "hw": 0.70, "hd": 0.65, "h": 7.28})
+# 观景塔: 台面 + 搭板 + 18 级楼梯 (v6.3: 俯冲谷观景台 _A6_LX/_A6_LCY = (20,118))
+_S.append({"x": round(_A6_LX, 2), "z": round(-_A6_LCY, 2), "hw": 1.14, "hd": 1.14, "h": 7.28})
+_S.append({"x": round(_A6_LX + 1.35, 2), "z": round(-_A6_LCY, 2), "hw": 0.70, "hd": 0.65, "h": 7.28})
 for _k in range(18):
-    _S.append({"x": round(80.6 + 5.86 - _k * 0.27, 2), "z": -101.0,
+    _S.append({"x": round(_A6_LX + 5.86 - _k * 0.27, 2), "z": round(-_A6_LCY, 2),
                "hw": 0.135, "hd": 0.55, "h": round(0.40 * (_k + 1), 2)})
 # 柱位圆: 雨棚柱6 / 站牌龙门2 / 钟柱 / 出口牌2 / 塔柱4 / 统计牌2
 for _cx2 in (7.5, 15.5):
@@ -1916,17 +2187,18 @@ for _cx2 in (6.3, 16.7):
 _C.append({"x": 9.4, "z": -65.2, "r": 0.12})
 for _cx2 in (13.4, 14.1):
     _C.append({"x": _cx2, "z": -39.05, "r": 0.12})
-for _cx2 in (77.3, 83.9):
-    for _cy2 in (100.1, 101.9):
-        _C.append({"x": _cx2, "z": round(-_cy2, 2), "r": 0.18})
-for _cy2 in (37.0, 39.0):
-    _C.append({"x": 84.5, "z": round(-_cy2, 2), "r": 0.14})
+if _A6_TOWER_BUILT:
+    for _sx3 in (-1, 1):
+        for _sy3 in (-0.9, 0.9):
+            _C.append({"x": round(_A6_LX + _sx3 * 3.3, 2), "z": round(-(_A6_LCY + _sy3), 2), "r": 0.18})
+for _cy2 in (10.0, 12.0):
+    _C.append({"x": 70.0, "z": round(-_cy2, 2), "r": 0.14})
 for _cx2 in (3.8, 7.2):
     _C.append({"x": _cx2, "z": -27.5, "r": 0.16})
-# 南瓜田 9 颗
-for _pk in ((80.2, 11.0, 0.30), (81.6, 10.2, 0.22), (82.9, 11.4, 0.26), (84.1, 10.6, 0.19),
-            (80.8, 12.6, 0.24), (83.5, 12.9, 0.28), (82.0, 14.0, 0.20), (84.6, 13.8, 0.23),
-            (81.3, 15.7, 0.26)):
+# 南瓜田 9 颗 (v8.4: 东缘 x78 东侧带)
+for _pk in ((84.0, 44.0, 0.30), (85.4, 43.4, 0.22), (86.8, 44.6, 0.26), (83.6, 45.8, 0.19),
+            (85.2, 46.6, 0.24), (86.6, 47.4, 0.28), (84.2, 48.8, 0.20), (85.8, 49.6, 0.23),
+            (84.6, 51.2, 0.26)):
     _C.append({"x": _pk[0], "z": round(-_pk[1], 2), "r": round(_pk[2] * 0.9, 2)})
 coaster_colliders = {
     "version": 1,

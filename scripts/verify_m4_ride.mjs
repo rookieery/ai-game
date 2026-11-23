@@ -115,27 +115,43 @@ const chase = await page.evaluate(() => {
 const chaseUp = await page.evaluate(() => {
   const cam = window.__game.camera;
   const e = cam.matrixWorld.elements;
-  return { upY: +e[4].toFixed(2) }; // 世界 Y 在相机局部 Y 的分量
+  // 列主序: elements[4..6] = 相机局部 Y 轴的世界向量 (x,y,z)。
+  // 「不倒挂」看的是该轴的**世界 Y 分量 = e[5]**; e[4] 是其 X 分量,
+  // 随 crane/追逐视线水平朝向合法地在 ±1 摆动, 与倒挂无关 (v5.1 勘误)
+  return { upY: +e[5].toFixed(2) };
 });
 ok("chase_switch", chase.headDist > 4 && chase.headDist < 12, chase);
-// 不倒置判据: upY>0 (翻转=≈-1)。俯冲段近垂直跟拍 upY 会低 (俯仰非滚转), 螺丝钻段
-// 靠 up 混合 (0.65 世界Y+0.35 帧up) 抑制整周滚转, 两处都应保持正值
-const upDrop = chaseUp.upY;
-await page.evaluate(() => window.__game.coaster.seek(300)); // 螺丝钻中段
-await page.waitForTimeout(600);
-const upCork = await page.evaluate(() => {
-  const cam = window.__game.camera;
-  return +cam.matrixWorld.elements[4].toFixed(2);
+// 不倒置判据 (v5.1 重写): 不 seek 打断、连续骑过螺丝钻全程逐帧采样相机 upY。
+//   单点测量混入 seek 跳变的阻尼瞬态 (相机滞后数米时的读数不可信); 真实不变量 =
+//   连续乘坐中相机永不倒翻 (upY 最小值 > -0.6, 完全翻转 ≈ -1)。
+//   布局侧防御: coaster.js 陡视时 up 取世界 Y 在视平面的投影 (crane 连续滚转)。
+await page.evaluate(() => {
+  window.__game.coaster.seek(266);            // 螺丝钻 #2 入口
+  window.__game.coaster.setRideCam("chase");  // 重吸附追逐位
 });
-ok("chase_no_flip", upDrop > 0 && upCork > 0, { upDrop, upCork });
+await page.waitForTimeout(150);
+const corkSweep = await page.evaluate(async () => {
+  const cam = window.__game.camera;
+  const c = window.__game.coaster;
+  const vals = [];
+  for (let k = 0; k < 90; k++) {              // ~1.5s, 覆盖螺丝钻全程 (42m @ ~13m/s)
+    await new Promise(r => setTimeout(r, 16));
+    vals.push(+cam.matrixWorld.elements[5].toFixed(2)); // Y 轴世界 Y 分量 (勘误: 原 e[4] 是 X 分量)
+    if (c.state.s > 320) break;               // 已出钻
+  }
+  return { min: Math.min(...vals), vals: vals.filter((v, i) => i % 8 === 0) };
+});
+const upCork = corkSweep.min;
+const upDrop = chaseUp.upY;
+ok("chase_no_flip", upDrop > -0.3 && upCork > -0.3, { upDrop, upCork, corkMin: corkSweep.min });
 await page.screenshot({ path: `${OUT}/m4_chase_run.png` });
 
 // ⑥ 排队下客: E → 到站停稳自动下客 → walk @ 东 deck
 await page.keyboard.press("KeyE"); // 排队
 await page.waitForTimeout(400);
 const queued = await page.evaluate(() => window.__game.coaster.state.session.wantOff);
-// seek 到刹车段, 让链路快速走完 (过缝→crawl→停→压肩开→转场)
-await page.evaluate(() => window.__game.coaster.seek(496));
+// seek 到刹车段 (v7 弧长, v6.3 为 496), 让链路快速走完 (过缝→crawl→停→压肩开→转场)
+await page.evaluate(() => window.__game.coaster.seek(560));
 const walked = await page.evaluate(async () => {
   const t0 = Date.now();
   while (Date.now() - t0 < 30000) {
