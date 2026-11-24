@@ -59,8 +59,7 @@ await shot("04_silhouette_100m", 11.5, -137, 0, 0.25);
 await shot("05_loop_claws", 60, -85, -0.42, 0.35);
 // 6) 南瓜田+螺丝钻 (blender 72,13 -> app 72,-13 看北)
 await shot("06_pumpkin_field", 72, -13, -1.2, 0.15);
-// 7) 观景塔楼梯 (blender 88,101 -> app 88,-101 看西)
-await shot("07_tower_stairs", 88.5, -101, Math.PI / 2, 0.0);
+// (7) 旧版观景塔楼梯机位已删: 观景台 v15 整体移除, 眺望改由 model/lookout_tower 缠魂塔承担
 
 // 8) 列车运行: seek 到提升段中段 + 等车到回环
 report.run = await page.evaluate(async () => {

@@ -1379,45 +1379,15 @@ for _cx2 in (SX - 2.1, SX + 2.1):
                              Vector((0, 1, 0)), Vector((0, 0, 1)), (2.2, 0.10, 0.014))
         _yy += 1.1
 
-# --- A6 彩蛋: 俯冲谷观景台 (贴地俯冲扫出+东转90°北侧 (20,118); 台上看贴地飞行/东转/俯冲) ---
-_vx, _vy = 20.0, 118.0
-_A6_LX, _A6_LCY = _vx, _vy
-_A6_TOWER_BUILT = True
+# --- 回环簇心 (取证机位 NL_CamLoop 的对准点) ---
+# v15 (2026-11-24): 旧 A6「俯冲谷观景台」(20,118 的 7.2m 悬臂台 + 18 级楼梯) 已整体移除 ——
+#   眺望职能由独立资产 model/lookout_tower 缠魂塔 (40m, 落在地面灯环圆心 17.5,30.5) 取代。
 _li_loop = [i for i, r in enumerate(RS) if r[3] == "loop"]
 if _li_loop:
     _LOOP_C = Vector((sum(RS[i][0].x for i in _li_loop) / len(_li_loop),
                       sum(RS[i][0].y for i in _li_loop) / len(_li_loop), 0.0))
-else:
-    _LOOP_C = Vector((_A6_LX, _A6_LCY, 0.0))
-_tw = 1.6
-for _sx2 in (-1, 1):
-    for _sy2 in (-1.1, 1.1):
-        bags["column"].add_beam((_vx + _sx2 * 2.2, _vy + _sy2, 0),
-                                (_vx + _sx2 * 2.2, _vy + _sy2, 6.4), 0.13, 0.13)
-for _sy2 in (-1.1, 1.1):
-    bags["steel"].add_beam(Vector((_vx - 2.2, _vy + _sy2, 6.35)),
-                           Vector((_vx + 2.2, _vy + _sy2, 6.35)), 0.10, 0.12)
-bags["plattop"].add_box(Vector((_vx, _vy, 6.47)), Vector((1, 0, 0)), Vector((0, 1, 0)),
-                        Vector((0, 0, 1)), (_tw * 2 + 0.2, _tw * 2 + 0.2, 0.12))
-for _e0, _e1 in (((-_tw, -_tw), (_tw, -_tw)), ((_tw, -_tw), (_tw, _tw)),
-                 ((_tw, _tw), (-_tw, _tw)), ((-_tw, _tw), (-_tw, -_tw))):
-    _p0 = Vector((_vx + _e0[0], _vy + _e0[1], 0))
-    _p1 = Vector((_vx + _e1[0], _vy + _e1[1], 0))
-    _nl = (_p1 - _p0).length
-    _n2 = max(2, int(_nl / 1.6))
-    for _k3 in range(_n2 + 1):
-        _pp = _p0.lerp(_p1, _k3 / _n2)
-        bags["column"].add_beam((_pp.x, _pp.y, 6.53), (_pp.x, _pp.y, 7.6), 0.05, 0.05)
-    for _hz2 in (6.9, 7.45):
-        bags["steel"].add_beam(Vector((_p0.x, _p0.y, _hz2)), Vector((_p1.x, _p1.y, _hz2)), 0.045, 0.06)
-# 西侧楼梯 18 级 x0.40 (顶 7.2 ≈ 台面)
-for _k4 in range(18):
-    bags["plattop"].add_box(Vector((_vx - 5.86 + _k4 * 0.27, _vy, 0.20 * (_k4 + 1))),
-                            Vector((1, 0, 0)), Vector((0, 1, 0)), Vector((0, 0, 1)),
-                            (0.27, 1.10, 0.40 * (_k4 + 1)))
-bags["plattop"].add_box(Vector((_vx - 1.35, _vy, 7.22)), Vector((1, 0, 0)),
-                        Vector((0, 1, 0)), Vector((0, 0, 1)), (1.4, 1.30, 0.12))
-print(f"A6_DECK ({_vx:.1f},{_vy:.1f}) 俯冲谷观景台 z7.2")
+else:                                                # 无回环样本时退到轨道质心
+    _LOOP_C = Vector((sum(r[0].x for r in RS) / len(RS), sum(r[0].y for r in RS) / len(RS), 0.0))
 # 南瓜田一角 (v5.1: 双螺丝钻下方 x42.6-45.8 西侧带, 九颗发光南瓜; 心线绕轴摆幅 ±5.8, 地面净空 ~2.5m)
 for _pk in ((43.0, 62.0, 0.30), (44.4, 61.4, 0.22), (45.8, 62.6, 0.26), (42.6, 63.8, 0.19),
             (44.2, 64.6, 0.24), (45.6, 65.4, 0.28), (43.2, 66.8, 0.20), (44.8, 67.6, 0.23),
@@ -1938,9 +1908,9 @@ cam_top = add_cam("NL_CamTop", ((_xmin + _xmax) / 2, (_ymin + _ymax) / 2, 130),
 cam_three = add_cam("NL_CamThree", (118, -6, 46), ((_xmin + _xmax) / 2, (_ymin + _ymax) / 2, 8.0),
                     lens=30)   # v5.1: 三分之二点机位随新足迹包围盒
 cam_front = add_cam("NL_CamFront", (18, -34, 9), (14, 102, 20), lens=26)
-_loop_c = _LOOP_C if _LOOP_C else Vector((_A6_LX, _A6_LCY, 0.0))
+_loop_c = _LOOP_C
 cam_loop = add_cam("NL_CamLoop", (_loop_c.x + 23.4, _loop_c.y - 25.0, 12), (_loop_c.x, _loop_c.y, 8),
-                   lens=44)   # v5.1: 目标=新环心(骨爪/墓碑/观景台入画)
+                   lens=44)   # v5.1: 目标=新环心(骨爪/墓碑入画; v15 观景台已移除)
 cam_station = add_cam("NL_CamStation", (32, 34, 5.5), (18, 62, 4.5), lens=40)
 cam_queue = add_cam("NL_CamQueue", (2.0, 22.0, 24.0), (5.8, 37.0, 0.8), lens=45)   # A1 排队迷宫取证机位
 cam_south = add_cam("NL_CamSouth", (50.0, 30.0, 12.0), (42.0, 22.0, 1.0), lens=48)  # A6 南瓜田取证 (螺丝钻东侧)
@@ -1999,11 +1969,10 @@ fit_cam(cam_bogie, carpoint(5, 0.2, -0.6, -1.5),
 fit_cam(cam_queue, (5.8, 37.0, 0.8),
         [(3.2, 30.6, 0.0), (7.6, 30.6, 0.0), (3.2, 43.2, 0.0), (7.6, 43.2, 1.2),
          (7.5, 41.0, 1.2)])
-fit_cam(cam_loop, (_loop_c.x, _loop_c.y, 8),                         # v5.1: 回环簇取证(爪/碑/台全入画)
+fit_cam(cam_loop, (_loop_c.x, _loop_c.y, 8),                         # v5.1: 回环簇取证(爪/碑全入画)
         [(_loop_c.x - 10, _loop_c.y - 10.5, 0.5), (_loop_c.x + 10, _loop_c.y + 10.5, 0.5),
          (_loop_c.x, _loop_c.y, 23.5), (_loop_c.x - 10, _loop_c.y + 10.5, 1.0),
-         (_loop_c.x + 10, _loop_c.y - 10.5, 1.0), (_A6_LX - 1.6, _A6_LCY - 1.6, 7.5),
-         (_A6_LX + 1.6, _A6_LCY + 1.6, 7.5)])
+         (_loop_c.x + 10, _loop_c.y - 10.5, 1.0)])
 fit_cam(cam_station, (18, 62, 4.5),
         [(8.0, 44.0, 2.4), (15.0, 44.0, 2.4), (8.0, 66.0, 3.0), (15.0, 66.0, 3.0),
          (11.5, 67.2, 9.9)])
@@ -2172,13 +2141,7 @@ for _k in range(7):
     yc = 40.6 + (_k + 0.5) * _d7
     _S.append({"x": 9.4, "z": round(-yc, 2), "hw": 0.75, "hd": round(_d7 / 2 + 0.02, 3), "h": round(0.34 * (_k + 1), 2)})
     _S.append({"x": 13.6, "z": round(-yc, 2), "hw": 0.90, "hd": round(_d7 / 2 + 0.02, 3), "h": round(0.34 * (_k + 1), 2)})
-# 观景塔: 台面 + 搭板 + 18 级楼梯 (v6.3: 俯冲谷观景台 _A6_LX/_A6_LCY = (20,118))
-_S.append({"x": round(_A6_LX, 2), "z": round(-_A6_LCY, 2), "hw": 1.14, "hd": 1.14, "h": 7.28})
-_S.append({"x": round(_A6_LX + 1.35, 2), "z": round(-_A6_LCY, 2), "hw": 0.70, "hd": 0.65, "h": 7.28})
-for _k in range(18):
-    _S.append({"x": round(_A6_LX + 5.86 - _k * 0.27, 2), "z": round(-_A6_LCY, 2),
-               "hw": 0.135, "hd": 0.55, "h": round(0.40 * (_k + 1), 2)})
-# 柱位圆: 雨棚柱6 / 站牌龙门2 / 钟柱 / 出口牌2 / 塔柱4 / 统计牌2
+# 柱位圆: 雨棚柱6 / 站牌龙门2 / 钟柱 / 出口牌2 / 统计牌2
 for _cx2 in (7.5, 15.5):
     for _cy2 in (45.5, 55.0, 64.5):
         _C.append({"x": _cx2, "z": round(-_cy2, 2), "r": 0.15})
@@ -2187,10 +2150,6 @@ for _cx2 in (6.3, 16.7):
 _C.append({"x": 9.4, "z": -65.2, "r": 0.12})
 for _cx2 in (13.4, 14.1):
     _C.append({"x": _cx2, "z": -39.05, "r": 0.12})
-if _A6_TOWER_BUILT:
-    for _sx3 in (-1, 1):
-        for _sy3 in (-0.9, 0.9):
-            _C.append({"x": round(_A6_LX + _sx3 * 3.3, 2), "z": round(-(_A6_LCY + _sy3), 2), "r": 0.18})
 for _cy2 in (10.0, 12.0):
     _C.append({"x": 70.0, "z": round(-_cy2, 2), "r": 0.14})
 for _cx2 in (3.8, 7.2):
