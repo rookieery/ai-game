@@ -49,6 +49,7 @@ Vite + Three.js（用户确认）；3D 资产走 Blender 5.3（E:\blender）程�
 
 - 用户提供 3 张参考截图（某 threejs 万圣节游乐场的实拍：极光夜空、乘坐 HUD、舱内第一人称视角）——氛围与交互的标准，位于本会话上下文
 - model/ferris_wheel/：v1 摩天轮资产 + 4 张 Blender 预览图 + 旋转视频
+- model/lookout_tower/：缠魂塔 v3 眺望塔资产（2026-11-24，Blender 程序化；螺旋梯 + 升降梯，主平台 40m 全园制高点）+ 12 张预览 + 碰撞表离线校验；方向契约与评审记录在 .impeccable/，**尚未接入游戏**
 - 项目内无文案库、无 logo、无字体资产——后续不得虚构"已有品牌素材"
 
 ## Product Principles

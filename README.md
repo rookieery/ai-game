@@ -38,6 +38,7 @@ npm run dev          # http://127.0.0.1:8765
 ```
 ├─ model/                    # Blender 程序化资产源（source of truth）
 │  ├─ ferris_wheel/          # 摩天轮 v2（参数化脚本 + glb + 预览）
+│  ├─ lookout_tower/         # 缠魂塔眺望塔 v3（螺旋梯 + 升降梯，平台 40m；脚本 + glb + colliders_tower.json + 预览；游戏接入待做）
 │  └─ park_env/              # 园区环境（脚本 + glb + colliders.json + 预览）
 ├─ public/assets/models/     # 同步产物（npm run assets:sync 生成，不入库）
 ├─ src/
@@ -73,3 +74,4 @@ draw calls ~90/帧（预算 <300）、渲染三角面 ~16 万/帧、桌面 1080p
 - UI 设计系统：「降神之夜 The Séance」（DESIGN.md），impeccable 工作流产出并通过 finish review
 - 画面验证：`node scripts/screenshot.mjs shots/<名> game|states|spin`
 - 烟花音效验证：`node scripts/probe_fw_audio.mjs`（离线渲染出 before/after WAV 与客观指标）、`node scripts/verify_fw_audio.mjs`（游戏内端到端：触发点传参 / 设置项 / 录音分析）；参数表在 `src/core/fw_sound.js` 顶部，调参用试听页 `npm run dev` → `/prototype/fw_sound/`
+- 眺望塔资产验证：`node scripts/verify_tower_colliders.mjs`（碰撞表离线校验：走线 / 通道宽 / 栏杆漏点 / 可达性，31 项）；实机取证 `node scripts/verify_tower_shots.mjs`
