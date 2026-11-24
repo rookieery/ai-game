@@ -100,6 +100,12 @@ const wOut = walk(seq(0.0, 4.9, 0.1).map((r) => pol(270, r)), { lift: liftT, sta
 check("顶层: 轿厢中心走出到环廊", !wOut.stopped && wOut.feet === 40.0, wOut.stopped ? wOut.samples.at(-1).why : "");
 const wSill = walk(seq(0.0, 4.9, 0.1).map((r) => pol(270, r)), { lift: liftState(man.lift.zBottom), startFeet: 40.0 });
 check("顶层门槛: 轿厢不在顶层时不能跨出 (层门闭合)", wSill.stopped, wSill.stopped ? wSill.samples.at(-1).why : `feet=${R(wSill.feet)}`);
+// 轿厢行进中 (轿门全关): 泛洪不许漏出轿厢 —— 立梃之间是玻璃板, 碰撞盘必须连成墙
+const midY = +(man.lift.zBottom + 15).toFixed(4);
+const cabLeak = gridFlood([man.place.x, man.place.z, +(midY + man.lift.floorThk).toFixed(2)],
+  { lift: liftState(midY, { gateB: true, gateT: true, lgateB: true, lgateT: true }), step: 0.05, rMax: 2.2,
+    leak: (x, z) => Math.hypot(x - man.place.x, z - man.place.z) > man.lift.cabR + 0.01 });
+check("轿厢行进中 (轿门全关): 泛洪漏不出轿厢", cabLeak.leaks === 0, `${cabLeak.states} 态, 漏点 ${cabLeak.leaks}`);
 
 // ---------- 6. 地面层：第二入口 / 梯口来路 / 封闭开间 ----------
 const wWest = walk([...seq(7.0, 2.6, -0.1).map((r) => pol(180, r)), ...seq(178, 92, -2).map((a) => pol(a, 2.6)), ...seq(2.6, 0.0, -0.1).map((r) => pol(90, r))], { lift: liftB });

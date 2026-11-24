@@ -14,6 +14,8 @@ const MAP = [
   ["model/roller_coaster/roller_coaster_train.glb", "public/assets/models/roller_coaster_train.glb"],
   ["model/roller_coaster/centerline.json", "public/assets/models/roller_coaster_centerline.json"],
   ["model/roller_coaster/colliders_coaster.json", "public/assets/models/colliders_coaster.json"],
+  ["model/lookout_tower/lookout_tower.glb", "public/assets/models/lookout_tower.glb"],
+  ["model/lookout_tower/colliders_tower.json", "public/assets/models/colliders_tower.json"],
 ];
 
 for (const [src, dst] of MAP) {

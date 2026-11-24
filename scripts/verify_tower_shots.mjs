@@ -1,8 +1,9 @@
-// 缠魂塔 · 实机取证（只读, 不接入游戏）: 临时加载 lookout_tower.glb 摆到绿圈圆心, 按机位表批量截图
-// 用法: 先起 dev server, 再 GAME_URL=http://127.0.0.1:8765 node scripts/verify_tower_shots.mjs [输出目录] [F01,F02,...]
+// 缠魂塔 · 实机取证: 按机位表批量截图 (M5 起塔已接入游戏 —— 直接用 __game.tower, 不再临时加载 glb)
+// 用法: 先起 dev server, 再 GAME_URL=http://127.0.0.1:8767 node scripts/verify_tower_shots.mjs [输出目录] [F01,F02,...]
 //   默认输出 shots/tower/v3/E, 42 机位: 来路 F01-F13 / 门厅与梯口 F14-F18 / 梯上 F19-F24 / 环廊 F25-F34 /
 //   轿厢与栈桥 F35-F38 / 塔冠 F39-F40 / 仰视与俯视 F41-F42
-// 配套: scripts/tower_pixel_stats.mjs (过曝/近黑占比), scripts/verify_tower_colliders.mjs (碰撞表离线校验)
+// 配套: scripts/tower_pixel_stats.mjs (过曝/近黑占比), scripts/verify_tower_colliders.mjs (碰撞表离线校验),
+//       scripts/verify_tower_game.mjs (走线 / 升降梯 / 打卡 端到端断言)
 import { mkdirSync, readFileSync } from "node:fs";
 import { openGame } from "./lib_tower_shots.mjs";
 
@@ -65,12 +66,14 @@ const VIEWS = [
 
 const { browser, page, errors } = await openGame(OUT, { width: 1600, height: 900 });
 await page.addStyleTag({ content: "#hud, #hud *{visibility:hidden!important}" });
-await page.evaluate(async () => {
-  const { loadGLB } = await import("/src/park/loader.js");
-  const root = await loadGLB("/model/lookout_tower/lookout_tower.glb");
-  root.position.set(17.5, 0, -30.5);
-  window.__game.scene.add(root);
-  window.__tw = root;
+await page.evaluate(() => {
+  // 机位表里 39.92 之外的 liftY 都是「行进中」: 轿门关; 在站点 (0.06 / 39.92) 则门开。玩家挪到塔外, 免得挡机位或触发呼梯
+  window.__game.player.teleport(0, 60);
+  window.__setLift = (liftY) => {
+    const tw = window.__game.tower;
+    const atStation = liftY == null || Math.abs(liftY - 0.06) < 0.01 || Math.abs(liftY - 39.92) < 0.01;
+    tw.debugPlace(liftY ?? 0.06, atStation ? 1 : 0);
+  };
 });
 await page.evaluate(() => {
   const d = document.createElement("div");
@@ -86,7 +89,7 @@ for (const [id, title, p, t, fov, liftY] of VIEWS) {
   await page.evaluate(([p, t, fov, liftY, txt]) => {
     const g = window.__game;
     g.player.update = () => {};
-    if (window.__tw) window.__tw.getObjectByName("TW_Lift").position.y = liftY ?? 0.06;
+    if (window.__setLift) window.__setLift(liftY);
     const c = g.camera;
     c.fov = fov; c.updateProjectionMatrix();
     c.position.set(p[0], p[1], p[2]);

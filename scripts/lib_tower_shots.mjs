@@ -6,7 +6,8 @@ import { mkdirSync } from "node:fs";
 
 export const BASE_URL = process.env.GAME_URL ?? "http://127.0.0.1:8767";
 
-// 打开游戏并入园（等到 walk 态；显灵板淡出偶发首击未触发时补一次 DOM click）
+// 打开游戏并入园（等到 walk 态；首击偶发未触发时补一次 DOM click 兜底——
+// 历史原因: LoadingManager 串行加载时提前触发 onLoad, 按钮可点而入园回调未注册; main.js 已改为 boot 收尾后才就绪）
 export async function openGame(outDir, { width = 1920, height = 1080 } = {}) {
   mkdirSync(outDir, { recursive: true });
   const browser = await chromium.launch({ channel: "chrome" });

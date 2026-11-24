@@ -1,9 +1,9 @@
-// 交互系统：距离检测 -> 灵摆提示 -> E 触发（登舱 / 上马 / 打卡收集）+ F 烟花发射器
+// 交互系统：距离检测 -> 灵摆提示 -> E 触发（登舱 / 上马 / 打卡收集 / 缠魂塔升降梯）+ F 烟花发射器
 import { KIND_NAME } from "./fx/fireworks.js";
 
 export function createInteract({
   input, player, park, hud, getState, onBoard, onBoardCarousel, onCollect, audio, fireworks,
-  coaster, coasterGate, onOpenGate, onBoardCoaster,
+  coaster, coasterGate, onOpenGate, onBoardCoaster, tower,
 }) {
   const boarding = park?.boarding ?? { x: 0, z: 16.4 };
   // 显灵木马平台 (45,-18) r8.0: 台面上 (y≈0.62) 靠近中柱侧 r<7.6 出提示
@@ -75,6 +75,13 @@ export function createInteract({
         hud.showPrompt("排队请走迷宫入口 · 沿光带护栏向西南", "↙");
         return;
       }
+      // M5 缠魂塔升降梯: 轿厢内按 E 升降 (E 动作); 停靠点旁只出指引 (键帽用 ↑↓ 箭头, 同走廊指路口径)
+      const tw = tower?.getPrompt?.(p);
+      if (tw) {
+        hud.showPrompt(tw.label, tw.key ?? "E");
+        if (tw.run) active = { run: tw.run };
+        return;
+      }
       // 登舱锚点二选一：地面登舱点；或站台停靠舱旁（脚高 > 1.4 ⇒ 在站台上，
       // 舱位吸附在轮面最低点 = 世界原点附近，锚点取停靠舱侧后 1.6m）
       const onPlat = p.y > 1.4;
@@ -93,6 +100,7 @@ export function createInteract({
       } else {
         for (const poi of pois) {
           if (collected.has(poi.label)) continue;
+          if (poi.y !== undefined && Math.abs(p.y - poi.y) > 2.5) continue; // 塔顶打卡点: 人得在那一层
           if (dist2(p.x, p.z, poi.x, poi.z) < 2.2) {
             active = { run: () => collect(poi) };
             label = `收集南瓜灯（${collected.size + 1}/${pois.length}）`;

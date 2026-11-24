@@ -29,6 +29,12 @@ export const SETTINGS_GROUPS = [
     ],
   },
   {
+    name: "缠魂塔",
+    items: [
+      { key: "towerDecoLight", label: "装饰灯亮度", min: 0, max: 200, step: 5, def: 100, fmt: pct }, // 橙色缠带/扶手/关节灯/灯室/招牌/轿厢灯/呼梯灯
+    ],
+  },
+  {
     name: "园区",
     items: [
       { key: "bgmOn", label: "背景音乐", type: "switch", def: true, fmt: (v) => (v ? "开" : "关") }, // 八音盒 BGM 总闸 (环境风/乘坐嗡鸣/风铃不受控)

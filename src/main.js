@@ -10,6 +10,7 @@ import { createFerrisWheel } from "./rides/ferris.js";
 import { createCarousel } from "./rides/carousel.js";
 import { createCoaster } from "./rides/coaster.js";
 import { createCoasterGate } from "./rides/coasterGate.js";
+import { createTower } from "./rides/tower.js";
 import { createPostFX } from "./fx/postfx.js";
 import { createMist } from "./fx/mist.js";
 import { createFireworks } from "./fx/fireworks.js";
@@ -40,6 +41,7 @@ let ferris = null;
 let carousel = null;
 let coaster = null;
 let coasterGate = null;
+let tower = null;
 let interact = null;
 let wind = null;
 let entered = false;
@@ -64,6 +66,7 @@ function applyAllSettings() {
   if (ferris) ferris.applySettings(settings.values);
   if (carousel) carousel.applySettings(settings.values);
   if (coaster) coaster.applySettings(settings.values);
+  if (tower) tower.applySettings(settings.values); // 缠魂塔装饰灯 (含呼梯灯)
   if (wind) wind.applySettings(settings.values); // 风摆强度 + 南瓜灯亮度联动
   audio.setBGM(settings.values.bgmOn !== false); // 背景音乐开关 (音频未启动时只记意图)
   audio.setFireworks(settings.values); // 烟花音量 / 声延迟 / 升空哨音响量 / 裂响亮度 / 碎裂 (音频未启动时只记意图)
@@ -71,9 +74,15 @@ function applyAllSettings() {
 applyAllSettings(); // 恢复持久化配置（含舱内灯光默认 40%）
 settings.onChange(applyAllSettings);
 
+// 「就绪」= 加载管理器的资源全部到位 且 boot() 收尾完毕（交互 / 键盘回调都已注册），两个条件都满足才放开入园按钮。
+// LoadingManager 在「已加载数 == 已登记数」时触发 onLoad —— boot 里资源是逐个 await 串行加载的，第一个 glb 下完的
+// 那一刻两个数恰好相等，onLoad 会提前约 1.5s 触发：按钮可点而入园回调还没注册，点了没反应（自动取证首击必空）。
+// 同理不用它的进度（第一个文件下完就是 100%，进度条会先冲顶再掉回），加载进度只认 boot 里各阶段的手动刻度。
+let assetsLoaded = false;
+let bootDone = false;
+const tryReady = () => { if (assetsLoaded && bootDone) hud.setReady(); };
 const manager = createLoadingManager({
-  onProgress: (p) => hud.setLoadingProgress(p),
-  onLoad: () => hud.setReady(),
+  onLoad: () => { assetsLoaded = true; tryReady(); },
 });
 
 const updates = [world, mist, fireworks, wisps];
@@ -107,6 +116,20 @@ async function boot() {
   park.rects.push({ x: 13.6, z: -40.45, hw: 0.85, hd: 0.12, blockFrom: "z+" });
   // ③ 站台内缘防坠墙 x2: 堵双 deck 间轨道凹坑 (已核对不挡双槽动线与登车交互半径)
   park.rects.push({ x: 10.75, z: -55, hw: 0.12, hd: 11.2 }, { x: 12.25, z: -55, hw: 0.12, hd: 11.2 });
+
+  // 缠魂塔碰撞表 (M5): 须在 createPlayer 拷贝碰撞表之前并入 park ——
+  //   floors = 叠层地面(螺旋梯/环廊/栈桥, controller 塔语义接管) / circles = 带高度带 y0,y1 的圆 /
+  //   lift = 升降梯动态项 (rides/tower.js 每帧驱动) / pois = 带高度 y 的打卡点
+  try {
+    const tc = await (await fetch("/assets/models/colliders_tower.json")).json();
+    park.floors = tc.floors ?? [];
+    park.circles = [...(park?.circles ?? []), ...(tc.circles ?? [])];
+    park.lift = tc.lift;
+    park.pois = [...(park?.pois ?? []), ...(tc.pois ?? [])];
+    park.tower = tc;
+  } catch {
+    console.warn("[park] colliders_tower.json 加载失败, 缠魂塔无碰撞且升降梯停摆");
+  }
 
   player = createPlayer(camera, input, park);
   player.applySettings(settings.values); // 恢复持久化步速（applyAllSettings 初次执行时 player 尚未创建）
@@ -152,12 +175,19 @@ async function boot() {
   });
   updates.push(coasterGate);
 
+  // 缠魂塔 (M5): 资产 + 升降梯 + 塔冠动效; 碰撞表已在上方并入 park。
+  // 更新序须排在玩家之前 (轿厢地面高度 / 轿壁高度带每帧先写, 控制器后读)
+  hud.setLoadingProgress(0.95); // 缠魂
+  tower = await createTower(scene, manager, { park, player, hud, audio });
+  tower.applySettings(settings.values);
+  updates.push(tower);
+
   // 交互
   let camMode = "pov"; // M4 过山车乘坐视角: pov | chase
   interact = createInteract({
     input, hud, audio,
     player, park, fireworks,
-    coaster, coasterGate,
+    coaster, coasterGate, tower,
     getState: () => game.state,
     onOpenGate() {
       if (game.state !== "walk") return;
@@ -300,8 +330,12 @@ async function boot() {
   // 玩家每帧：园区行走或舱内走动（舱内相机由玩家控制器挂舱，ferris.update 先行）
   updates.push({
     update(dt) {
-      // 站台安全联锁：站在登舱站台（脚高 > 1.4）时轮体缓停吸附舱位
-      ferris.setHold(game.state === "walk" && player.pos.y > 1.4);
+      // 站台安全联锁：站在摩天轮登舱站台（台面 1.55, 半径 9）时轮体缓停吸附舱位。
+      // 只看高度会误伤：站上缠魂塔 / 过山车站台都会把轮刹停，所以同时限定到站台圆内
+      ferris.setHold(
+        game.state === "walk" && player.pos.y > 1.4 && player.pos.y < 2.2 &&
+        Math.hypot(player.pos.x, player.pos.z) < 9.8,
+      );
       // M4 过山车站台联锁: walk 态站上站台时列车保持停靠 (乘坐中 state≠walk 自然放行)
       coaster.setHold(
         game.state === "walk" && player.pos.y > 2.0 &&
@@ -316,7 +350,12 @@ async function boot() {
 }
 
 boot().then(() => {
-  // 资产就绪后由 LoadingManager 触发 onLoad -> setReady
+  bootDone = true;
+  tryReady(); // 与 LoadingManager 的 onLoad 汇合后才 setReady（见上方 tryReady 注释）
+}).catch((err) => {
+  console.error("[boot] 启动中断", err);
+  bootDone = true;
+  tryReady();
 });
 
 // ---------- 主循环 ----------
@@ -339,6 +378,7 @@ window.__game = {
   get carousel() { return carousel; },
   get coaster() { return coaster; },
   get coasterGate() { return coasterGate; },
+  get tower() { return tower; },
   get interact() { return interact; },
   get audio() { return audio; },
   get fireworks() { return fireworks; },

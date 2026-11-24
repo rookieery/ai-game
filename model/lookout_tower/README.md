@@ -1,13 +1,13 @@
 # 缠魂塔 SOUL SPIRE
 
 幽夜游乐场 · 眺望塔资产：铁艺桁架笼架 + 外露螺旋梯 + 升降梯，主平台 40m，全园制高点（过山车最高点 25.3m，摩天轮顶 36.25m）。
-原点建模，游戏落位 app (17.5, 0, -30.5) = 过山车「地面灯环」圆心；它将取代 roller_coaster.py 里的旧版 A6「俯冲谷观景台」。
+原点建模，游戏落位 app (17.5, 0, -30.5) = 过山车「地面灯环」圆心；已取代 roller_coaster.py 里的旧版 A6「俯冲谷观景台」（v15 移除）。
 
 ## 重建
 
 ```bash
 /e/blender/blender.exe --background --python model/lookout_tower/lookout_tower.py   # 约 8 秒
-node scripts/verify_tower_colliders.mjs      # 碰撞表离线校验 31 项，任一 FAIL 则 exit 1
+node scripts/verify_tower_colliders.mjs      # 碰撞表离线校验 32 项，任一 FAIL 则 exit 1
 ```
 
 产出：`lookout_tower.blend` / `lookout_tower.glb`（约 11.8 万三角面，材质与节点 `TW_` 前缀）/
@@ -15,8 +15,9 @@ node scripts/verify_tower_colliders.mjs      # 碰撞表离线校验 31 项，�
 
 - 脚本顶部 params 段是全部尺寸的唯一来源；.blend 只是产物，手改会被重跑覆盖
 - .blend 内另有 `README_缠魂塔` 文本块和 14 个 `TW_Cam*` 机位；`REF` 集合（地面灯环、相机、灯光）不导出
-- 实机取证（不入库）：起 dev server 后 `GAME_URL=http://127.0.0.1:8765 node scripts/verify_tower_shots.mjs shots/tower/v3/E`
-  （临时加载 glb 摆到塔位，42 机位），配 `node scripts/tower_pixel_stats.mjs <目录>` 看过曝 / 近黑占比
+- 实机取证（不入库）：起 dev server 后 `GAME_URL=http://127.0.0.1:8767 node scripts/verify_tower_shots.mjs shots/tower/v3/E`
+  （42 机位，塔已在游戏里）；`GAME_URL=… node scripts/verify_tower_game.mjs` 是走线 / 升降梯 / 打卡的端到端断言，
+  配 `node scripts/tower_pixel_stats.mjs <目录>` 看过曝 / 近黑占比
 
 ## 设计参数（用户 2026-11-24 拍板）
 
@@ -62,7 +63,29 @@ node scripts/verify_tower_colliders.mjs      # 碰撞表离线校验 31 项，�
 - `TW_FlameAnchor`：灯室鬼火锚点；`TW_CrowPivot`：乌鸦风向标转轴（绕竖轴慢转）
 - 材质 `TW_` 自发光件随设置面板联动；玻璃 `TW_Glass` / `TW_CabGlass` 为 alpha BLEND
 
-## 游戏接入（待做）
+## 游戏接入（M5，2026-11-24 完成）
 
-控制器叠层地面语义、升降梯逻辑（自动呼梯 / 进厢按 E / 层门联动）、`sync-assets.mjs` 与 main.js 接线、
-设置项、塔顶打卡点、移除旧 A6 观景台。注意 `ferris.setHold` 目前只看玩家高度，玩家站上塔会让摩天轮刹停，接入时需限定到登舱站台范围。
+| 位置 | 内容 |
+|---|---|
+| `scripts/sync-assets.mjs` | glb + `colliders_tower.json` 同步进 `public/assets/models/` |
+| `src/main.js` | `createPlayer` 之前把碰撞表并入 `park`（`floors` / 带 `y0,y1` 的 `circles` / `lift` / `pois`）；创建 `rides/tower.js`，更新序排在玩家之前；摩天轮联锁 `ferris.setHold` 同时限定到登舱站台圆内（原先只看脚高，站上塔会把轮刹停） |
+| `src/player/controller.js` | 叠层地面语义（`towerGround` / `supportAt` / `canStand`）、圆的高度带、`registerFloors`；轿厢地面 sticky 跟随（低帧率下行也不脱开）；`setJumpLock`（轿厢内禁跳）；取证钩子 `teleport(x,z,y)` / `airborne()` |
+| `src/rides/tower.js` | 升降梯状态机 `dwell → closing → moving → opening`、呼梯灯、乘坐嗡鸣 + 铭牌、乌鸦风向标、灯室鬼火、装饰灯档位 |
+| `src/interact.js` | 升降梯提示（轿厢内 = E 动作；站旁 = ↑↓ 箭头指引）；打卡点按 `poi.y` 比高度 |
+| `src/core/config.js` | 设置组「缠魂塔 · 装饰灯亮度」`towerDecoLight` |
+
+升降梯行为：
+
+- **自动呼梯**：人走进停靠点范围就把轿厢召来——底层是南门前的扇区（门方位 ±28°、r < 5.6m，即门厅 + 门廊），顶层是栈桥上的圆（半径 2.4m）。
+  范围形状是定死的：螺旋梯最下面几级离底层停站点只有 1.8m，底层用圆形范围的话上下楼梯都会把轿厢叫走（「爬上去、坐梯下来」刚上梯就把轿厢叫下去）；
+  塔顶南瓜灯离停站点 5.1m，顶层半径再大会让呼梯提示盖掉打卡提示
+- **乘坐**：轿厢内按 `E` → 先关轿门、后关层门 → 梯形速度曲线（峰速 4.5m/s，全程约 12s）→ 到站先开层门、后开轿门
+- **防挟**：门洞里有人（碰撞圆碰到门洞碰撞盘 + 0.12m 余量）门不关；挡 3s 放弃本次运行并重新开门
+- **碰撞**：玩家全程是园区步行模式——轿厢地面是 sticky 叠层地面，控制器贴地分支逐帧跟随；轿壁 / 轿门高度带随轿厢平移，层门在轿厢不在该站时闭合
+- **呼梯灯**：绿 = 轿厢在本站，琥珀闪 = 正在赶来，红 = 不在本站
+
+打卡点 `pumpkin_tower` 在环廊 162°，全园南瓜灯 10 → 11 盏。旧 A6「俯冲谷观景台」已从 `roller_coaster.py` 移除（v15）。
+
+验证：`node scripts/verify_tower_colliders.mjs`（离线 32 项）→ 起 dev server 后 `GAME_URL=http://127.0.0.1:8767 node scripts/verify_tower_game.mjs`
+（实机端到端：出生点真键步行进轿厢 / 乘梯上下 / 门洞防挟 / 真键走螺旋梯上下 / 塔顶打卡 / 两层自动呼梯 / 设置联动 / 联锁回归）。
+改碰撞表、控制器塔语义或升降梯逻辑后两者都要重跑；`scripts/lib_tower_sim.mjs`（离线）与 `controller.js`（在线）的塔语义须保持一致。

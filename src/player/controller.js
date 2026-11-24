@@ -3,6 +3,8 @@
 //   园区模式 —— 世界坐标行走，2.5D 解析垂直运动（无物理引擎）：
 //               圆碰撞表（colliders.json + 站台护栏）+ 顶面平台（圆 h / 台阶矩形），
 //               台阶 ≤0.30 直接迈上，更高的顶面（长椅/干草/木桶/站台…）空格跳上
+//               + 眺望塔叠层地面（colliders_tower.json floors：螺旋梯/环廊/栈桥/轿厢，
+//               只取「<= 脚底+步高」的最高块为支撑，xz 重叠的上下几圈互不干扰）
 //   舱内模式 —— 摩天轮舱本地坐标行走，解析碰撞（外墙/长椅/中柱），
 //               C 键坐/站切换；相机 = 舱世界位姿 × 本地偏移（净高不足, 禁跳）
 import * as THREE from "three";
@@ -100,9 +102,20 @@ export function createPlayer(camera, input, park) {
   for (let k = 0; k < 8; k++) {
     stepRects.push({ x: 0, z: 9.45 + k * 0.9, hw: 2.2, hd: 0.45, h: 1.55 - (k + 1) * 0.194 });
   }
-  // 过山车台阶顶面 (M3: colliders_coaster.json steps — 站台双 deck / 双槽 7 级 / 观景塔 18 级)
+  // 过山车台阶顶面 (M3: colliders_coaster.json steps — 站台双 deck / 双槽 7 级)
   for (const s of park?.steps ?? []) stepRects.push(s);
   const rects = [...stallRects, ...stepRects];
+
+  // 眺望塔叠层地面（M5: colliders_tower.json floors —— 螺旋梯 / 环廊 / 栈桥 / 轿厢地面）
+  // 与上面的「最高顶面获胜」不同：落点处只取「<= 脚底 + 步高」的最高一块为支撑；
+  // 高出不足一人高的地面当墙（挡向），更高的可以从下方走过。
+  // 螺旋梯上下几圈在 xz 上重叠，旧语义会把上一圈当成墙，所以塔必须走这套。
+  //   形状: helix（逐级踏面高 h[k]）/ sector（扇环）/ rect / circle
+  //   sticky: 轿厢地面 —— 脚底贴着它就跟随升降，永不当墙
+  // 离线参考实现见 scripts/lib_tower_sim.mjs，两处语义须一致
+  const floors = [...(park?.floors ?? [])];
+  const CLEAR = 1.8;      // 头顶净空：地面高出脚底 (STEP, CLEAR] 即为墙
+  const STICKY = 0.6;     // sticky 地面的跟随带
 
   // ---------- 舱内模式状态 ----------
   const cabin = {
@@ -306,9 +319,9 @@ export function createPlayer(camera, input, park) {
     if (grounded) {
       if (moving) tryMove(pos.x + dx * dt, pos.z + dz * dt);
       coyoteT = COYOTE;
-      const g = groundAt(pos.x, pos.z);
-      if (g < pos.y - STEP) {
-        grounded = false;  // 走出台缘：不瞬移贴地, 转入下落
+      const g = supportAt(pos.x, pos.z, pos.y, pos.y + STEP);
+      if (g < pos.y - STEP && !onSticky(pos.x, pos.z, pos.y)) {
+        grounded = false;  // 走出台缘：不瞬移贴地, 转入下落（轿厢下行除外：贴着轿厢地面就跟着走）
         vy = 0;
       } else {
         pos.y = g;         // 台阶吸附（≤一步上吸 / 下行顺台阶走下）
@@ -322,7 +335,7 @@ export function createPlayer(camera, input, park) {
         if (moving) tryMove(pos.x + dx * h, pos.z + dz * h);
         vy -= GRAV * h;
         pos.y += vy * h;
-        const g = groundAt(pos.x, pos.z);
+        const g = supportAt(pos.x, pos.z, pos.y, pos.y + 0.01); // 腾空：只认不高于脚底的叠层地面
         if (pos.y <= g) {
           pos.y = g;
           landDip = Math.min(0.16, Math.max(0.04, -vy * 0.022)); // 落地下沉 ∝ 坠速
@@ -346,9 +359,10 @@ export function createPlayer(camera, input, park) {
     camera.position.set(pos.x, EYE + pos.y + Math.sin(bobT) * 0.035 - landDip, pos.z);
   }
 
-  // 空格：跳跃（仅园区模式；舱内净高 1.62 禁跳）
+  // 空格：跳跃（仅园区模式；舱内净高 1.62 禁跳；设施可经 setJumpLock 就地禁跳，如塔的轿厢）
+  let jumpLock = false;
   input.onPress("Space", () => {
-    if (cabin.active) return;
+    if (cabin.active || jumpLock) return;
     jumpBufT = BUFFER;
   });
 
@@ -373,10 +387,83 @@ export function createPlayer(camera, input, park) {
     return g;
   }
 
+  // 叠层地面 f 在落点 (x,z) 的全部高度候选（螺旋梯一圈一块，共几圈就几个；其余形状 0 或 1 个）
+  const _hs = [];
+  function pushFloorHeights(f, x, z, out) {
+    if (f.shape === "helix") {
+      const dx = x - f.x, dz = z - f.z;
+      const r = Math.hypot(dx, dz);
+      if (r < f.r0 - GRACE || r > f.r1 + GRACE) return;
+      const da = f.da * f.dir;                      // 每级方位增量（带符号，弧度）
+      const per = (Math.PI * 2) / Math.abs(da);     // 每圈级数
+      let u = (Math.atan2(dz, dx) - f.a0) / da;     // 自梯口走过的级数（可为负）
+      u = ((((u / per) + 1e-9) % 1) + 1) % 1 * per; // 折到本圈 [0, per)
+      for (let n = 0; u + n * per < f.n; n++) {
+        const k = Math.floor(u + n * per);
+        if (k < 0 || k >= f.n) break;
+        out.push(f.h ? f.h[k] : f.rise * (k + 1));
+      }
+    } else if (f.shape === "sector") {
+      const dx = x - f.x, dz = z - f.z;
+      const r = Math.hypot(dx, dz);
+      if (r < f.r0 - GRACE || r > f.r1 + GRACE) return;
+      if (f.a1 - f.a0 < Math.PI * 2 - 1e-9) {
+        const a = ((Math.atan2(dz, dx) % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+        const a0 = ((f.a0 % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+        const a1 = a0 + (f.a1 - f.a0);
+        if (!(a >= a0 - 1e-9 && a <= a1 + 1e-9) && !(a + Math.PI * 2 >= a0 - 1e-9 && a + Math.PI * 2 <= a1 + 1e-9)) return;
+      }
+      out.push(f.h);
+    } else if (f.shape === "rect") {
+      if (Math.abs(x - f.x) <= f.hw + GRACE && Math.abs(z - f.z) <= f.hd + GRACE) out.push(f.h);
+    } else if (f.shape === "circle") {
+      if (Math.hypot(x - f.x, z - f.z) <= f.r + GRACE) out.push(f.h);
+    }
+  }
+
+  // 塔叠层地面判定：{ g: 支撑高度, wall: 是否撞上「高出脚底一步、又不足一人高」的地面 }
+  //   limit = 支撑上限（贴地 = 脚底 + STEP；腾空 = 脚底 + 0.01）
+  function towerGround(x, z, feet, limit) {
+    let g = 0;
+    let wall = false;
+    for (const f of floors) {
+      _hs.length = 0;
+      pushFloorHeights(f, x, z, _hs);
+      for (const h of _hs) {
+        if (h <= limit || (f.sticky && Math.abs(feet - h) <= STICKY)) {
+          if (h > g) g = h;
+        } else if (!f.sticky && h <= feet + CLEAR) {
+          wall = true;   // 迈不上去、又钻不过去 → 挡住
+        }
+      }
+    }
+    return wall ? -1 : g;   // -1 = 墙
+  }
+
+  // 脚底是否贴着某块 sticky 地面（升降梯轿厢地面）。低帧率下一帧可降 0.45m（> STEP），
+  // 不判这一条就会每帧「走出台缘 → 下落 → 落回轿厢」地抖
+  function onSticky(x, z, feet) {
+    for (const f of floors) {
+      if (!f.sticky) continue;
+      _hs.length = 0;
+      pushFloorHeights(f, x, z, _hs);
+      for (const h of _hs) if (Math.abs(feet - h) <= STICKY) return true;
+    }
+    return false;
+  }
+
+  // 综合支撑面：旧平台（最高顶面）与塔叠层地面取高
+  function supportAt(x, z, feet, limit) {
+    const t = towerGround(x, z, feet, limit);
+    const g = groundAt(x, z);
+    return t > g ? t : g;   // t = -1（墙）时取旧平台的值，由 canStand 另行挡向
+  }
+
   // 目标点是否可站：平台顶面不得高出「脚部 + 一步」（贴地）；
-  // 空中改为不高于脚部（防低空侧穿平台壁，从上方越过不受限）
+  // 空中改为不高于脚部（防低空侧穿平台壁，从上方越过不受限）；塔叠层地面不得构成墙
   function canStand(x, z) {
-    return groundAt(x, z) <= pos.y + (grounded ? STEP : 0.01);
+    const limit = pos.y + (grounded ? STEP : 0.01);
+    return groundAt(x, z) <= limit && towerGround(x, z, pos.y, limit) >= 0;
   }
 
   // 静止推挤：动态圆（旋转设施的骑乘位/铜杆）经过静止玩家时也要推开,
@@ -387,6 +474,7 @@ export function createPlayer(camera, input, park) {
     for (let it = 0; it < 2; it++) {
       for (const c of circles) {
         if (c.h !== undefined && pos.y >= c.h - STEP) continue;
+        if (c.y0 !== undefined && (pos.y < c.y0 || pos.y > c.y1)) continue;
         const dx = nx - c.x;
         const dz = nz - c.z;
         const d = Math.hypot(dx, dz);
@@ -419,6 +507,7 @@ export function createPlayer(camera, input, park) {
       for (const c of circles) {
         // 顶面在脚部一步范围内或以下的圆不再推挤 —— 可直接迈上/跳上它的顶
         if (c.h !== undefined && pos.y >= c.h - STEP) continue;
+        if (c.y0 !== undefined && (pos.y < c.y0 || pos.y > c.y1)) continue; // 高度带外（塔栏杆立柱/笼柱/轿壁）
         const dx = nx - c.x;
         const dz = nz - c.z;
         const d = Math.hypot(dx, dz);
@@ -534,18 +623,26 @@ export function createPlayer(camera, input, park) {
         ? { x: cabin.local.x, z: cabin.local.y, seated: cabin.seated }
         : null;
     },
-    teleport(x, z) {
+    // 可选 y：落到高处叠层地面（塔的环廊/轿厢）必须给脚高 —— 贴地分支只认「<= 脚底 + 步高」的地面，
+    // 从 0 传送到 40m 平台上不会上吸，只会落在塔底的地面
+    teleport(x, z, y = 0) {
       pos.x = x;
       pos.z = z;
-      pos.y = 0;
+      pos.y = y;
       vy = 0;
       grounded = true;
       landDip = 0;
     },
+    setJumpLock(v) { jumpLock = !!v; },
+    airborne: () => !grounded, // 只读取证钩子：走线断言用（沿梯行走应全程贴地）
     // 动态碰撞注册（旋转设施用）：圆对象引用就地注册, 设施每帧改写 x/z
     // 即可实现移动阻挡（碰撞循环每帧实时遍历 circles, 无需其他接入）
     registerCircles(list) {
       for (const c of list) circles.push(c);
+    },
+    // 眺望塔叠层地面注册（升降梯轿厢地面用）：对象引用入表，设施每帧改写 h 即生效
+    registerFloors(list) {
+      for (const f of list) floors.push(f);
     },
     // M4: 按 tag 开关实心矩形（闸机开闸禁用闸线碰撞）。
     // 内部 rects 是 park.rects 的 spread 拷贝表, 外部改原对象无效, 必须走此 API

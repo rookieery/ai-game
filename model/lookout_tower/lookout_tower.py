@@ -59,7 +59,7 @@ LINT_B = 2.55                        # 底门楣高
 CAGE_Z0, CAGE_TOP = 0.10, 42.5
 LINT_T = CAGE_TOP - 0.20             # 顶门楣高 42.3
 CORE_R, CORE_BARS = 1.62, 24         # 核心笼
-LGT_R = CORE_R + 0.07                # 层门滑轨半径
+LGT_R = CORE_R + 0.11                # 层门滑轨半径 (滑开时贴着笼柱外侧走过, 不穿插)
 
 ST_IN, ST_OUT = 1.72, 3.36           # 螺旋梯内外半径
 RIB_R0, RIB_R1 = 3.36, 3.42          # 缠带 (踏步外缘弦带, 发光)
@@ -697,6 +697,7 @@ def gate_bags(ad, rr, half, hgt, nbar=6):
 
 
 CR = CAB_R - 0.03
+CGT_R = CR - 0.07                     # 轿厢滑门半径 (滑开时在玻璃板与立梃内侧走过)
 lift_root = bpy.data.objects.new("TW_Lift", None)
 lift_root.empty_display_size = 1.5
 lift_root.location = (0.0, 0.0, CAB_ZB)
@@ -708,15 +709,15 @@ frustum(CB["iron"], 0.0, CAB_R, CAB_FLOOR, CAB_R, n=32, cap0=True, cap1=True)   
 frustum(CB["iron"], CAB_H - 0.07, CAB_R, CAB_H, CAB_R, n=32, cap0=True, cap1=True)       # 轿顶
 frustum(CB["lamp"], CAB_H - 0.09, 0.36, CAB_H - 0.07, 0.36, n=16, cap0=True)             # 顶灯 (朝下)
 CAB_POSTS = sorted({(d + o) % 360.0 for d in (DOOR_B, DOOR_T) for o in (-90.0, -30.0, 30.0, 90.0)})
-CAB_HINGE = {}
+CAB_BAYS = [(CAB_POSTS[i], CAB_POSTS[(i + 1) % len(CAB_POSTS)] + (360.0 if i == len(CAB_POSTS) - 1 else 0.0))
+            for i in range(len(CAB_POSTS))]                # 相邻立梃之间的 6 个隔间 (含 2 个门洞)
 for a in CAB_POSTS:                                                                     # 6 立梃
     tube(CB["brass"], [pol(a, CR, CAB_FLOOR), pol(a, CR, CAB_H - 0.07)], 0.04, sides=6)
 for z, rr in ((CAB_FLOOR + 0.05, 0.035), (CAB_H - 0.13, 0.035)):                          # 底圈/顶圈
     tube(CB["brass"], circle(CR, z, 48), rr, sides=6)
 tube(CB["brass"], circle(CR, 1.05, 48), 0.028, sides=6)                                 # 玻璃上槛
 tube(CB["brass"], circle(CAB_R - 0.14, 1.00, 48), 0.022, sides=6)                        # 轿内扶手圈
-for i in range(len(CAB_POSTS)):
-    a1, a2 = CAB_POSTS[i], CAB_POSTS[(i + 1) % len(CAB_POSTS)] + (360.0 if i == len(CAB_POSTS) - 1 else 0.0)
+for (a1, a2) in CAB_BAYS:
     ac = 0.5 * (a1 + a2)
     if abs(ang_diff(ac, DOOR_B)) < 1.0 or abs(ang_diff(ac, DOOR_T)) < 1.0:
         continue                                                                       # 门洞
@@ -736,9 +737,9 @@ for gname, gad in (("B", DOOR_B), ("T", DOOR_T)):
     ge = bpy.data.objects.new(f"TW_Gate{gname}", None)
     ge.empty_display_size = 0.4
     ge.parent = lift_root
-    ge.location = pol(gad, CR, 0.0)
+    ge.location = pol(gad, CGT_R, 0.0)
     col_lift.objects.link(ge)
-    GATES[gname] = (ge, gate_bags(gad, CR, CAB_DOOR_HALF - 3.0, CAB_H))
+    GATES[gname] = (ge, gate_bags(gad, CGT_R, CAB_DOOR_HALF - 3.0, CAB_H))
 
 # ================================ 站层门 (节点 TW_LGateB/T, 常闭) ================================
 LGATES = {}
@@ -1599,8 +1600,11 @@ lift = {
     "floor": {"shape": "circle", "x": SX, "z": -SY, "r": CAB_R, "h": round(CAB_ZB + CAB_FLOOR, 4)},
     "wallBand": [WALL_Y0 - CAB_ZB, WALL_Y1 - CAB_ZB],            # 相对轿底 z
     "openBand": OPEN_BAND,
+    # 轿壁盘: 6 立梃 + 4 块玻璃板的中点 (相邻盘圆心距 0.64m < 推挤半径和 0.86m, 立梃之间才封得住)
     "walls": [circ(*pol(a, CR)[:2], 0.05, WALL_Y0, WALL_Y1) for a in CAB_POSTS
-              if abs(ang_diff(a, DOOR_B)) > 1.0 and abs(ang_diff(a, DOOR_T)) > 1.0],
+              if abs(ang_diff(a, DOOR_B)) > 1.0 and abs(ang_diff(a, DOOR_T)) > 1.0]
+             + [circ(*pol(0.5 * (a1 + a2), CR)[:2], 0.05, WALL_Y0, WALL_Y1) for a1, a2 in CAB_BAYS
+                if abs(ang_diff(0.5 * (a1 + a2), DOOR_B)) > 1.0 and abs(ang_diff(0.5 * (a1 + a2), DOOR_T)) > 1.0],
     "gateB": {"post": circ(*pol(DOOR_B, CR)[:2], 0.05, WALL_Y0, WALL_Y1), "open": slide(DOOR_B, 1.14)},
     "gateT": {"post": circ(*pol(DOOR_T, CR)[:2], 0.05, WALL_Y0, WALL_Y1), "open": slide(DOOR_T, 1.14)},
     "lgateB": {"closedBand": [-1.0, round(LINT_B + 0.3, 3)], "open": slide(DOOR_B, 1.50)},
