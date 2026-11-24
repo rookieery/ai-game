@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>烟花音效试听 · Firework Sound Audition</title>
+  <link rel="icon" href="data:," />
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <main>
+    <header>
+      <h1>烟花音效试听</h1>
+      <p class="sub">新合成器走与游戏相同的播放路径（<code>createFwVoice</code>），现已接入游戏；这里留着做调参试听。「旧版对比」勾上后换成接入前的线上音效（audio.js 快照），两边距离滑杆都生效。</p>
+    </header>
+
+    <section class="tips">
+      <b>本轮怎么听</b>：按 <kbd>1</kbd> 听一发完整的「咻——砰」：哨音约 3.5 秒一路滑到炸点、爆裂后有一小串碎裂。
+      想只听爆裂就取消「单发含升空」；按 <kbd>F</kbd> 听终曲里多发哨音叠加。
+    </section>
+
+    <canvas id="stage" aria-label="画面闪光与声音到达时间线"></canvas>
+
+    <section class="row">
+      <div class="group">
+        <span class="label">单发</span>
+        <button class="k-A" data-act="A">牡丹 A<kbd>1</kbd></button>
+        <button class="k-B" data-act="B">垂柳 B<kbd>2</kbd></button>
+        <button class="k-C" data-act="C">椰芯 C<kbd>3</kbd></button>
+      </div>
+      <div class="group">
+        <span class="label">编排</span>
+        <button data-act="regular">常规场 2–3 发<kbd>R</kbd></button>
+        <button data-act="finale">终曲 18 发<kbd>F</kbd></button>
+        <button data-act="nearfar">远近对比<kbd>N</kbd></button>
+      </div>
+    </section>
+
+    <section class="sliders">
+      <label><span>距离 <output id="o-dist">80 m</output></span>
+        <input id="i-dist" type="range" min="20" max="220" step="1" value="80" /></label>
+      <label><span>方位 <output id="o-pan">中</output></span>
+        <input id="i-pan" type="range" min="-100" max="100" step="1" value="0" /></label>
+      <label><span>烟花音量 <output id="o-vol">100%</output></span>
+        <input id="i-vol" type="range" min="0" max="150" step="5" value="100" /></label>
+    </section>
+
+    <section class="toggles">
+      <label><input id="i-delay" type="checkbox" checked /> 真实声延迟（343 m/s）</label>
+      <label><input id="i-launch" type="checkbox" checked /> 单发含升空（咻——砰，提前 3.5 秒发射）</label>
+      <label><input id="i-legacy" type="checkbox" /> 旧版对比</label>
+      <span id="bank" class="note"></span>
+    </section>
+
+    <section class="tune">
+      <label>升空音色
+        <select id="i-ascent">
+          <option value="even" selected>哨音 + 嘶声各半（游戏默认）</option>
+          <option value="whistle">哨音为主</option>
+          <option value="pure">纯哨音</option>
+          <option value="hiss">嘶声</option>
+        </select></label>
+      <label>升空段响度 <output id="o-ascvol">基准</output>
+        <input id="i-ascvol" type="range" min="-6" max="6" step="1" value="0" /></label>
+      <label class="check"><input id="i-crackle" type="checkbox" checked /> 碎裂噼啪</label>
+      <label>裂响亮度
+        <select id="i-bright">
+          <option value="0" selected>标准</option>
+          <option value="4">亮（+4 dB）</option>
+          <option value="8">很亮（+8 dB）</option>
+        </select></label>
+    </section>
+
+    <p id="info" class="info">点任意按钮开始（首次点击会启动音频）。</p>
+    <p class="hint">读图：上方「天空」里紫线是上升的弹道、闪光出现在炸点的方位上，声音到达时描一圈金边；下方时间线里三角是「看见」的时刻，圆点是「听到」的时刻，两点间距即声延迟，青色横条是持续中的声音（升空哨音），青色亮柱是实时采集的声音电平。</p>
+  </main>
+  <script type="module" src="./main.js"></script>
+</body>
+</html>

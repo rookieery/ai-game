@@ -29,7 +29,7 @@ const input = createInput(canvas);
 const hud = createHUD();
 const audio = createAudio(hud);
 window.__hud = hud; // 截图验证钩子（开发用）
-// 烟花（6 站发射器锚点由 colliders.json 注入, 见 boot() 内 setLaunchers）+ 幽灵火
+// 烟花（6 站发射器锚点由 colliders.json 注入, 见 boot() 内 setLaunchers; 音效走 audio → core/fw_sound.js）+ 幽灵火
 const fireworks = createFireworks(scene, { camera, audio, renderer });
 const wisps = createWisps(scene);
 
@@ -66,6 +66,7 @@ function applyAllSettings() {
   if (coaster) coaster.applySettings(settings.values);
   if (wind) wind.applySettings(settings.values); // 风摆强度 + 南瓜灯亮度联动
   audio.setBGM(settings.values.bgmOn !== false); // 背景音乐开关 (音频未启动时只记意图)
+  audio.setFireworks(settings.values); // 烟花音量 / 声延迟 / 升空哨音响量 / 裂响亮度 / 碎裂 (音频未启动时只记意图)
 }
 applyAllSettings(); // 恢复持久化配置（含舱内灯光默认 40%）
 settings.onChange(applyAllSettings);
@@ -339,6 +340,7 @@ window.__game = {
   get coaster() { return coaster; },
   get coasterGate() { return coasterGate; },
   get interact() { return interact; },
+  get audio() { return audio; },
   get fireworks() { return fireworks; },
   get camera() { return camera; },
   renderer,

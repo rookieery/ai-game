@@ -3,6 +3,10 @@
 //  - 八音盒 BGM：三角波 + 指数衰减 + 回声，A 小调五声慢圆舞
 //  - 乘坐嗡鸣：带通噪声 + 滤频摆动
 //  - 收集风铃：五声琶音
+//  - 烟花：音色合成与空间播放全在 fw_sound.js（爆裂 / 碎裂 / 升空哨音 + 声延迟·声像·距离衰减）,
+//    这里只负责建声、接 master、套设置项
+import { createFwVoice } from "./fw_sound.js";
+
 export function createAudio(hud) {
   let ctx = null;
   let master = null;
@@ -13,6 +17,18 @@ export function createAudio(hud) {
   let bgmTimer = null;
   let bgmGain = null;
   let bgmWanted = true; // 设置面板「背景音乐」开关 (音频图未启动前先记意图, ensure 时生效)
+  let fw = null;        // 烟花播放引擎 (ensure 后创建)
+  // 烟花设置意图 (音频图未启动前先记下); 取值口径同 core/config.js 烟花组
+  const fwSet = { volume: 1, delay: true, ascentDb: 0, brightness: 0, crackle: true };
+  const pct = (v, lo, hi) => Math.max(lo, Math.min(hi, Number(v))) / 100;
+  function applyFw() {
+    if (!fw) return;
+    fw.setVolume(fwSet.volume);
+    fw.setDelay(fwSet.delay);
+    fw.setAscentLevel(fwSet.ascentDb);
+    fw.setBrightness(fwSet.brightness);
+    fw.setCrackle(fwSet.crackle);
+  }
 
   const NOTE = 0.42; // 一拍秒数
   const MELODY = [
@@ -145,6 +161,9 @@ export function createAudio(hud) {
       master = ctx.createGain();
       master.gain.value = muted ? 0 : 1;
       master.connect(ctx.destination);
+      fw = createFwVoice(ctx);   // 烟花: 经自带总线限幅后进 master, 随 HUD 静音一起静音
+      fw.output.connect(master);
+      applyFw();
       startAmbient();
       startBGM();
       startRideLoop();
@@ -188,87 +207,29 @@ export function createAudio(hud) {
         osc.stop(t0 + i * 0.09 + 1.0);
       });
     },
-    // 烟花升空啸声: 带通噪声扫频上行 (~1s)
-    fireworkLaunch() {
-      if (!ctx) return;
-      const t = ctx.currentTime;
-      const src = ctx.createBufferSource();
-      src.buffer = noiseBuffer(1.2);
-      const bp = ctx.createBiquadFilter();
-      bp.type = "bandpass";
-      bp.Q.value = 6;
-      bp.frequency.setValueAtTime(500, t);
-      bp.frequency.exponentialRampToValueAtTime(2400, t + 1.0);
-      const g = ctx.createGain();
-      g.gain.setValueAtTime(0.0001, t);
-      g.gain.exponentialRampToValueAtTime(0.05, t + 0.25);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + 1.1);
-      src.connect(bp).connect(g).connect(master);
-      src.start(t);
-      src.stop(t + 1.2);
+    // ---- 烟花: 三个发声触发点 (fx/fireworks.js 调用), o = { dist 距离(m), pan 方位(-1 左..1 右), at 画面事件时刻 } ----
+    // 声延迟由播放引擎按 dist 叠加 (343m/s); 音频未启动时静默返回
+    fireworkLaunch(o) {
+      fw?.launch(o);            // 管口闷响 + 连续哨音 (o.ascent 升空秒数, o.endDist 炸点距离: 哨音响到炸点)
     },
-    // 烟花爆裂: 低通噪声扫频下坠 + 低频正弦轰; 分型尾音
-    // A 牡丹 = 纯轰; B 垂柳 = + 金瀑 shimmer 长尾; C 椰芯 = + 连串爆响 (vol 按爆点距离衰减)
-    fireworkBurst(vol = 1, kind = "A") {
-      if (!ctx) return;
-      const t = ctx.currentTime;
-      const src = ctx.createBufferSource();
-      src.buffer = noiseBuffer(1.0);
-      const lp = ctx.createBiquadFilter();
-      lp.type = "lowpass";
-      lp.frequency.setValueAtTime(3200, t);
-      lp.frequency.exponentialRampToValueAtTime(160, t + 0.7);
-      const g = ctx.createGain();
-      g.gain.setValueAtTime(0.28 * vol, t);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + 0.85);
-      src.connect(lp).connect(g).connect(master);
-      src.start(t);
-      src.stop(t + 1.0);
-      const osc = ctx.createOscillator();
-      osc.type = "sine";
-      osc.frequency.setValueAtTime(110, t);
-      osc.frequency.exponentialRampToValueAtTime(38, t + 0.5);
-      const og = ctx.createGain();
-      og.gain.setValueAtTime(0.22 * vol, t);
-      og.gain.exponentialRampToValueAtTime(0.0001, t + 0.6);
-      osc.connect(og).connect(master);
-      osc.start(t);
-      osc.stop(t + 0.7);
-      if (kind === "B") {
-        // 垂柳 shimmer: 带通噪声缓缓下滑 2.2s, 如金瀑簌簌
-        const s2 = ctx.createBufferSource();
-        s2.buffer = noiseBuffer(2.4);
-        const bp = ctx.createBiquadFilter();
-        bp.type = "bandpass";
-        bp.Q.value = 1.2;
-        bp.frequency.setValueAtTime(1600, t + 0.15);
-        bp.frequency.exponentialRampToValueAtTime(420, t + 2.3);
-        const g2 = ctx.createGain();
-        g2.gain.setValueAtTime(0.0001, t + 0.15);
-        g2.gain.exponentialRampToValueAtTime(0.075 * vol, t + 0.45);
-        g2.gain.exponentialRampToValueAtTime(0.0001, t + 2.35);
-        s2.connect(bp).connect(g2).connect(master);
-        s2.start(t + 0.15);
-        s2.stop(t + 2.4);
-      } else if (kind === "C") {
-        // 椰芯连串爆响: 二次炸裂时刻的短促噼啪串
-        const cb = noiseBuffer(1.4);
-        const pops = 7 + ((Math.random() * 4) | 0);
-        let pt = t + 0.75;
-        for (let i = 0; i < pops; i++) {
-          const s3 = ctx.createBufferSource();
-          s3.buffer = cb;
-          const hp = ctx.createBiquadFilter();
-          hp.type = "highpass";
-          hp.frequency.value = 2200 + Math.random() * 1200;
-          const g3 = ctx.createGain();
-          g3.gain.setValueAtTime((0.05 + Math.random() * 0.06) * vol, pt);
-          g3.gain.exponentialRampToValueAtTime(0.0001, pt + 0.09);
-          s3.connect(hp).connect(g3).connect(master);
-          s3.start(pt, Math.random() * 1.2, 0.1);
-          pt += 0.08 + Math.random() * 0.07;
-        }
-      }
+    fireworkBurst(kind, o) {
+      fw?.burst(kind, o);       // 裂响 → 轰鸣 → 滚动尾音, 叠碎裂层
     },
+    fireworkCrack(o) {
+      fw?.crack(o);             // 椰芯火星分裂的脆响
+    },
+    // 烟花设置 (取值口径见 core/config.js 烟花组; 音频未启动时只记意图)
+    setFireworks(v = {}) {
+      fwSet.volume = pct(v.fireworkVolume ?? 100, 0, 200);
+      fwSet.delay = v.fireworkSoundDelay !== false;
+      fwSet.ascentDb = 20 * Math.log10(pct(v.fireworkAscentVolume ?? 100, 50, 200));
+      fwSet.brightness = (pct(v.fireworkCrisp ?? 100, 50, 200) - 1) * 8;   // 100% = 标准, 每 +50% 高架 +4dB
+      fwSet.crackle = v.fireworkCrackle !== false;
+      applyFw();
+    },
+    // 调试钩子 (取证脚本用)
+    get fw() { return fw; },
+    get ctx() { return ctx; },
+    get master() { return master; },
   };
 }

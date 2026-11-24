@@ -22,7 +22,11 @@ npm run dev          # http://127.0.0.1:8765
 | `空格` | 跳跃（长椅/干草堆/木桶/旋转木马平台可跳上；登舱台阶可直接走上去） |
 | 鼠标 | 环视（点击画面锁定指针，`Esc` 释放） |
 | `E` | 万能交互：登舱/下乘/收集南瓜灯 |
+| `F` | 靠近烟花发射器时单发点射 |
+| `O` | 园区设置（灯光/转速/步行速度/烟花/画面等，自动保存） |
 | 右下角月相 | 声音开关（满月有声 / 新月静音） |
+
+烟花音效全程序合成：爆裂（裂响→碎裂→轰鸣→滚动尾音）、升空哨音（一路滑到炸点）、按 343 m/s 滞后闪光的声延迟与左右声像；音量、声延迟、升空哨音响量、裂响亮度、碎裂都在园区设置的「烟花」组里调。
 
 流程：点五芒星入园 → 沿主路走到摩天轮站台 → `E` 乘坐（舱内可走动 `WASD`、`C` 坐下起身、360° 环视，75s/圈，随时 `E` 下乘）→ 绕园收集 5 盏南瓜灯点亮星图。
 
@@ -37,14 +41,15 @@ npm run dev          # http://127.0.0.1:8765
 │  └─ park_env/              # 园区环境（脚本 + glb + colliders.json + 预览）
 ├─ public/assets/models/     # 同步产物（npm run assets:sync 生成，不入库）
 ├─ src/
-│  ├─ core/                  # 场景/世界氛围(极光/星空/雾)/输入/程序音频
+│  ├─ core/                  # 场景/世界氛围(极光/星空/雾)/输入/程序音频/烟花音色合成器(fw_sound.js)
 │  ├─ player/                # 第一人称控制器（碰撞读 colliders.json）
 │  ├─ park/                  # glb 加载
 │  ├─ rides/                 # 摩天轮逻辑（程序化旋转+舱体水平+乘坐状态机）
 │  ├─ interact.js            # 交互系统（登舱/打卡）
 │  ├─ fx/postfx.js           # UnrealBloom
 │  └─ ui/                    # 「降神之夜」HUD（设计系统见 DESIGN.md）
-├─ scripts/                  # 资产同步 + 无头浏览器截图验证
+├─ prototype/fw_sound/       # 烟花音效调参试听页（/prototype/fw_sound/，含接入前旧版音效快照）
+├─ scripts/                  # 资产同步 + 无头浏览器验证（截图 / 音频）
 ├─ PRODUCT.md / DESIGN.md    # 产品事实 / 设计系统（impeccable 工作流产物）
 └─ .impeccable/              # 方向契约等设计工件（config.local.json 除外）
 ```
@@ -67,3 +72,4 @@ draw calls ~90/帧（预算 <300）、渲染三角面 ~16 万/帧、桌面 1080p
 
 - UI 设计系统：「降神之夜 The Séance」（DESIGN.md），impeccable 工作流产出并通过 finish review
 - 画面验证：`node scripts/screenshot.mjs shots/<名> game|states|spin`
+- 烟花音效验证：`node scripts/probe_fw_audio.mjs`（离线渲染出 before/after WAV 与客观指标）、`node scripts/verify_fw_audio.mjs`（游戏内端到端：触发点传参 / 设置项 / 录音分析）；参数表在 `src/core/fw_sound.js` 顶部，调参用试听页 `npm run dev` → `/prototype/fw_sound/`

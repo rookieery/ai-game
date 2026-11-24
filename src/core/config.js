@@ -50,6 +50,12 @@ export const SETTINGS_GROUPS = [
       { key: "fireworkPeriod", label: "自动烟花间隔", min: 10, max: 120, step: 5, def: 30, fmt: (v) => `${v} 秒/轮` },
       { key: "fireworkBright", label: "烟花亮度", min: 0, max: 200, step: 5, def: 100, fmt: pct }, // 粒子亮度 + 爆裂闪光联动
       { key: "fireworkHeight", label: "炸点高度", min: 25, max: 90, step: 5, def: 55, fmt: (v) => `${v} 米` }, // 壳体初速按 v0y=√(2gh) 反解
+      // 音效 (音色与空间播放见 core/fw_sound.js; 这里的取值口径须与 audio.js setFireworks 一致)
+      { key: "fireworkVolume", label: "烟花音量", min: 0, max: 200, step: 5, def: 100, fmt: pct },
+      { key: "fireworkSoundDelay", label: "真实声延迟", type: "switch", def: true, fmt: (v) => (v ? "开" : "关") }, // 声音按 343m/s 滞后闪光; 关 = 声画同时到
+      { key: "fireworkAscentVolume", label: "升空哨音响量", min: 50, max: 200, step: 5, def: 100, fmt: pct }, // 100% = 基准响度
+      { key: "fireworkCrisp", label: "裂响亮度", min: 50, max: 200, step: 5, def: 100, fmt: pct }, // 100% = 标准; 每 +50% 把 2.6kHz 以上高架 +4dB
+      { key: "fireworkCrackle", label: "碎裂噼啪", type: "switch", def: true, fmt: (v) => (v ? "开" : "关") }, // 爆裂后 0.03-0.2s 的一小串高频碎裂
     ],
   },
   {

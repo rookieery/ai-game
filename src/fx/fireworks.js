@@ -2,6 +2,8 @@
 // 弹道五段全程可读: 管口点火闪光 → 亮彗星头 + 密集尾迹 → 顶点白热爆闪 → 花型展开 → 余烬闪烁熄灭
 // 花型: A 牡丹(三层球壳) / B 垂柳(金瀑长垂+滴烬) / C 椰芯(大火星二次炸裂)
 // 架构: 单 Points 池 ShaderMaterial 加色混合, CPU 积分; 彗星头占池首专用槽位, 其余粒子环形覆写
+// 声音: 升空 / 爆裂 / 火星分裂三个触发点把事件位置换算成「距离 + 方位」交给 audio;
+//       音色合成、声延迟(343m/s)、距离衰减、声像都在 core/fw_sound.js
 // 主题色板与品牌色一致; 零外部素材
 import * as THREE from "three";
 
@@ -10,6 +12,7 @@ const HEAD_MAX = 16;     // 池首保留槽位: 彗星头专用（常规粒子�
 const GRAV = 3.2;        // 余烬重力（远小于真实 g, 梦幻缓坠）
 const DRAG_PER_S = 0.6;  // vel *= DRAG_PER_S^dt 的大气阻尼
 const SHELL_G = 7.5;     // 壳体升空重力（v0y 由炸点高度反解: v0y = sqrt(2·SHELL_G·h)）
+const PAN_SPREAD = 0.85; // 炸点在相机右侧 → pan = +0.85, 左侧 → -0.85（等功率声像的方位系数）
 
 export const KIND_NAME = { A: "牡丹发射架", B: "垂柳塔", C: "椰芯连环炮" };
 
@@ -120,6 +123,17 @@ export function createFireworks(scene, { camera, audio, renderer }) {
   const _v = new THREE.Vector3();
   const _tp = new THREE.Vector3();
   const _prev = new THREE.Vector3();
+  const _right = new THREE.Vector3();
+  const _bp = new THREE.Vector3();
+
+  // 声学参数: 事件位置 → 到相机的距离 + 相对相机右方的方位（-1 左 .. 1 右）
+  function acoustics(p) {
+    if (!camera) return { dist: 60, pan: 0 };
+    _v.set(p.x - camera.position.x, p.y - camera.position.y, p.z - camera.position.z);
+    const d = _v.length() || 1;
+    _right.setFromMatrixColumn(camera.matrixWorld, 0);
+    return { dist: d, pan: PAN_SPREAD * Math.max(-1, Math.min(1, _v.dot(_right) / d)) };
+  }
 
   function spawn(p, v, color, l, size, opt = {}) {
     const i = cursor;
@@ -155,7 +169,7 @@ export function createFireworks(scene, { camera, audio, renderer }) {
     // 炸点高度 -> 反解初速（v.y 降到 2.5 时爆, 高度补回 2.5²/2g）
     const h = Math.max(20, height * (1 + (Math.random() - 0.5) * 0.16));
     const v0y = Math.sqrt(2 * SHELL_G * (h + 0.42));
-    // 管口点火: 迸火花 + 光脉冲 + 升空啸声
+    // 管口点火: 迸火花 + 光脉冲（升空声在壳体入列后触发, 需要用到初速算升空时长）
     _tp.set(L.x + (Math.random() - 0.5) * 0.24, L.mz, L.z + (Math.random() - 0.5) * 0.24);
     for (let k = 0; k < 10; k++) {
       _v.set((Math.random() - 0.5) * 3.4, 0.8 + Math.random() * 2.2, (Math.random() - 0.5) * 3.4);
@@ -163,7 +177,6 @@ export function createFireworks(scene, { camera, audio, renderer }) {
     }
     mflash.position.copy(_tp);
     mflash.intensity = 14 * bright;
-    audio?.fireworkLaunch();
     // 壳体: 沿发射方向漂移 + 少量横向散布
     const hs = 2.0 + Math.random() * 2.0;
     const px = -L.dz, pz = L.dx; // 横向单位向量
@@ -176,6 +189,14 @@ export function createFireworks(scene, { camera, audio, renderer }) {
     const head = headCursor;
     headCursor = (headCursor + 1) % HEAD_MAX;
     shells.push({ p, v, kind, color, head, acc: 0 });
+    // 升空声: 管口闷响 + 连续哨音。哨音响到炸点为止, 时长 = 实际升空时间（v.y 降到 2.5 时爆, 与壳体积分同口径）;
+    // endDist = 炸点到听者的距离, 哨音收尾落在「炸点时刻 + 炸点声延迟」
+    if (audio) {
+      const asc = (v0y - 2.5) / SHELL_G;
+      _bp.copy(_tp).addScaledVector(v, asc);
+      _bp.y = _tp.y + v0y * asc - 0.5 * SHELL_G * asc * asc;
+      audio.fireworkLaunch({ ...acoustics(_tp), ascent: asc, endDist: acoustics(_bp).dist });
+    }
   }
 
   // 白热爆闪帧: 数颗超大短命白粒子, 爆裂瞬间的"裂"感
@@ -255,6 +276,8 @@ export function createFireworks(scene, { camera, audio, renderer }) {
         { g: 4.2, bvar: true, tw: 0.25, boost: 6.0 });
     }
     flashFrame(_tp, 1, 8);
+    // 分裂脆响: 按这颗火星自己的位置做声延迟 / 衰减 / 声像
+    audio?.fireworkCrack(acoustics(_tp));
     kill(i);
   }
 
@@ -266,8 +289,8 @@ export function createFireworks(scene, { camera, audio, renderer }) {
     flash.position.copy(sh.p);
     flash.color.copy(sh.color);
     flash.intensity = (sh.kind === "A" ? 60 : sh.kind === "B" ? 38 : 50) * bright;
-    const d = camera ? camera.position.distanceTo(sh.p) : 60;
-    audio?.fireworkBurst(Math.max(0.12, Math.min(1, 1 - d / 300)), sh.kind);
+    // 爆裂声: 声延迟 / 距离衰减 / 空气吸声 / 声像由播放引擎按炸点位置处理
+    audio?.fireworkBurst(sh.kind, acoustics(sh.p));
   }
 
   // ---------- 编排 ----------
@@ -367,7 +390,9 @@ export function createFireworks(scene, { camera, audio, renderer }) {
       if (life[i] <= 0) continue;
       life[i] -= dt;
       const i3 = i * 3;
-      if (splitA[i] > 0 && life[i] <= splitA[i]) { splitStar(i); continue; }
+      // 椰芯大火星: 飞行 splitAt 秒后二次炸裂。寿命 = splitAt + 0.05, 余命降到那 0.05s 保险余量即到点
+      // （原先拿余命直接比 splitAt, 结果爆裂后 0.05s 就分裂, 与注释和音效的 0.8-1.2s 都对不上）
+      if (splitA[i] > 0 && life[i] <= life0[i] - splitA[i]) { splitStar(i); continue; }
       vel[i3 + 1] -= gravA[i] * dt;
       vel[i3] *= drag; vel[i3 + 1] *= drag; vel[i3 + 2] *= drag;
       pos[i3] += vel[i3] * dt;
