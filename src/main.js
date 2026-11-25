@@ -14,6 +14,7 @@ import { createTower } from "./rides/tower.js";
 import { createPostFX } from "./fx/postfx.js";
 import { createMist } from "./fx/mist.js";
 import { createFireworks } from "./fx/fireworks.js";
+import { createFireworkDirector } from "./fx/fw_director.js";
 import { createWisps } from "./fx/wisps.js";
 import { createWind } from "./fx/wind.js";
 import { createHUD } from "./ui/hud.js";
@@ -30,7 +31,7 @@ const input = createInput(canvas);
 const hud = createHUD();
 const audio = createAudio(hud);
 window.__hud = hud; // 截图验证钩子（开发用）
-// 烟花（6 站发射器锚点由 colliders.json 注入, 见 boot() 内 setLaunchers; 音效走 audio → core/fw_sound.js）+ 幽灵火
+// 烟花（地面 6 站发射器锚点由 colliders.json 注入, 见 boot() 内 setLaunchers; 音效走 audio → core/fw_sound.js）+ 幽灵火
 const fireworks = createFireworks(scene, { camera, audio, renderer });
 const wisps = createWisps(scene);
 
@@ -42,6 +43,7 @@ let carousel = null;
 let coaster = null;
 let coasterGate = null;
 let tower = null;
+let fwDirector = null;
 let interact = null;
 let wind = null;
 let entered = false;
@@ -96,7 +98,18 @@ async function boot() {
     console.warn("[park] colliders.json 加载失败, 使用空碰撞");
   }
   window.__park = park;
-  fireworks.setLaunchers(park?.launchers); // 6 站发射器 { id, kind, x, z, dx, dz, mz }
+  // 第 7 座发射架 (过山车提升顶旁的垂柳塔, 地标礼花用; 独立小资产 salute_launcher.glb):
+  // 锚点须在 setLaunchers 之前并入, 碰撞圆须在下方 createPlayer 拷贝碰撞表之前并入
+  try {
+    const sl = await (await fetch("/assets/models/colliders_salute_launcher.json")).json();
+    if (park) {
+      park.launchers = [...(park.launchers ?? []), ...sl.launchers];
+      park.circles = [...(park.circles ?? []), ...sl.circles];
+    }
+  } catch {
+    console.warn("[park] colliders_salute_launcher.json 加载失败, 过山车顶无礼花发射架");
+  }
+  fireworks.setLaunchers(park?.launchers); // 地面 6 站 + 垂柳塔 { id, kind, x, z, dx, dz, mz }
 
   // 过山车碰撞表 (M3): 合并进 park (rects=盒墙 / circles=柱 / steps=台阶顶面由控制器接管)
   try {
@@ -139,6 +152,10 @@ async function boot() {
   const parkRoot = await loadGLB("/assets/models/park_env.glb", manager);
   hud.setLoadingProgress(0.6); // 铺路
   scene.add(parkRoot);
+  // 过山车提升顶旁的垂柳塔发射架 (第 7 座, 地标礼花): 小资产, 不等它; 加载失败只是少一件道具
+  loadGLB("/assets/models/salute_launcher.glb", manager)
+    .then((root) => scene.add(root))
+    .catch(() => console.warn("[park] salute_launcher.glb 加载失败, 垂柳塔发射架不可见"));
   wind = createWind(parkRoot); // 风摆 (草/柳/松/枯梢) + 南瓜灯发光联动
   wind.applySettings(settings.values);
   updates.push(wind);
@@ -346,6 +363,11 @@ async function boot() {
     },
   });
 
+  // 地标礼花导演: 三处炸点 (缠魂塔环廊 / 摩天轮顶舱 / 过山车提升顶) + 到顶准点触发。
+  // 排在玩家更新之后 (读的是本帧的脚高/乘坐状态); 礼花入列后在下一帧 fireworks.update 出膛
+  fwDirector = createFireworkDirector({ fireworks, player, ferris, coaster, park, getState: () => game.state });
+  updates.push(fwDirector);
+
   game.state = "loading";
 }
 
@@ -382,6 +404,7 @@ window.__game = {
   get interact() { return interact; },
   get audio() { return audio; },
   get fireworks() { return fireworks; },
+  get fwDirector() { return fwDirector; },
   get camera() { return camera; },
   renderer,
   scene,

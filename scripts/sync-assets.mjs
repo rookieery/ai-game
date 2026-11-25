@@ -16,6 +16,8 @@ const MAP = [
   ["model/roller_coaster/colliders_coaster.json", "public/assets/models/colliders_coaster.json"],
   ["model/lookout_tower/lookout_tower.glb", "public/assets/models/lookout_tower.glb"],
   ["model/lookout_tower/colliders_tower.json", "public/assets/models/colliders_tower.json"],
+  ["model/firework_launcher/salute_launcher.glb", "public/assets/models/salute_launcher.glb"],
+  ["model/firework_launcher/colliders_salute_launcher.json", "public/assets/models/colliders_salute_launcher.json"],
 ];
 
 for (const [src, dst] of MAP) {

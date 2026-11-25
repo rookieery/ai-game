@@ -86,6 +86,10 @@ node scripts/verify_tower_colliders.mjs      # 碰撞表离线校验 32 项，�
 
 打卡点 `pumpkin_tower` 在环廊 162°，全园南瓜灯 10 → 11 盏。旧 A6「俯冲谷观景台」已从 `roller_coaster.py` 移除（v15）。
 
+塔顶礼花（2026-11-25，「地标礼花」三处炸点之一，实现在 `src/fx/fw_director.js`）：站上环廊 2.5s 后，塔轴正东 16m 处（默认与眼位同高，
+由发射架 L2 打过来）放一发牡丹，驻留期间每 18s 一发；升降梯到顶时人还在轿厢里也算在顶。受设置项「到顶礼花」「地标炸点高度」控制，
+验证在 `scripts/verify_fw_salute.mjs` 的 C 段。
+
 验证：`node scripts/verify_tower_colliders.mjs`（离线 32 项）→ 起 dev server 后 `GAME_URL=http://127.0.0.1:8767 node scripts/verify_tower_game.mjs`
 （实机端到端：出生点真键步行进轿厢 / 乘梯上下 / 门洞防挟 / 真键走螺旋梯上下 / 塔顶打卡 / 两层自动呼梯 / 设置联动 / 联锁回归）。
 改碰撞表、控制器塔语义或升降梯逻辑后两者都要重跑；`scripts/lib_tower_sim.mjs`（离线）与 `controller.js`（在线）的塔语义须保持一致。

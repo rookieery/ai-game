@@ -1,0 +1,22 @@
+{
+ "version": 1,
+ "note": "过山车提升顶旁的垂柳塔发射架 L7 (app 坐标; salute_launcher.py 生成)。launchers 条目并入 colliders.json 的 launchers, circles = 无限高阻挡圆; dx/dz = 炮口水平朝向 (指向过山车顶地标炸点)",
+ "launchers": [
+  {
+   "id": "L7",
+   "kind": "B",
+   "x": 46.0,
+   "z": -125.0,
+   "dx": -0.279,
+   "dz": -0.96,
+   "mz": 2.92
+  }
+ ],
+ "circles": [
+  {
+   "x": 46.0,
+   "z": -125.0,
+   "r": 0.95
+  }
+ ]
+}

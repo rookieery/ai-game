@@ -131,6 +131,25 @@ export async function createCoaster(scene, manager) {
   if (!camPov) console.warn("[coaster] NL_CamPov 缺失, POV 机位不可用");
   if (lapBars.length !== 11) console.warn("[coaster] NL_LapBar_* 数:", lapBars.length);
 
+  // 提升平顶 = 过山车最高处: 与最高点同高 (±1cm) 的连续段, 取两端中点 / 水平前进方向 / 该处车速。
+  // 地标礼花用它定炸点 (平顶中点前方 COASTER_OUT 米) 和到顶同步时机 —— 判据与
+  // model/firework_launcher/salute_launcher.py 一致 (那边据此定新发射架的炮口朝向), 改这里要同步改那边
+  let crest = null;
+  {
+    let ymax = -Infinity, ci0 = 0;
+    for (let i = 0; i < N; i++) if (P[i * 3 + 1] > ymax) ymax = P[i * 3 + 1];
+    while (ci0 < N - 1 && P[ci0 * 3 + 1] < ymax - 0.01) ci0++;
+    let ci1 = ci0;
+    while (ci1 + 1 < N && P[(ci1 + 1) * 3 + 1] >= ymax - 0.01) ci1++;
+    const ax = P[ci0 * 3], az = P[ci0 * 3 + 2], bx = P[ci1 * 3], bz = P[ci1 * 3 + 2];
+    const len = Math.hypot(bx - ax, bz - az) || 1;
+    crest = {
+      s: ((ci0 + ci1) / 2) * DS, x: (ax + bx) / 2, y: ymax, z: (az + bz) / 2,
+      tx: (bx - ax) / len, tz: (bz - az) / len, v: V[ci0],
+      eye: camPov ? camPov.position.y : 0.18, // POV 锚点相对中心线的眼高
+    };
+  }
+
   // 手写管件(肩环/灯笼/钩臂)面序不保证一致, Blender 双面渲染无感, three.js 单面会成黑洞 -> 全双面保险
   trainRoot.traverse((o) => {
     const mats = Array.isArray(o.material) ? o.material : (o.material ? [o.material] : []);
@@ -229,6 +248,7 @@ export async function createCoaster(scene, manager) {
     staticRoot, // M4: 闸机模块从中解析 NL_Gate_*/NL_GateArm_*
     trainRoot,
     cars,
+    crest, // 提升平顶 { s, x, y, z, tx, tz, v, eye } (app 坐标) —— 地标礼花的炸点与同步基准
     update(dt) {
       // M4 站台联锁释放补偿: hold 解除时若 dwell 所剩无几, 补到 4s 防瞬间弹射
       if (!state.hold && prevHold && !session.active && state.phase === "dwell" && state.dwellT < 2) {

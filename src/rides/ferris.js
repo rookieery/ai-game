@@ -122,6 +122,7 @@ export function createFerrisWheel(gltfRoot) {
     state,
     cabinRoots: cabins,
     wheelRoot: wheel,
+    spinAxis, // 轮轴 (世界系单位向量, 水平): fx/fw_director.js 算所乘舱离顶时间要用
     update(dt) {
       if (!wheel) return;
       if (snapTheta !== null) {

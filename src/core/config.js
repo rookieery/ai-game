@@ -55,7 +55,11 @@ export const SETTINGS_GROUPS = [
     items: [
       { key: "fireworkPeriod", label: "自动烟花间隔", min: 10, max: 120, step: 5, def: 30, fmt: (v) => `${v} 秒/轮` },
       { key: "fireworkBright", label: "烟花亮度", min: 0, max: 200, step: 5, def: 100, fmt: pct }, // 粒子亮度 + 爆裂闪光联动
-      { key: "fireworkHeight", label: "炸点高度", min: 25, max: 90, step: 5, def: 55, fmt: (v) => `${v} 米` }, // 壳体初速按 v0y=√(2gh) 反解
+      { key: "fireworkHeight", label: "地面炸点高度", min: 25, max: 90, step: 5, def: 55, fmt: (v) => `${v} 米` }, // 地面各站的炸点海拔; 壳体初速按 v0y=√(2gh) 反解
+      // 地标礼花: 缠魂塔环廊 / 摩天轮顶舱 / 过山车提升顶 旁的三处炸点 (fx/fw_director.js)
+      { key: "fireworkSalute", label: "到顶礼花", type: "switch", def: true, fmt: (v) => (v ? "开" : "关") }, // 乘坐/登顶时准点放 + 常规秀穿插; 关 = 三处炸点全停
+      { key: "fireworkSaluteHeight", label: "地标炸点高度", min: -20, max: 40, step: 5, def: 0,
+        fmt: (v) => (v === 0 ? "眼位同高" : `${v > 0 ? "+" : ""}${v} 米`) }, // 相对各处观景眼位: 正 = 仰视, 负 = 俯视
       // 音效 (音色与空间播放见 core/fw_sound.js; 这里的取值口径须与 audio.js setFireworks 一致)
       { key: "fireworkVolume", label: "烟花音量", min: 0, max: 200, step: 5, def: 100, fmt: pct },
       { key: "fireworkSoundDelay", label: "真实声延迟", type: "switch", def: true, fmt: (v) => (v ? "开" : "关") }, // 声音按 343m/s 滞后闪光; 关 = 声画同时到

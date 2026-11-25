@@ -1,4 +1,4 @@
-// 烟花系统 v2: 三型发射器 × 全弹道可见 × 6 站布点 + 自动秀编排 + F 点射
+// 烟花系统 v2: 三型发射器 × 全弹道可见 × 6 站布点（+ 过山车顶旁第 7 座垂柳塔）+ 自动秀编排 + F 点射 + 地标礼花
 // 弹道五段全程可读: 管口点火闪光 → 亮彗星头 + 密集尾迹 → 顶点白热爆闪 → 花型展开 → 余烬闪烁熄灭
 // 花型: A 牡丹(三层球壳) / B 垂柳(金瀑长垂+滴烬) / C 椰芯(大火星二次炸裂)
 // 架构: 单 Points 池 ShaderMaterial 加色混合, CPU 积分; 彗星头占池首专用槽位, 其余粒子环形覆写
@@ -6,13 +6,16 @@
 //       音色合成、声延迟(343m/s)、距离衰减、声像都在 core/fw_sound.js
 // 主题色板与品牌色一致; 零外部素材
 // 火星画法 (2026-11-25 细锐化): 高斯亮核 + 屏幕尺寸上限 + 能量补偿, 亮度滑杆 100% = BRIGHT_BASE (见常量区)
+// 地标礼花 (2026-11-25): 缠魂塔环廊 / 摩天轮顶舱 / 过山车提升顶 旁的三处定向炸点 —— 壳体飞满固定时长恰好落在炸点,
+//       炸点高度 = 该处观景眼位 + 设置「地标炸点高度」(相对值); 发射架/炸点表/到顶触发见 fx/fw_director.js
 import * as THREE from "three";
 
-const MAX = 6144;        // 粒子池容量（终曲全开 ~2500 并发仍有裕量）
+const MAX = 10240;       // 粒子池容量（7 站终曲 + 三处地标礼花逐帧实测峰值约 6400 并发; 留出与下一轮常规秀重叠的余量; stats().overflow 应为 0）
 const HEAD_MAX = 16;     // 池首保留槽位: 彗星头专用（常规粒子从 HEAD_MAX 起环形覆写, 不会侵占头部）
 const GRAV = 3.2;        // 余烬重力（远小于真实 g, 梦幻缓坠）
 const DRAG_PER_S = 0.6;  // vel *= DRAG_PER_S^dt 的大气阻尼
 const SHELL_G = 7.5;     // 壳体升空重力（v0y 由炸点高度反解: v0y = sqrt(2·SHELL_G·h)）
+const V_BURST = 2.5;     // 壳体竖直速度降到此值即爆（常规弹; 定向弹按同一口径反解飞行时长, 到点时也是这个速度）
 const PAN_SPREAD = 0.85; // 炸点在相机右侧 → pan = +0.85, 左侧 → -0.85（等功率声像的方位系数）
 
 // ---- 火星画法: 把火星当「点光源」画——亮核很小、个头几乎不随距离变, 距离感靠亮度 ----
@@ -132,12 +135,21 @@ export function createFireworks(scene, { camera, audio, renderer }) {
   scene.add(flash, mflash);
 
   let launchers = FALLBACK;
-  const cdUntil = new Float64Array(FALLBACK.length).fill(-1);
-  const shells = [];    // 升空壳体 { p, v, kind, color, head, acc }
-  const pending = [];   // 齐射队列 { at, lid }
+  let cdUntil = new Float64Array(FALLBACK.length).fill(-1);   // 各发射架的装填截止时刻（随 setLaunchers 重建）
+  const shells = [];    // 升空壳体 { p, v, kind, color, head, acc, T?, p0?, aid? }; T>0 = 定向弹
+  const pending = [];   // 齐射队列 { at, lid, aim? }; aim = 定向弹的炸点 { x, y, z, T, aid }
   let period = 30;      // 自动秀间隔（秒, 0 = 关闭）
   let bright = 1;
-  let height = 55;      // 炸点高度（米, 设置项; 花型内再叠 ±8% 自然变化）
+  let height = 55;      // 地面炸点高度（米, 设置项「地面炸点高度」; 花型内再叠 ±8% 自然变化）
+  // 地标礼花: anchors = [{ id, lid, x, z, eye }] 由 fx/fw_director.js 按实际地标几何登记;
+  // 炸点 = (x, eye + saluteDy, z), 设置项「到顶礼花」是总开关
+  let anchors = [];
+  let saluteOn = true;
+  let saluteDy = 0;       // 「地标炸点高度」: 相对各处观景眼位的高度差（米, 0 = 平视）
+  const saluteAt = {};    // 各炸点上一发的发射时刻（导演据此给塔顶驻留留间隔）
+  let onBurst = null;     // 取证钩子: 每次爆裂回调 { kind, x, y, z, t, aimed, aid }
+  let overflow = 0;       // 池子真满时覆写存活粒子的累计数（取证用, 正常为 0）
+  let salutesQueued = 0;  // 已入列的地标礼花累计数（取证用: 每轮秀后排了几发）
   let nextShow = 8;     // 入园后 8s 首秀
   let showCount = 0;
   let now = 0;
@@ -161,8 +173,21 @@ export function createFireworks(scene, { camera, audio, renderer }) {
   }
 
   function spawn(p, v, color, l, size, opt = {}) {
-    const i = cursor;
-    cursor = HEAD_MAX + ((cursor - HEAD_MAX + 1) % (MAX - HEAD_MAX));
+    let i = cursor;
+    if (life[i] > 0) {
+      // 环形的下一格还活着 → 往后找空位（扫完一整圈），池子真的满了才覆写。
+      // 纯环形在终曲里会追上还没烧完的第一波火星（垂柳寿命 3–4s 比绕池一圈的时间长），让它们提前消失;
+      // 同一场爆裂的几百颗火星在池里连成一片, 所以要扫到圈底, 不能只探一小段。
+      // 常规秀下一格总是空的, 走不到这里, 与逐格环形完全一致
+      const nMax = MAX - HEAD_MAX;
+      let n = 0;
+      do {
+        i = HEAD_MAX + ((i - HEAD_MAX + 1) % nMax);
+        n++;
+      } while (life[i] > 0 && n < nMax);
+      if (life[i] > 0) overflow++;   // 池子真满: 只能覆写（取证用, 正常为 0）
+    }
+    cursor = HEAD_MAX + ((i - HEAD_MAX + 1) % (MAX - HEAD_MAX));
     const i3 = i * 3;
     pos[i3] = p.x; pos[i3 + 1] = p.y; pos[i3 + 2] = p.z;
     vel[i3] = v.x; vel[i3 + 1] = v.y; vel[i3 + 2] = v.z;
@@ -184,14 +209,23 @@ export function createFireworks(scene, { camera, audio, renderer }) {
     pos[i3 + 1] = -9999;
   }
 
+  // 常规弹的升空秒数: 竖直速度从 v0y 降到 V_BURST。定向弹拿它当飞行时长 —— 到点时竖直速度恰为 V_BURST
+  // (近顶点, 与常规弹同观感), 哨音长度也与常规弹同口径
+  function ascentTime(dy) {
+    const h = Math.max(3, dy);
+    return Math.min(3.6, Math.max(1.6, (-V_BURST + Math.sqrt(V_BURST * V_BURST + 2 * SHELL_G * h)) / SHELL_G));
+  }
+
   // ---------- 发射 ----------
-  function launchShell(lid) {
+  // aim 省略 = 常规弹（竖直上升 + 朝园心漂移, v.y 降到 V_BURST 即爆）
+  // aim = { x, y, z, T } = 定向弹（地标礼花）: 飞满 T 秒恰好落在 (x, y, z)
+  function launchShell(lid, aim) {
     const L = launchers[lid];
     if (!L) return;
     const kind = L.kind;
     const colors = pal(kind);
     const color = colors[(Math.random() * colors.length) | 0];
-    // 炸点高度 -> 反解初速（v.y 降到 2.5 时爆, 高度补回 2.5²/2g）
+    // 常规弹: 炸点高度 -> 反解初速（v.y 降到 V_BURST 时爆, 高度补回 V_BURST²/2g）
     const h = Math.max(20, height * (1 + (Math.random() - 0.5) * 0.16));
     const v0y = Math.sqrt(2 * SHELL_G * (h + 0.42));
     // 管口点火: 迸火花 + 光脉冲（升空声在壳体入列后触发, 需要用到初速算升空时长）
@@ -202,26 +236,45 @@ export function createFireworks(scene, { camera, audio, renderer }) {
     }
     mflash.position.copy(_tp);
     mflash.intensity = 14 * bright;
-    // 壳体: 沿发射方向漂移 + 少量横向散布
-    const hs = 2.0 + Math.random() * 2.0;
-    const px = -L.dz, pz = L.dx; // 横向单位向量
-    const v = new THREE.Vector3(
-      L.dx * hs + px * (Math.random() - 0.5) * 1.4,
-      v0y,
-      L.dz * hs + pz * (Math.random() - 0.5) * 1.4
-    );
     const p = _tp.clone();
-    const head = headCursor;
-    headCursor = (headCursor + 1) % HEAD_MAX;
-    shells.push({ p, v, kind, color, head, acc: 0 });
-    // 升空声: 管口闷响 + 连续哨音。哨音响到炸点为止, 时长 = 实际升空时间（v.y 降到 2.5 时爆, 与壳体积分同口径）;
-    // endDist = 炸点到听者的距离, 哨音收尾落在「炸点时刻 + 炸点声延迟」
-    if (audio) {
-      const asc = (v0y - 2.5) / SHELL_G;
+    let v, asc;
+    if (aim) {
+      // 定向: 炸点加少量散布（垂直于射向 ±1m / 高度 ±2%）;
+      // p(T) = q → v = (q − o)/T + ½·g·T（竖直）; T 由 ascentTime 按炸点高度给出
+      const T = aim.T ?? ascentTime(aim.y - L.mz);
+      const ddx = aim.x - p.x, ddz = aim.z - p.z;
+      const dl = Math.hypot(ddx, ddz) || 1;
+      const lat = (Math.random() - 0.5) * 2;
+      const q = new THREE.Vector3(
+        aim.x + (-ddz / dl) * lat,
+        aim.y * (1 + (Math.random() - 0.5) * 0.04),
+        aim.z + (ddx / dl) * lat
+      );
+      _bp.copy(q);                                    // 炸点（升空声收尾用）
+      v = q.sub(p).divideScalar(T);
+      v.y += 0.5 * SHELL_G * T;
+      asc = T;
+    } else {
+      // 壳体: 沿发射方向漂移 + 少量横向散布
+      const hs = 2.0 + Math.random() * 2.0;
+      const px = -L.dz, pz = L.dx; // 横向单位向量
+      v = new THREE.Vector3(
+        L.dx * hs + px * (Math.random() - 0.5) * 1.4,
+        v0y,
+        L.dz * hs + pz * (Math.random() - 0.5) * 1.4
+      );
+      asc = (v0y - V_BURST) / SHELL_G;
       _bp.copy(_tp).addScaledVector(v, asc);
       _bp.y = _tp.y + v0y * asc - 0.5 * SHELL_G * asc * asc;
-      audio.fireworkLaunch({ ...acoustics(_tp), ascent: asc, endDist: acoustics(_bp).dist });
     }
+    const head = headCursor;
+    headCursor = (headCursor + 1) % HEAD_MAX;
+    shells.push(aim
+      ? { p, v, kind, color, head, acc: 0, T: asc, p0: p.clone(), aid: aim.aid ?? null }
+      : { p, v, kind, color, head, acc: 0, T: 0 });
+    // 升空声: 管口闷响 + 连续哨音。哨音响到炸点为止, 时长 = 实际升空时间（与壳体积分同口径）;
+    // endDist = 炸点到听者的距离, 哨音收尾落在「炸点时刻 + 炸点声延迟」
+    if (audio) audio.fireworkLaunch({ ...acoustics(_tp), ascent: asc, endDist: acoustics(_bp).dist });
   }
 
   // 白热爆闪帧: 数颗超大短命白粒子, 爆裂瞬间的"裂"感
@@ -307,6 +360,7 @@ export function createFireworks(scene, { camera, audio, renderer }) {
   }
 
   function burstShell(sh) {
+    onBurst?.({ kind: sh.kind, x: sh.p.x, y: sh.p.y, z: sh.p.z, t: now, aimed: sh.T > 0, aid: sh.aid }); // 取证钩子
     kill(sh.head);
     if (sh.kind === "A") burstPeony(sh);
     else if (sh.kind === "B") burstWillow(sh);
@@ -319,11 +373,19 @@ export function createFireworks(scene, { camera, audio, renderer }) {
   }
 
   // ---------- 编排 ----------
+  // 地标礼花入列: 常规秀穿插 / 终曲收尾用。开关关闭或炸点表为空时不排
+  function queueSalute(at, a) {
+    if (!saluteOn || !a) return;
+    pending.push({ at, lid: a.lid, aim: { ...flightOf(a), aid: a.id } });
+    saluteAt[a.id] = now + at;
+    salutesQueued++;
+  }
+
   function scheduleShow() {
     if (!launchers.length) return;
     showCount++;
     if (showCount % 4 === 0) {
-      // 终曲: 6 站全开 × 两波错落
+      // 终曲: 全部发射架 × 两波错落, 收尾每处地标炸点各一发
       let t = 0.2;
       for (let w = 0; w < 2; w++) {
         for (let i = 0; i < launchers.length; i++) {
@@ -332,6 +394,7 @@ export function createFireworks(scene, { camera, audio, renderer }) {
           t += 0.3 + Math.random() * 0.4;
         }
       }
+      for (const a of anchors) queueSalute(t + Math.random() * 0.8, a);
     } else {
       // 常规场: 随机 2-3 台错落
       const idx = launchers.map((_, i) => i);
@@ -344,6 +407,10 @@ export function createFireworks(scene, { camera, audio, renderer }) {
         pending.push({ at: t, lid: i });
         if (Math.random() < 0.6) pending.push({ at: t + 0.3 + Math.random() * 0.4, lid: i });
         t += 0.5 + Math.random() * 0.7;
+      }
+      // 一半概率补一发地标礼花: 没人在顶上时, 地面也看得到地标烟花
+      if (anchors.length && Math.random() < 0.5) {
+        queueSalute(t + Math.random() * 0.8, anchors[(Math.random() * anchors.length) | 0]);
       }
     }
   }
@@ -363,8 +430,34 @@ export function createFireworks(scene, { camera, audio, renderer }) {
   function setLaunchers(list) {
     if (Array.isArray(list) && list.length) {
       launchers = list;
-      cdUntil.fill(-1, 0, list.length);
+      cdUntil = new Float64Array(list.length).fill(-1);   // 装填冷却随发射架数量重建（原为按兜底 6 座定长, 加站会写不进）
     }
+  }
+
+  // ---------- 地标礼花 ----------
+  const anchorById = (aid) => anchors.find((a) => a.id === aid);
+
+  // 当前设置下某炸点的落点与飞行时长 { x, y, z, T }
+  function flightOf(a) {
+    const L = a && launchers[a.lid];
+    if (!L || !Number.isFinite(a.eye)) return null;
+    const y = a.eye + saluteDy;
+    return { x: a.x, y, z: a.z, T: ascentTime(y - L.mz) };
+  }
+
+  // 朝炸点打一发（0.02s 后出膛）。返回是否已入列; 开关关闭 / 炸点或发射架缺失时为 false
+  function salute(aid) {
+    const a = saluteOn ? anchorById(aid) : null;
+    const f = flightOf(a);
+    if (!f) return false;
+    pending.push({ at: 0.02, lid: a.lid, aim: { ...f, aid } });
+    saluteAt[aid] = now;
+    salutesQueued++;
+    return true;
+  }
+
+  function setAnchors(list) {
+    anchors = (Array.isArray(list) ? list : []).filter((a) => a && flightOf(a));
   }
 
   function update(dt, elapsed) {
@@ -378,17 +471,27 @@ export function createFireworks(scene, { camera, audio, renderer }) {
     for (let k = pending.length - 1; k >= 0; k--) {
       pending[k].at -= dt;
       if (pending[k].at <= 0) {
-        launchShell(pending[k].lid);
+        launchShell(pending[k].lid, pending[k].aim);
         pending.splice(k, 1);
       }
     }
-    // 壳体升空: 彗星头直写 + 密集尾迹 + 顶点爆裂
+    // 壳体升空: 彗星头直写 + 密集尾迹 + 起爆
     for (let k = shells.length - 1; k >= 0; k--) {
       const sh = shells[k];
       _prev.copy(sh.p);
-      sh.v.y -= SHELL_G * dt;
-      sh.p.addScaledVector(sh.v, dt);
-      sh.acc += dt;
+      let vy; // 本帧竖直速度（尾迹撒星用）
+      if (sh.T > 0) {
+        // 定向弹: 位置取闭式解 p(t) = p0 + v·t − ½g t²（半隐式欧拉的累计和会随帧率低 0.1–0.35m, 定点起爆不能用它）
+        sh.acc = Math.min(sh.acc + dt, sh.T);
+        sh.p.copy(sh.p0).addScaledVector(sh.v, sh.acc);
+        sh.p.y -= 0.5 * SHELL_G * sh.acc * sh.acc;
+        vy = sh.v.y - SHELL_G * sh.acc;
+      } else {
+        sh.v.y -= SHELL_G * dt;
+        sh.p.addScaledVector(sh.v, dt);
+        sh.acc += dt;
+        vy = sh.v.y;
+      }
       // 彗星头（池首专用槽位, 每帧直写位置/亮度/尺寸闪烁）
       const hi3 = sh.head * 3;
       pos[hi3] = sh.p.x; pos[hi3 + 1] = sh.p.y; pos[hi3 + 2] = sh.p.z;
@@ -400,11 +503,12 @@ export function createFireworks(scene, { camera, audio, renderer }) {
       for (let s = 1; s <= n; s++) {
         _tp.lerpVectors(_prev, sh.p, s / (n + 1));
         _v.set((Math.random() - 0.5) * 1.6 + sh.v.x * 0.12,
-               (Math.random() - 0.5) * 1.6 + sh.v.y * 0.12,
+               (Math.random() - 0.5) * 1.6 + vy * 0.12,
                (Math.random() - 0.5) * 1.6 + sh.v.z * 0.12);
         spawn(_tp, _v, _c.set(COL_TRAIL), 0.3 + Math.random() * 0.3, 0.45 + Math.random() * 0.25);
       }
-      if (sh.v.y < 2.5) {
+      // 常规弹: 竖直速度降到 V_BURST 即爆; 定向弹: 飞满 T 秒起爆（时刻误差 ≤ 1 帧）
+      if (sh.T > 0 ? sh.acc >= sh.T : vy < V_BURST) {
         burstShell(sh);
         shells.splice(k, 1);
       }
@@ -453,10 +557,29 @@ export function createFireworks(scene, { camera, audio, renderer }) {
     // 亮度设置自 f2703d2 起实际失效, 火星一直按设计亮度的 2% 渲染(灰平片、从不过辉光阈值)
     bright = Math.min(2, Math.max(0, (s.fireworkBright ?? 100) / 100)) * BRIGHT_BASE;
     height = Math.min(90, Math.max(25, s.fireworkHeight ?? 55));
+    // 地标礼花: 总开关 + 炸点相对各处观景眼位的高度差（米）
+    saluteOn = s.fireworkSalute !== false;
+    saluteDy = Math.min(40, Math.max(-20, s.fireworkSaluteHeight ?? 0));
+  }
+
+  // 存活粒子数（取证用, 按需遍历）
+  function aliveCount() {
+    let n = 0;
+    for (let i = HEAD_MAX; i < MAX; i++) if (life[i] > 0) n++;
+    return n;
   }
 
   return {
     update, applySettings, fire, isReady, setLaunchers,
     getLaunchers: () => launchers,
+    // 地标礼花
+    salute, setAnchors,
+    saluteFlight: (aid) => flightOf(anchorById(aid)),   // { x, y, z, T }: 当前设置下的落点与飞行时长
+    getAnchors: () => anchors,
+    lastSalute: (aid) => saluteAt[aid] ?? -1e9,          // 某炸点上一发的发射时刻
+    set onBurst(fn) { onBurst = fn; },
+    // 取证辅助
+    debugShow: scheduleShow,                             // 立即排一轮秀（终曲每 4 轮一次）
+    stats: () => ({ overflow, salutesQueued, alive: aliveCount(), pending: pending.length, shells: shells.length }),
   };
 }
