@@ -59,7 +59,9 @@ export function createWisps(scene) {
   }
 
   function applySettings(s) {
-    const pct = Math.min(2, Math.max(0, s.mistDensity ?? 100)) / 100;
+    // 先除 100 再钳 0–2。旧写法 Math.min(2, Math.max(0, 值)) / 100 是先钳后除: 滑杆 5–200 一律得 0.02,
+    // 系数恒为 0.265 —— 灵火自上线(f2703d2)起一直比设计值暗(100% 应为 1.0), 且「地面漂雾」滑杆对它不起作用
+    const pct = Math.min(2, Math.max(0, (s.mistDensity ?? 100) / 100));
     for (const w of wisps) {
       w.gain = 0.25 + pct * 0.75;   // 无雾时灵火仍微亮, 不至于消失
     }
