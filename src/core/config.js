@@ -18,6 +18,7 @@ export const SETTINGS_GROUPS = [
     name: "显灵木马",
     items: [
       { key: "carouselSpinPeriod", label: "旋转转速", min: 10, max: 40, step: 1, def: 18, fmt: (v) => `${v} 秒/圈` },
+      { key: "carouselCanopyLight", label: "顶棚灯光亮度", min: 0, max: 200, step: 5, def: 100, fmt: pct }, // 顶棚吊灯 ×3 点光 (盘内唯一真实照明)
     ],
   },
   {

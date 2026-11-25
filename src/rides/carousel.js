@@ -13,12 +13,15 @@ const BOB_AMP = 0.22;     // 起伏幅度 (与 carousel.py 一致)
 const BOB_PERIOD = 3.0;   // 起伏周期秒
 const BOB_PHASE = 0.7;    // 相邻马位相位差
 const SPIN_PERIOD = 18;   // 默认转速 秒/圈
-const CANOPY_LIGHT_BASE = 22; // 顶棚补光点光基准强度
-// 顶棚补光 ×3 (对应预览 CR_PvLight: blender 方位 202+120k, r4.5, z4.6;
-// blender (x,y) -> glTF 本地 (x, -y))
+// 顶棚吊灯 ×3 的点光 (2026-11-25 重做): 与 carousel.py 的 CR_LampGlobe* 同位 ——
+// blender 方位 202+18+120k、r5.8、灯球心高 4.88; blender (x,y) -> glTF 本地 (x, -y)。
+// 旧版: 3 盏 22 强度挂在静态根上 (不随屋面转), 亮度挂的是摩天轮「舱内灯光」滑杆 —— 当时天花是
+// 整块自发光盘, 点光只是陪衬。现在盘面不发光, 这 3 盏是盘内唯一的真实照明: 基准提高,
+// 挂 CR_Spin 随屋面转 (与灯球同位), 归「显灵木马 · 顶棚灯光亮度」滑杆。
+const CANOPY_LIGHT_BASE = 60; // 「顶棚灯光亮度」100% 时每盏的强度
 const CANOPY_LIGHTS = [0, 1, 2].map((k) => {
-  const a = ((202 + (k * 360) / 3) * Math.PI) / 180;
-  return { x: 4.5 * Math.cos(a), z: -4.5 * Math.sin(a) };
+  const a = ((202 + 18 + (k * 360) / 3) * Math.PI) / 180;
+  return { x: 5.8 * Math.cos(a), z: -5.8 * Math.sin(a) };
 });
 
 export function createCarousel(gltfRoot, { player } = {}) {
@@ -68,26 +71,37 @@ export function createCarousel(gltfRoot, { player } = {}) {
     t: 0,                 // 起伏时钟（独立于转角, 转速调整不影响起伏节奏）
     spinPeriod: SPIN_PERIOD,
     decoLight: 1.0,
-    cabinLight: 0.4,
+    canopyLight: 1.0,   // 顶棚吊灯点光 (carouselCanopyLight)
   };
 
-  // 顶棚下补光 ×3（静态, 挂根; 随「舱内灯光亮度」联动）
+  // 顶棚吊灯点光 ×3（挂 CR_Spin 随屋面转, 位置 = 吊灯灯球心; 随「顶棚灯光亮度」联动）
   const canopyLights = CANOPY_LIGHTS.map((L) => {
-    const pl = new THREE.PointLight("#FFD9A8", 0, 13, 2);
-    pl.position.set(L.x, 4.6, L.z);
-    gltfRoot.add(pl);
+    const pl = new THREE.PointLight("#FFD9A8", 0, 12, 2);
+    pl.position.set(L.x, 4.88, L.z);
+    (spin ?? gltfRoot).add(pl);
     return pl;
   });
 
-  // 动态碰撞圆 x20: 每骑乘位 1 圆 + 每铜杆 1 圆
-  //   马 r0.55 无限高（顶 ~2.2 跳不上）; 座车 r0.85 h1.40（顶缘可跳站, 随盘转动）
-  //   铜杆 r0.10 无限高
+  // 动态碰撞圆: 按骑乘位的真实足迹布圆, 圆心沿行进切向 (本地 +X) 偏移 o 米
+  //   马 = 尾/身/头 3 圆 (无限高): 躯干长 3.2m, 单圆 r0.55 罩不住鼻尖 (+1.2m) 和尾梢 (+0.95m),
+  //        玩家能站进马头马里 (2026-11-25 评审实测); 头圈只到 +1.45m —— 鼻尖在高处, 不挡人
+  //   座车 = 前后 2 圆, 顶面 1.40 可跳站 (随盘转动); 铜杆 r0.10 (座车位不被身圈盖住, 仍需要)
+  //   相邻骑乘位中心距 3.83m: 马头圈与后一匹的尾圈之间仍留 ~1.1m 开口, 内圈甲板走得进去
+  const HORSE_DISCS = [[-0.85, 0.45], [0.0, 0.55], [1.05, 0.4]];
+  const CARRIAGE_DISCS = [[-0.45, 0.7, 1.4], [0.45, 0.7, 1.4]];
   const dyn = [];
+  const dynRide = [];   // dynRide[i] = [{ c, o }] (c 是 dyn 里的圆对象)
+  const dynPole = [];   // dynPole[i] = 铜杆圆
   for (let i = 0; i < RIDE_COUNT; i++) {
-    dyn.push(HORSE_IDX.has(i)
-      ? { x: 0, z: 0, r: 0.55 }
-      : { x: 0, z: 0, r: 0.85, h: 1.4 });
-    dyn.push({ x: 0, z: 0, r: 0.1 });
+    const list = (HORSE_IDX.has(i) ? HORSE_DISCS : CARRIAGE_DISCS).map(([o, r, h]) => {
+      const c = { x: 0, z: 0, r, ...(h !== undefined ? { h } : {}) };
+      dyn.push(c);
+      return { c, o };
+    });
+    dynRide.push(list);
+    const pole = { x: 0, z: 0, r: 0.1 };
+    dyn.push(pole);
+    dynPole.push(pole);
   }
   if (player?.registerCircles) player.registerCircles(dyn);
   else console.warn("[carousel] player 未传入, 动态碰撞未注册");
@@ -100,7 +114,7 @@ export function createCarousel(gltfRoot, { player } = {}) {
 
   // ---------- 骑乘（固定座位环游, 摩天轮乘坐模板的第二设施实现） ----------
   // 上马 = 锁定就近骑乘位; 相机帧 = 骑乘位根世界位姿（含起伏）+ 骑坐眼高;
-  // 马 eye 2.24（鞍座 ~1.51 + 躯干）, 座车 eye 1.36（座椅 ~0.6 + 躯干）。
+  // 马 eye 2.24（鞍面 1.50 + 躯干）, 座车 eye 2.22（座椅面 1.49 + 躯干）。
   let mountedIdx = -1;
 
   function nearestRideIdx() {
@@ -149,7 +163,8 @@ export function createCarousel(gltfRoot, { player } = {}) {
       r.updateWorldMatrix(true, false);
       _frame.pos.setFromMatrixPosition(r.matrixWorld);
       _frame.quat.setFromRotationMatrix(r.matrixWorld);
-      _frame.eye = HORSE_IDX.has(mountedIdx) ? 2.24 : 1.36;
+      // 座车座椅面 1.49 (鼓身平顶 1.40) -> 眼高 2.22; 2026-11-25 前是 1.36 (旧座车座椅埋在实心斗里)
+    _frame.eye = HORSE_IDX.has(mountedIdx) ? 2.24 : 2.22;
       _fx.set(1, 0, 0).applyQuaternion(_frame.quat);
       _frame.yaw = Math.atan2(-_fx.x, -_fx.z); // controller forward=(-sin,-cos)
       return _frame;
@@ -172,21 +187,25 @@ export function createCarousel(gltfRoot, { player } = {}) {
           r.position.y =
             DECK_Y + BOB_AMP * Math.sin((2 * Math.PI * state.t) / BOB_PERIOD + i * BOB_PHASE);
         }
-        // 动态碰撞圆跟随骑乘位世界位置（铜杆与骑乘位同方位）
+        // 动态碰撞圆跟随骑乘位世界位置: 身圈沿行进切向 (本地 +X = matrixWorld 第 0 列, 纯竖轴旋转已单位化) 偏移
         r.getWorldPosition(_wp);
-        dyn[i * 2].x = _wp.x;
-        dyn[i * 2].z = _wp.z;
-        dyn[i * 2 + 1].x = _wp.x;
-        dyn[i * 2 + 1].z = _wp.z;
+        const e = r.matrixWorld.elements;
+        const tx = e[0], tz = e[2];
+        for (const { c, o } of dynRide[i]) {
+          c.x = _wp.x + o * tx;
+          c.z = _wp.z + o * tz;
+        }
+        dynPole[i].x = _wp.x;
+        dynPole[i].z = _wp.z;
       }
     },
     // 应用设置面板（百分比 -> 实际参数）
     applySettings(s) {
       state.spinPeriod = clamp(s.carouselSpinPeriod ?? SPIN_PERIOD, 10, 40);
-      state.cabinLight = clamp(s.cabinLight, 0, 200) / 100;
+      state.canopyLight = clamp(s.carouselCanopyLight ?? 100, 0, 200) / 100;
       state.decoLight = clamp(s.decoLight, 0, 200) / 100;
       for (const { m, base } of glowMats) m.emissiveIntensity = base * state.decoLight;
-      for (const pl of canopyLights) pl.intensity = CANOPY_LIGHT_BASE * state.cabinLight;
+      for (const pl of canopyLights) pl.intensity = CANOPY_LIGHT_BASE * state.canopyLight;
     },
   };
 }

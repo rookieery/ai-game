@@ -849,6 +849,24 @@ add_box("PE_PathStall", (31.0, 3.0, 0.12), (-16.0, -32.0, -0.02), mat=m_path)
 for i, (rr, w) in enumerate(((24.0, 3.2), (44.0, 5.0), (68.0, 6.0))):
     add_torus(f"PE_GrassBand{i}", rr, w, (0, 0, -0.06), mat=m_grass, ms=96, ns=10, scale=(1, 1, 0.06))
 
+# 木马场地 (45,18) r14.6 内把草皮色带压到铺装面以下: 色带顶最高 +0.24, 高过木马铺装 (顶 0.04) 与地灯环 (顶 0.10),
+# 会从西北 / 东南两侧各盖住约 25° 的地灯环 (2026-11-25 评审)。压平范围比铺装 (r12.6) 多出 2m: 眼高 1.65m 在
+# 16.5m 外看环, 环外 0.3m 处只要高出 0.16m 就挡住视线, 回弹斜坡必须离环 >=2.7m。只压落在场地圆内的顶点,
+# 外侧留出一个主分段 (~2.9m) 的斜坡。重跑园区后必须跟 scripts/patch_carousel_colliders.mjs。
+def sink_under(ob, cx, cy, r_site, z_max):
+    """把 ob 落在 (cx,cy) 半径 r_site 圆内、世界高度高于 z_max 的顶点压到 z_max (ob 无旋转)。"""
+    zl = (z_max - ob.location.z) / ob.scale.z
+    n = 0
+    for v in ob.data.vertices:
+        if (v.co.x - cx) ** 2 + (v.co.y - cy) ** 2 < r_site * r_site and v.co.z > zl:
+            v.co.z = zl
+            n += 1
+    ob.data.update()
+    return n
+
+for i in range(3):
+    print("GRASSBAND_SINK", i, sink_under(bpy.data.objects[f"PE_GrassBand{i}"], 45.0, 18.0, 14.6, -0.02))
+
 tmark("ground/paths done")
 
 # ---------------- 入口大门 (南 r146) ----------------
@@ -987,7 +1005,8 @@ runs.append(((10.6, -10.6, 3.6), (10.6, 10.6, 3.6)))     # 广场对角
 runs.append(((-10.6, -10.6, 3.6), (-10.6, 10.6, 3.6)))
 runs.append(((-24.0, -26.0, 3.2), (-40.0, -30.0, 3.2)))  # 市集上空
 runs.append(((26.0, -34.0, 3.2), (40.0, -44.0, 3.2)))    # 墓园
-runs.append(((41.0, 14.0, 4.2), (49.0, 22.0, 4.2)))      # 旋转木马
+# (41,14)->(49,22) 「旋转木马」灯串已于 2026-11-25 删除: 它横穿木马盘面上空 (高 3.56–4.11m),
+# 每次重跑园区都会再生成 (11-17 的 strip 脚本只删过一次), 骑乘 / 盘面仰视时是一条穿过天花的黑线
 for i, (a_, b_) in enumerate(runs):
     string_lights(f"PE_Str{i}", a_, b_)
 
