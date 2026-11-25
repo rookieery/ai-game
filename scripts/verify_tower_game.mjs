@@ -165,7 +165,7 @@ try {
         towers: P.steps.filter((s) => s.z === -118).length, steps: P.steps.length };
     });
     check("加载: 塔 glb 材质齐全 (26 种 TW_*)", info.mats === 26, `${info.mats} 种`);
-    check("加载: 碰撞表已并入 park (叠层地面 8 / 南瓜灯打卡点 11), 旧塔台阶已不在", info.floors === 8 && info.pumpkins === 11 &&
+    check("加载: 碰撞表已并入 park (叠层地面 8 / 南瓜灯打卡点 12), 旧塔台阶已不在", info.floors === 8 && info.pumpkins === 12 &&
       info.towers === 0 && info.steps === 16, J(info));
 
     await hudVisible(false);
@@ -247,7 +247,7 @@ try {
     await page.waitForTimeout(400);
     const got = await page.evaluate(() => ({ n: window.__game.interact.collectedCount(), total: window.__game.interact.poiTotal(),
       lit: document.querySelectorAll("#hud .star-map svg.lit").length }));
-    check("按 E 收下塔顶南瓜灯, 星图点亮 1/11", got.n === 1 && got.total === 11 && got.lit === 1, J(got));
+    check("按 E 收下塔顶南瓜灯, 星图点亮 1/12", got.n === 1 && got.total === 12 && got.lit === 1, J(got));
     await walk("环廊继续绕行到东南角", "line", [pt(150, 4.8), pt(120, 4.75), pt(60, 4.8), pt(45, 4.8)], (w) => Math.abs(w.pos.y - 40) < 0.02 && w.airFrames === 0,
       { timeout: 30000 });
     const dTheta = await page.evaluate(async () => { const s = window.__game.ferris.state; const a = s.theta; await new Promise((r) => setTimeout(r, 1500)); return Math.abs(s.theta - a); });

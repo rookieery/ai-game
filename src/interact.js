@@ -3,7 +3,7 @@ import { KIND_NAME } from "./fx/fireworks.js";
 
 export function createInteract({
   input, player, park, hud, getState, onBoard, onBoardCarousel, onCollect, audio, fireworks,
-  coaster, coasterGate, onOpenGate, onBoardCoaster, tower,
+  coaster, coasterGate, onOpenGate, onBoardCoaster, tower, carousel,
 }) {
   const boarding = park?.boarding ?? { x: 0, z: 16.4 };
   // 显灵木马平台 (45,-18) r8.0: 台面上 (y≈0.62) 靠近中柱侧 r<7.6 出提示
@@ -90,14 +90,9 @@ export function createInteract({
       if (dist2(p.x, p.z, bx, bz) < 2.6) {
         active = { run: onBoard };
         label = "乘坐摩天轮";
-      } else if (
-        p.y > 0.4 && p.y < 1.2 &&
-        dist2(p.x, p.z, carouselCenter.x, carouselCenter.z) < 7.6
-      ) {
-        // 显灵木马盘面: 就近上马
-        active = { run: onBoardCarousel };
-        label = "骑上显灵木马";
       } else {
+        // 打卡点排在上马提示之前 (2026-11-26): 盘心祭坛的南瓜灯就落在上马范围 (盘面 r<7.6) 里,
+        // 排在后面的话站在它旁边永远只会出「骑上…」
         for (const poi of pois) {
           if (collected.has(poi.label)) continue;
           if (poi.y !== undefined && Math.abs(p.y - poi.y) > 2.5) continue; // 塔顶打卡点: 人得在那一层
@@ -106,6 +101,13 @@ export function createInteract({
             label = `收集南瓜灯（${collected.size + 1}/${pois.length}）`;
             break;
           }
+        }
+        // 显灵木马盘面: 就近上马, 提示报出坐骑名 (旧版恒为「骑上显灵木马」)
+        if (!active &&
+            p.y > 0.4 && p.y < 1.2 &&
+            dist2(p.x, p.z, carouselCenter.x, carouselCenter.z) < 7.6) {
+          active = { run: onBoardCarousel };
+          label = `骑上${carousel?.nameOf(carousel.nearest()) ?? "显灵木马"}`;
         }
         // 烟花发射器：E 槽位空闲时才提示（不与打卡/乘坐抢交互）; 键位徽标用 F
         if (!active && launchers.length) {

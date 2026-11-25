@@ -172,13 +172,18 @@ export function createHUD() {
     hidePrompt() { prompt.classList.remove("show"); },
     // 打卡
     setStars,
-    // 乘坐铭牌
+    // 乘坐铭牌 (铭牌亮着 = 正在乘坐: 这期间键位条收起 —— 里面的 WASD / Space / Shift 在座上都不起作用,
+    // 下乘等按键已写在铭牌提示里)
     showPlaque(name, hint) {
       plaqueName.textContent = name;
       plaqueHint.textContent = hint;
       plaque.classList.add("show");
+      keysBar.classList.add("riding");
     },
-    hidePlaque() { plaque.classList.remove("show"); },
+    hidePlaque() {
+      plaque.classList.remove("show");
+      keysBar.classList.remove("riding");
+    },
     // 转场遮罩：淡入 → cb（切换）→ 淡出
     transition(cb) {
       veil.classList.add("active");

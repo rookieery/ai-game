@@ -204,7 +204,7 @@ async function boot() {
   interact = createInteract({
     input, hud, audio,
     player, park, fireworks,
-    coaster, coasterGate, tower,
+    coaster, coasterGate, tower, carousel,
     getState: () => game.state,
     onOpenGate() {
       if (game.state !== "walk") return;
@@ -242,11 +242,11 @@ async function boot() {
       game.ride = "carousel";
       audio.setRiding(true);
       hud.transition(() => {
-        carousel.board();
+        const idx = carousel.board();
         const fr = carousel.getMountFrame();
         player.enterMount(() => carousel.getMountFrame());
         player.setView(fr.yaw, -0.04); // 初始视线 = 灵兽行进方向
-        hud.showPlaque("显灵木马", "灵兽环游 · 自由环视 · E 随时下乘");
+        hud.showPlaque(carousel.nameOf(idx), "显灵木马 · 灵兽环游 · 自由环视 · E 随时下乘"); // 铭牌报坐骑名
         game.state = "riding";
       });
     },

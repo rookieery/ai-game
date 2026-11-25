@@ -340,6 +340,7 @@ html, body, #app {
 
 .keys-bar.show { opacity: 1; }
 .keys-bar.show.dim { opacity: 0.4; } /* 入园 6s 后减淡，hover/Alt 恢复 */
+.keys-bar.riding { opacity: 0; } /* 乘坐中收起（铭牌亮着期间）：条上的 WASD / Space / Shift 在座上不起作用 */
 
 .keycap {
   display: inline-block;

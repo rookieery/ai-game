@@ -1,8 +1,9 @@
 // 旋转木马 colliders.json 手工补丁 (2026-11-17 起; 2026-11-25 重写为幂等版并修正几何)
 // 幂等: 本补丁加的圆带 src:"carousel", 重跑先清掉自己上次的, 再清 11-17 版留下的无标记旧圆。
 // 删: 旧占位剪影碰撞 (平台 r4.5 h0.555 / 中柱 r0.26 / 座椅 r0.35 x6, 距心 <=5.5 且 r<=4.5)
-// 加 (全部 src:"carousel", 现共 110 个):
-//   平台 r8.0 h0.62 / 中柱 r0.62 (金箍外径 0.61)
+// 加 (全部 src:"carousel", 现共 111 个圆 + 1 个打卡点):
+//   平台 r8.0 h0.62 / 中柱 r0.62 (金箍外径 0.61) / 盘心祭坛 r0.98 顶面 1.08 (2026-11-26)
+//   打卡点 pumpkin_carousel: 祭坛沿朝入口一侧的南瓜灯 (全园第 12 盏)
 //   三级入口台阶: 每级 9 个 r0.335 圆沿切向 0.35m 排开 —— 对齐可见踏步 (径向 0.67 x 切向 2.8 的盒)。
 //     圆半径 = 踏步半深, 排得密 (重叠 0.32) 是为了斜着走上台阶时支撑连续不抖; 5 个 r0.30 在 ±8° 斜走会掉格
 //     11-17 版用 3 个 r1.35 大圆, 脚高比可见踏步早约 1m 抬升 (入口主路踩空气)
@@ -50,7 +51,10 @@ const add = [];
 const C = (o) => ({ ...o, src: "carousel" });
 // 平台 (顶面可站 0.62) + 中柱 (无限高)
 add.push(C({ x: CX, z: CZ, r: 8.0, h: 0.62 }));
-add.push(C({ x: CX, z: CZ, r: 0.62 }));
+add.push(C({ x: CX, z: CZ, r: 0.62 }))
+// 盘心祭坛 (carousel.py 的 CR_Altar): 顶面 1.08 比台面高 0.46, 超过一步可迈的高度 -> 对台上的人是实心墙;
+// 跳上去也站不住 (中柱圆的排斥半径 1.0 大于坛半径)
+add.push(C({ x: CX, z: CZ, r: 0.98, h: 1.08 }));
 // 三级入口台阶 (blender r 8.33/9.0/9.67 @ azimuth 202° -> app (x, -y)); 切向单位向量
 const TX = Math.sin(deg(E)), TZ = Math.cos(deg(E));
 for (const [rr, h] of [[8.33, 0.465], [9.0, 0.31], [9.67, 0.155]]) {
@@ -70,6 +74,10 @@ for (const sgn of [-1, 1]) {
   add.push(C({ ...at(12.4, E + sgn * 12), r: 0.1 }));
 }
 j.circles.push(...add);
+// 打卡点 pumpkin_carousel: 祭坛沿朝入口一侧的南瓜灯 (r0.78 @ 202°; blender y -> app -y), 可重复执行
+j.pois = (j.pois ?? []).filter((p) => p.label !== "pumpkin_carousel");
+const pk = at(0.78, E);
+j.pois.push({ x: pk.x, y: 1.08, z: pk.z, label: "pumpkin_carousel" });
 console.log("added", add.length, "circles");
 
 writeFileSync(path, JSON.stringify(j, null, 1) + "\n");

@@ -570,6 +570,29 @@ for face in (1, -1):                       # +1 = 朝来路的正面; -1 = 背�
             lobed(f"CR_SignPump{tag}", 0.092, SP(u, -0.012, w0 + 0.012), m_pump_sh, lobes=8, amp=0.09, sz=0.80)
             add_cyl(f"CR_SignPumpStem{tag}", 0.012, 0.05, SP(u, 0.084, w0 + 0.012), mat=m_vine, verts=6)
 
+# 盘心祭坛 + 南瓜灯 (L 组, 2026-11-26): 评审指出全园 11 个打卡点没有一个在木马上, 上盘没有「上来的理由」。
+# 中柱脚下加一圈静止的矮坛 (不随盘转, 中柱在坛心里转), 坛沿朝入口一侧供一盏雕脸南瓜灯 = 第 12 个打卡点
+# (colliders.json 的 pumpkin_carousel, 由 scripts/patch_carousel_colliders.mjs 写入; 坛体碰撞圆 r0.98 h1.08)。
+ALT = {"r": 0.98, "top": 1.08}
+add_cyl("CR_Altar", ALT["r"], ALT["top"] - DECK, (0, 0, (ALT["top"] + DECK) / 2), mat=m_velvet_d, verts=16)
+add_torus("CR_AltarRim", ALT["r"], 0.03, (0, 0, ALT["top"]), mat=m_inlay, ms=48, ns=6)
+_apx, _apy = 0.78 * DIR_E[0], 0.78 * DIR_E[1]            # 南瓜灯位置 (朝入口一侧)
+add_torus("CR_AltarHalo", 0.27, 0.012, (_apx, _apy, ALT["top"] + 0.006), mat=m_pump_e, ms=32, ns=6)
+lobed("CR_AltarPumpkin", 0.22, (_apx, _apy, ALT["top"] + 0.172), m_pump_sh, lobes=8, amp=0.08, sz=0.80)
+add_cyl("CR_AltarStem", 0.018, 0.09, (_apx + 0.02 * DIR_E[0], _apy + 0.02 * DIR_E[1], ALT["top"] + 0.37),
+        mat=m_vine, verts=6)
+# 雕脸 (朝入口): 两只斜挑的「凶」眼 + 一道笑
+for sgn in (-1, 1):
+    eye = add_sphere(f"CR_AltarEye{sgn}", 1.0,
+                     (_apx + 0.225 * DIR_E[0] + sgn * 0.085 * -sin(E),
+                      _apy + 0.225 * DIR_E[1] + sgn * 0.085 * cos(E), ALT["top"] + 0.225),
+                     m_pump_e, seg=12, ring=8, scale=(0.03, 0.062, 0.034))
+    eye.rotation_euler = (radians(-16) * sgn, 0, E)       # 薄轴 = 板面法向, 长轴顺切向并斜挑
+smile = add_torus("CR_AltarSmile", 0.085, 0.018,
+                  (_apx + 0.225 * DIR_E[0], _apy + 0.225 * DIR_E[1], ALT["top"] + 0.135),
+                  rot=(radians(90), 0, E + pi / 2), mat=m_pump_e, ms=28, ns=6)
+torus_gap(smile, 70, 90)                                 # 开口朝上 = 笑
+
 # ================================ 机台 CR_Spin ==============================
 spin = add_empty("CR_Spin", (0, 0, 0))
 link_col(spin, col_spin)
@@ -990,11 +1013,7 @@ POSES = [
     # P2 飞跃: 双前收拢于胸下, 左后大展, 右后低拂
     {"FL": [(0.34, 0.20, 0.88), (0.46, 0.24, 0.74), (0.52, 0.26, 0.62), (0.42, 0.26, 0.56), (0.36, 0.26, 0.56)],
      "FR": None, "HL": [(-0.58, 0.20, 0.92), (-0.76, 0.24, 0.76), (-0.98, 0.26, 0.56), (-1.18, 0.27, 0.40), (-1.18, 0.27, 0.35)],
-     "HR": [(-0.58, -0.20, 0.92), (-0.74, -0.22, 0.72), (-0.96, -0.23, 0.50), (-1.20, -0.24, 0.36), (-1.20, -0.24, 0.32)]},
-    # P3 行进: 左前半抬, 其余支撑, 右后轻蹬
-    {"FL": [(0.34, 0.20, 0.88), (0.46, 0.23, 0.70), (0.54, 0.24, 0.56), (0.56, 0.24, 0.44), (0.56, 0.24, 0.40)],
-     "FR": _mir(FS), "HL": HS,
-     "HR": [(-0.58, -0.20, 0.92), (-0.68, -0.22, 0.72), (-0.84, -0.23, 0.50), (-0.98, -0.24, 0.36), (-0.98, -0.24, 0.32)]},
+     "HR": [(-0.58, -0.20, 0.92), (-0.74, -0.22, 0.72), (-0.96, -0.23, 0.50), (-1.20, -0.24, 0.36), (-1.20, -0.24, 0.32)]}
 ]
 for _p in POSES:
     _p["FR"] = _p["FR"] or _mir(_p["FL"])
@@ -1381,7 +1400,10 @@ def gilded_carriage(root):
 
 STYLE = {1: "ghost", 2: "ivory", 3: "pumpkin", 4: "ghost",
          6: "ivory", 7: "pumpkin", 8: "ghost", 9: "ivory"}
-POSE_IDX = {1: 0, 2: 1, 3: 2, 4: 3, 6: 1, 7: 2, 8: 3, 9: 0}   # 相邻位姿态不同
+# 每种灵兽一个标志性姿态: 幽灵马 = 扬蹄 (P0), 象牙马 = 奔驰 (P1), 南瓜马 = 飞跃 (P2)。
+# 相邻位本来就隔着别的灵兽, 姿态仍然不同; 同一种灵兽的几匹几何完全相同 -> glb 里共用一份网格
+# (dedupe_rides), 运行时合批成 InstancedMesh (K 组, 2026-11-26)。旧版 4 套姿态轮换。
+POSE_IDX = {1: 0, 4: 0, 8: 0, 2: 1, 6: 1, 9: 1, 3: 2, 7: 2}
 ride_roots = []
 bob_idx = []
 for i in range(P["rides"]):
@@ -1557,6 +1579,32 @@ for i in range(P["rides"]):                                            # 每骑�
     join_group(lambda ob, i=i: under_root(ob, f"CR_Ride_{i}"), f"CR_R{i}")
 bpy.ops.object.select_all(action="DESELECT")
 
+# 同款灵兽共用网格数据 (K 组, 2026-11-26): 每种灵兽只保留第一匹建好的网格, 其余同款骑乘位删掉自己的网格,
+# 换成母本的链接副本 (对象副本共享 mesh datablock) —— glTF 导出只写一份网格, 多个节点引用。
+# 运行时 (src/rides/carousel.js) 再把引用同一网格的骑乘位合批成 InstancedMesh。
+def dedupe_rides():
+    master = {}
+    for i, root in enumerate(ride_roots):
+        key = (STYLE.get(i), POSE_IDX.get(i))
+        if key[0] is None:            # 座车: 各只有一个
+            continue
+        meshes = [ob for ob in bpy.context.scene.objects if ob.type == "MESH" and ob.parent is root]
+        if key not in master:
+            master[key] = (i, meshes)
+            continue
+        mi, srcs = master[key]
+        for ob in meshes:
+            bpy.data.objects.remove(ob, do_unlink=True)
+        for src in srcs:
+            dup = src.copy()          # 共享 src.data
+            dup.name = src.name.replace(f"CR_R{mi}_", f"CR_R{i}_", 1)
+            dup.parent = root
+            bpy.context.scene.collection.objects.link(dup)
+        print(f"DEDUPE ride {i}: {len(srcs)} meshes share ride {mi} ({STYLE[i]})")
+
+
+dedupe_rides()
+
 # save source -----------------------------------------------------------------
 bpy.ops.wm.save_as_mainfile(filepath=str(OUT / "carousel.blend"))
 print("BLEND_SAVED")
@@ -1659,14 +1707,24 @@ if ground:
 for ob in [o for o in bpy.context.scene.objects if o.name.startswith("CR_PvLight")]:
     print("PV_LIGHT_REMOVED", ob.name)
     bpy.data.objects.remove(ob, do_unlink=True)
+# K 组 (2026-11-26): 导出前清掉旋转 / 起伏的动画数据并把姿态归零 —— 运行时 (src/rides/carousel.js) 自己驱动
+# 旋转与起伏, 不用烘焙动画。旧版把 9 条动画导进了 glb (运行时从未播放), 而且 CR_Spin 带着动画外推出来的
+# -0.67° 偏转 (theta=0 时骑乘位落在 201.33° 而不是 202°)。.blend 在上一步已经存盘, 里面的动画
+# (供可选的预览视频用) 不受影响。
+for ob in (spin, *ride_roots):
+    ob.animation_data_clear()
+spin.rotation_euler = (0.0, 0.0, 0.0)
+for root in ride_roots:
+    root.location.z = DECK
+# 不导出动画 (运行时不播放) 和 UV (全部材质无贴图, UV 是死数据, 占 glb 约 19%)
 try:
     bpy.ops.export_scene.gltf(filepath=str(OUT / "carousel.glb"),
-                              export_format="GLB", export_animations=True,
-                              export_apply=True)
+                              export_format="GLB", export_apply=True,
+                              export_animations=False, export_texcoords=False)
 except (TypeError, RuntimeError) as e:
     print("GLTF_KWARG_FALLBACK", type(e).__name__)
     bpy.ops.export_scene.gltf(filepath=str(OUT / "carousel.glb"),
-                              export_format="GLB")
+                              export_format="GLB", export_animations=False, export_texcoords=False)
 print("GLB_EXPORTED")
 
 # report ------------------------------------------------------------------------

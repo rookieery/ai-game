@@ -13,7 +13,7 @@
 //   "shots": [ ... ]                                   // 见下
 // }
 // 机位种类（公共可选项: fov | lens(等效 36mm 全画幅焦距) | crop:[x,y,w,h] CSS px | pick:[[u,v],...] 归一化屏幕坐标射线拾取
-//             | hide:["正则"] 按物体名隐藏(拍完恢复) | wait:ms | burst:{n, interval} 连拍 | hud:true 保留界面层）
+//             | hide:["正则"] 按物体名隐藏(拍完恢复) | wait:ms | burst:{n, interval} 连拍 | hud:true 保留界面层 | eval:"<JS>" 拍前在页面里执行 (同帧 A/B 对照用)）
 //   free: { name, pos:[x,y,z], target:[x,y,z] }          app 坐标，y=高度。木马中心 (45,0,-18)，平台顶 0.62
 //         或 bpos:[x,y,z] / bpolar:[r,方位角deg,z]        Blender 本地坐标(Z 向上, 入口方位 202°; 骑乘位 i 在 202°+36°·i)
 //   fp:   { name, walk:[x,z], y?:脚高(默认 0; 站平台用 0.62), target:[x,y,z] }   第一人称站姿机位(眼高 1.65+脚高)
@@ -346,6 +346,7 @@ for (const s of spec.shots ?? []) {
       await page.evaluate(() => window.__cr.unhide());
     } else {
       await page.evaluate(([p, t, fov]) => window.__cr.setCam(p, t, fov), [toApp(s), s.target, toFov(s)]);
+      if (s.eval) await page.evaluate(s.eval);
       await page.waitForTimeout(s.wait ?? 450);
       if (s.hide) await page.evaluate((rx) => window.__cr.hide(rx), s.hide);
       await page.waitForTimeout(120);

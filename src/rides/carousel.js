@@ -8,6 +8,11 @@ import * as THREE from "three";
 
 const HORSE_IDX = new Set([1, 2, 3, 4, 6, 7, 8, 9]); // 马位 (i0/i5 = 座车), 与 carousel.py 一致
 const RIDE_COUNT = 10;
+// 骑乘位名称 (提示与铭牌用, L 组 2026-11-26): 与 carousel.py 的 STYLE / 两辆座车一致
+const MOUNT_NAME = ["南瓜马车", "灵火幽灵马", "象牙鎏金马", "南瓜稻草马", "灵火幽灵马", "鎏金座车",
+  "象牙鎏金马", "南瓜稻草马", "灵火幽灵马", "象牙鎏金马"];
+// 调试开关: 地址带 ?noinst 时关掉同款灵兽合批 (取证对照用)
+const NO_INSTANCING = /[?&]noinst\b/.test(location.search);
 const DECK_Y = 0.62;      // 起伏基准 = 平台顶
 const BOB_AMP = 0.22;     // 起伏幅度 (与 carousel.py 一致)
 const BOB_PERIOD = 3.0;   // 起伏周期秒
@@ -60,6 +65,44 @@ export function createCarousel(gltfRoot, { player } = {}) {
   }
   const spinAxis = axes[minI];
 
+  // 同款灵兽合批 (K 组, 2026-11-26): 同一种灵兽的几匹在 glb 里本就共用一份网格 (carousel.py 的 dedupe_rides),
+  // 这里把它们的网格换成 InstancedMesh —— 每个 (网格, 材质) 一次 draw call, 而不是每个骑乘位一次。
+  // 实例矩阵每帧 = 骑乘根世界矩阵 × 网格本地矩阵, 再换到 glb 根的本地系 (update 里写)。
+  // 骑乘根 CR_Ride_i 本身不动: 动态碰撞、骑坐相机、就近判定照旧读它。合批之后每帧约 112 -> 57 个 draw call。
+  const rootInv = gltfRoot.matrixWorld.clone().invert();
+  const instanced = [];   // { mesh, items: [{ root, local }] }
+  if (!NO_INSTANCING) {
+    const signature = (r) => r.children.filter((o) => o.isMesh)
+      .map((o) => `${o.material.uuid}|${o.geometry.uuid}`).sort().join(";");
+    const groups = new Map();
+    for (const r of rides) {
+      if (!r) continue;
+      const sig = signature(r);
+      if (!sig) continue;
+      if (!groups.has(sig)) groups.set(sig, []);
+      groups.get(sig).push(r);
+    }
+    for (const list of groups.values()) {
+      if (list.length < 2) continue;
+      for (const base of list[0].children.filter((o) => o.isMesh)) {
+        const im = new THREE.InstancedMesh(base.geometry, base.material, list.length);
+        im.name = base.name;
+        im.frustumCulled = false;                 // 实例随盘每帧转, 单个实例不做视锥剔除
+        im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+        const items = [];
+        for (const r of list) {
+          const src = r.children.find((o) => o.isMesh && o.geometry === base.geometry);
+          src.updateMatrix();
+          items.push({ root: r, local: src.matrix.clone(), src });   // src 留着, setInstanced(false) 时挂回去
+          r.remove(src);
+        }
+        gltfRoot.add(im);
+        instanced.push({ mesh: im, items });
+      }
+    }
+    if (instanced.length) console.info(`[carousel] 同款灵兽合批: ${instanced.length} 个 InstancedMesh`);
+  }
+
   // 基准姿态（theta=0 时刻）
   const restWorld = spin.getWorldQuaternion(new THREE.Quaternion());
   const parentInv = spin.parent
@@ -110,6 +153,7 @@ export function createCarousel(gltfRoot, { player } = {}) {
   const _inv = new THREE.Quaternion();
   const _wp = new THREE.Vector3();
   const _fx = new THREE.Vector3();
+  const _m4 = new THREE.Matrix4();
   const _frame = { pos: new THREE.Vector3(), quat: new THREE.Quaternion(), eye: 2.24, yaw: 0 };
 
   // ---------- 骑乘（固定座位环游, 摩天轮乘坐模板的第二设施实现） ----------
@@ -136,6 +180,21 @@ export function createCarousel(gltfRoot, { player } = {}) {
     spinRoot: spin,
     rideRoots: rides,
     get mounted() { return mountedIdx; },
+    nameOf(idx) { return MOUNT_NAME[idx] ?? "显灵木马"; },   // 提示 / 铭牌用
+    instancedCount: instanced.length,
+    // 调试: 运行时切换同款灵兽合批 (同帧对照取证用, scripts/verify_carousel.mjs); 游戏路径始终开着
+    setInstanced(on) {
+      for (const { mesh, items } of instanced) {
+        if (on) {
+          gltfRoot.add(mesh);
+          for (const it of items) it.root.remove(it.src);
+        } else {
+          gltfRoot.remove(mesh);
+          for (const it of items) it.root.add(it.src);
+        }
+      }
+    },
+    nearest: nearestRideIdx,
     // 上马: 锁定就近骑乘位（platform 上按 E 时由 interact 触发）
     board() {
       mountedIdx = nearestRideIdx();
@@ -164,7 +223,7 @@ export function createCarousel(gltfRoot, { player } = {}) {
       _frame.pos.setFromMatrixPosition(r.matrixWorld);
       _frame.quat.setFromRotationMatrix(r.matrixWorld);
       // 座车座椅面 1.49 (鼓身平顶 1.40) -> 眼高 2.22; 2026-11-25 前是 1.36 (旧座车座椅埋在实心斗里)
-    _frame.eye = HORSE_IDX.has(mountedIdx) ? 2.24 : 2.22;
+      _frame.eye = HORSE_IDX.has(mountedIdx) ? 2.24 : 2.22;
       _fx.set(1, 0, 0).applyQuaternion(_frame.quat);
       _frame.yaw = Math.atan2(-_fx.x, -_fx.z); // controller forward=(-sin,-cos)
       return _frame;
@@ -197,6 +256,14 @@ export function createCarousel(gltfRoot, { player } = {}) {
         }
         dynPole[i].x = _wp.x;
         dynPole[i].z = _wp.z;
+      }
+      // 同款灵兽合批的实例矩阵 (上面 getWorldPosition 已把骑乘根的世界矩阵更新到本帧)
+      for (const { mesh, items } of instanced) {
+        for (let k = 0; k < items.length; k++) {
+          _m4.multiplyMatrices(items[k].root.matrixWorld, items[k].local).premultiply(rootInv);
+          mesh.setMatrixAt(k, _m4);
+        }
+        mesh.instanceMatrix.needsUpdate = true;
       }
     },
     // 应用设置面板（百分比 -> 实际参数）
