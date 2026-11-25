@@ -54,6 +54,7 @@ HEX = {
     "ivory":     "#EDE3CB",
     "velvet":    "#5A4390",
     "velvet_d":  "#3A2E56",
+    "velvet_2":  "#201936",
     "violet":    "#7A4FA8",
     "violet_g":  "#9B5BFF",
     "spirit":    "#8FE3D9",
@@ -259,6 +260,96 @@ def add_empty(name, loc):
     ob.empty_display_size = 0.6
     return ob
 
+
+def _mesh_obj(name, bm, mat, loc=(0, 0, 0), smooth_sh=True):
+    # bmesh -> 网格对象 (bpy.data 直建, 不走 op); 法线统一朝外
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    me = bpy.data.meshes.new(name)
+    bm.to_mesh(me)
+    bm.free()
+    ob = bpy.data.objects.new(name, me)
+    bpy.context.collection.objects.link(ob)
+    ob.location = loc
+    if mat:
+        me.materials.append(mat)
+    for poly in me.polygons:
+        poly.use_smooth = smooth_sh
+    return ob
+
+
+def prism2d(name, pts2d, thick, mat, loc=(0, 0, 0), rot=(0, 0, 0)):
+    # 薄棱片: XY 平面内的 (可凹) 多边形沿 Z 挤出 thick —— 招牌上的马首剪影用
+    bm = bmesh.new()
+    lo = [bm.verts.new((x, y, -thick / 2)) for x, y in pts2d]
+    hi = [bm.verts.new((x, y, thick / 2)) for x, y in pts2d]
+    caps = [bm.faces.new(lo), bm.faces.new(list(reversed(hi)))]
+    bmesh.ops.triangulate(bm, faces=caps)
+    for k in range(len(pts2d)):
+        k2 = (k + 1) % len(pts2d)
+        bm.faces.new((lo[k], lo[k2], hi[k2], hi[k]))
+    ob = _mesh_obj(name, bm, mat, loc, smooth_sh=False)
+    ob.rotation_euler = rot
+    return ob
+
+
+def swag(name, th0, th1, mat, z_top, d_seam, d_mid, r0, flare, fold,
+         v0=0.0, v1=1.0, thick=0.0, nt=8, nv=4):
+    # 波浪裙帘的一幅: 沿檐口从 th0 到 th1 的条带 (v 从挂点 0 到下缘 1).
+    # 下缘在接缝处垂 d_seam、在瓣心垂 d_mid; 半径随 v 外扩 flare, 瓣心再外鼓 fold.
+    # thick=0: 单层薄面 (配双面材质); thick>0: 封闭薄片 (鎏金描边用, 配单面材质).
+    def row(vv, dr):
+        out = []
+        for i in range(nt + 1):
+            u = i / nt
+            th = th0 + (th1 - th0) * u
+            sag = d_seam + (d_mid - d_seam) * sin(pi * u) ** 0.8
+            rr = r0 + (flare + fold * sin(pi * u)) * vv + dr
+            out.append((rr * cos(th), rr * sin(th), z_top - sag * vv))
+        return out
+    bm = bmesh.new()
+    layers = []
+    for dr in ((0.0,) if thick <= 0 else (0.0, -thick)):
+        layers.append([[bm.verts.new(pt) for pt in row(v0 + (v1 - v0) * j / nv, dr)]
+                       for j in range(nv + 1)])
+    for grid in layers:
+        for j in range(nv):
+            for i in range(nt):
+                bm.faces.new((grid[j][i], grid[j][i + 1], grid[j + 1][i + 1], grid[j + 1][i]))
+    if thick > 0:
+        a, b = layers
+        for j in (0, nv):
+            for i in range(nt):
+                bm.faces.new((a[j][i], a[j][i + 1], b[j][i + 1], b[j][i]))
+        for i in (0, nt):
+            for j in range(nv):
+                bm.faces.new((a[j][i], a[j + 1][i], b[j + 1][i], b[j][i]))
+    return _mesh_obj(name, bm, mat)
+
+def lobed(name, r, loc, mat, lobes=8, amp=0.07, sz=0.80, seg=32, ring=14):
+    # 瓜体: 带瓣的扁球 (南瓜), bpy.data 直建
+    bm = bmesh.new()
+    top = bm.verts.new((0, 0, r * sz))
+    rows = []
+    for j in range(1, ring):
+        ph = -pi / 2 + pi * j / ring
+        row = []
+        for i in range(seg):
+            th = 2 * pi * i / seg
+            rr = r * cos(ph) * (1 + amp * cos(lobes * th) * (0.35 + 0.65 * cos(ph) ** 2))
+            row.append(bm.verts.new((rr * cos(th), rr * sin(th), r * sz * sin(ph))))
+        rows.append(row)
+    bot = bm.verts.new((0, 0, -r * sz))
+    for i in range(seg):
+        i2 = (i + 1) % seg
+        bm.faces.new((top, rows[0][i2], rows[0][i]))
+        bm.faces.new((bot, rows[-1][i], rows[-1][i2]))
+    for j in range(len(rows) - 1):
+        for i in range(seg):
+            i2 = (i + 1) % seg
+            bm.faces.new((rows[j][i], rows[j][i2], rows[j + 1][i2], rows[j + 1][i]))
+    return _mesh_obj(name, bm, mat, loc)
+
+
 def obj_fcurves(ob):
     fcs = []
     ad = ob.animation_data
@@ -310,9 +401,12 @@ m_roof     = make_mat("CR_Roof", HEX["roof"], rough=0.88)                 # 双�
 m_skirt    = make_mat("CR_Skirt", HEX["skirt"], rough=0.7, metal=0.2, single=True)
 m_velvet   = make_mat("CR_Velvet", HEX["velvet"], rough=0.9, single=True)
 m_velvet_d = make_mat("CR_VelvetDark", HEX["velvet_d"], rough=0.85, metal=0.05, single=True)
-m_pain_v   = make_mat("CR_PaintViolet", HEX["violet"], rough=0.5, single=True)
 m_pain_o   = make_mat("CR_PaintOrange", HEX["pumpkin"], rough=0.5, single=True)
-m_pain_i   = make_mat("CR_PaintIvory", HEX["ivory"], rough=0.5, single=True)
+# 裙帘三色 (E 组, 用户定为契约色: 绒紫为主 + 每 3 幅 1 幅象牙, 鎏金描边; 南瓜橙只留给灯珠).
+# 裙帘是单层薄面, 这三种材质保持双面 (CR_PaintIvory 的其余用户是封闭图元, 双面只多一点填充)
+m_val_d    = make_mat("CR_ValanceDeep", HEX["velvet_2"], rough=0.92)
+m_val_v    = make_mat("CR_ValanceViolet", HEX["velvet_d"], rough=0.88)
+m_pain_i   = make_mat("CR_PaintIvory", HEX["ivory"], rough=0.6)
 m_bulb     = make_mat("CR_WarmBulb", HEX["warm"], rough=0.4, emit=HEX["warm"], strength=2.6, single=True)
 m_glow_v   = make_mat("CR_GlowViolet", HEX["violet_g"], rough=0.4, emit=HEX["violet_g"], strength=2.2, single=True)
 m_glow_g   = make_mat("CR_GlowGold", HEX["gold_br"], rough=0.4, emit=HEX["gold_br"], strength=2.2, single=True)
@@ -351,19 +445,27 @@ add_cyl("CR_GroundPreview", 42, 0.1, (0, 0, -0.05), mat=m_ground, verts=48)
 
 # 铺装 (venue pavement, 属于设施的一部分)
 add_cyl("CR_Pave", 12.6, 0.16, (0, 0, -0.04), mat=m_stone_d, verts=64)
-# 入口星徽: 法阵环 + 八向星芒 (断弧走廊内)
-sx, sy = 9.6 * DIR_E[0], 9.6 * DIR_E[1]
-add_torus("CR_StarRing", 0.85, 0.018, (sx, sy, 0.045), mat=m_inlay, ms=48, ns=6)
+# 入口星徽 (G 组, 2026-11-25 重做): 法阵环 + 八向星芒, 铺在入口走廊的地面上.
+# 旧版圆心在 r9.6 —— 78.7% 的面积压在最下一级台阶 (r9.34-10.0) 下面, 只剩一道金弧;
+# 辐条从 0.31m 起画、外端还穿出环外 8cm。新版圆心 r11.1: 台阶外缘 (10.0) 与地灯环 (11.9, 此处是
+# 它的入口缺口) 之间, 辐条从芯 (r0.13) 接到环内 (r0.70)。
+sx, sy = 11.1 * DIR_E[0], 11.1 * DIR_E[1]
+add_torus("CR_StarRing", 0.85, 0.022, (sx, sy, 0.045), mat=m_inlay, ms=48, ns=6)
 for k in range(8):
     a = k * pi / 4 + pi / 8
-    add_box(f"CR_StarSpoke{k}", (0.62, 0.05, 0.018),
-            (sx + 0.62 * cos(a), sy + 0.62 * sin(a), 0.045),
+    add_box(f"CR_StarSpoke{k}", (0.58, 0.045, 0.018),
+            (sx + 0.41 * cos(a), sy + 0.41 * sin(a), 0.045),
             rot=(0, 0, a), mat=m_inlay)
+add_cyl("CR_StarCore", 0.13, 0.02, (sx, sy, 0.046), mat=m_inlay, verts=20)
 
 # 入口台阶 (三级: 0.155/0.31/0.465, 顶接平台 0.62, 面向入口方位)
 for k, (rr, h) in enumerate(((8.33, 0.465), (9.0, 0.31), (9.67, 0.155))):
     add_box(f"CR_Step{k}", (0.67, 2.8, h), (rr * DIR_E[0], rr * DIR_E[1], h / 2),
             rot=(0, 0, E), mat=m_stone)
+    # 踏步前缘灯边 (G 组): 旧版台阶是暗灰压在黑铺装上, 入口主路看不清级高
+    nr_ = rr + 0.305
+    add_box(f"CR_StepNose{k}", (0.05, 2.8, 0.016), (nr_ * DIR_E[0], nr_ * DIR_E[1], h - 0.002),
+            rot=(0, 0, E), mat=m_inlay)
 # 台阶扶手: 每侧两柱一杆
 for sgn in (-1, 1):
     a1 = E + sgn * radians(11)
@@ -377,7 +479,9 @@ for sgn in (-1, 1):
     p2 = (9.75 * cos(a1), 9.75 * sin(a1), 0.155 + 0.62)
     cyl_between(f"CR_StepRail{sgn}", p1, p2, 0.035, m_wood_d, verts=8)
 
-# 排队围栏 r10.7: 立柱 12° 一根, 入口 ±15° 断开; 双层横杆 torus_gap ±14°
+# 排队围栏 r10.7: 立柱 12° 一根, 入口 ±15° 断开; 双层横杆接到缺口两端的两根立柱 (180° / 228°) 上.
+# (G 组) 旧版横杆 64 段、缺口按 ±14° 删点, 实际断在 185.6° / 219.4°: 一端越过 180° 柱外伸 1.05m,
+# 另一端离 228° 柱还差 1.61m。现在 120 段 (3° 一格, 立柱方位都在格点上), 删 (181°, 227°) 区间的点.
 FR = 10.7
 for k in range(30):
     th = k * pi / 15
@@ -386,35 +490,85 @@ for k in range(30):
     px, py = FR * cos(th), FR * sin(th)
     add_cyl(f"CR_FencePost{k}", 0.04, 0.92, (px, py, 0.46), mat=m_gold_dp, verts=8)
     add_sphere(f"CR_FenceTop{k}", 0.065, (px, py, 0.96), mat=m_bulb, seg=10, ring=6)
-torus_gap(add_torus("CR_FenceRail1", FR, 0.028, (0, 0, 0.55), mat=m_wood_d, ms=64, ns=6),
-          14, degrees(E))
-torus_gap(add_torus("CR_FenceRail2", FR, 0.028, (0, 0, 0.80), mat=m_wood_d, ms=64, ns=6),
-          14, degrees(E))
+torus_gap(add_torus("CR_FenceRail1", FR, 0.028, (0, 0, 0.55), mat=m_wood_d, ms=120, ns=6),
+          23, degrees(E) + 2)
+torus_gap(add_torus("CR_FenceRail2", FR, 0.028, (0, 0, 0.80), mat=m_wood_d, ms=120, ns=6),
+          23, degrees(E) + 2)
 
 # 断弧地灯环
 torus_gap(add_torus("CR_GroundRing", 11.9, 0.05, (0, 0, 0.05), mat=m_bulb, ms=72, ns=6),
           18, degrees(E))
 
-# 入口新月招牌: 双柱 + 小型绒面板 (深底鎏金新月徽, 不再整板发光)
+# 入口新月招牌 (G 组, 2026-11-25 重做): 旧版板宽 2.2m 横在入口轴正中、两柱相距 5.16m, 板端离柱 1.44m
+# 且没有任何连接 (悬空); 从入口轴 12-24m 看正好压住中柱。
+# 新版: 两根灯柱保留当门柱 (加高到 3.1m), 招牌板缩成 2.0x0.72 挂在右柱 (方位 E+12°, 来路玩家的右手)
+# 外侧的挑臂上, 板面朝来路 —— 入口轴的视线完全让开; 双面同图: 新月星徽 + 三灵剪影
+# (幽灵 = 三簇灵火 / 象牙 = 马首 / 南瓜 = 带瓣小瓜), 全部程序化几何, 不造字体。
+POST_R, POST_A, POST_H = 12.4, 12.0, 3.10
+SIGN_W, SIGN_H, SIGN_T, SIGN_Z, ARM_Z = 2.0, 0.72, 0.08, 2.62, 3.02
+_s_t = Vector((-sin(E), cos(E), 0))        # 切向, 指向方位增大一侧 (= 来路玩家的右手)
+_s_r = Vector((DIR_E[0], DIR_E[1], 0))     # 径向朝外 (朝来路)
+HORSE_HEAD = [(-0.22, -0.50), (0.14, -0.50),              # 颈根
+              (0.20, -0.20), (0.26, -0.02),              # 咽喉上行
+              (0.40, 0.00), (0.50, 0.02), (0.52, 0.10),   # 颌下 -> 鼻尖 (朝右)
+              (0.44, 0.16),                              # 上唇
+              (0.26, 0.24), (0.10, 0.34),                # 鼻梁 -> 额
+              (0.09, 0.50), (0.03, 0.40),                # 前耳
+              (-0.03, 0.54), (-0.08, 0.40),              # 后耳 -> 项
+              (-0.20, 0.22), (-0.26, 0.00)]              # 颈嵴
+post_xy = {}
 for sgn in (-1, 1):
-    a = E + sgn * radians(12)
-    px, py = 12.4 * cos(a), 12.4 * sin(a)
-    add_cyl(f"CR_SignPost{sgn}", 0.06, 2.8, (px, py, 1.4), mat=m_gold_dp, verts=10)
-    add_sphere(f"CR_SignPostTop{sgn}", 0.08, (px, py, 2.84), mat=m_bulb, seg=10, ring=6)
-bx, by = 12.4 * DIR_E[0], 12.4 * DIR_E[1]
-add_box("CR_SignBoard", (0.10, 2.2, 0.62), (bx, by, 2.55), rot=(0, 0, E), mat=m_velvet_d)
-add_box("CR_SignTrimT", (0.11, 2.2, 0.035), (bx, by, 2.84), rot=(0, 0, E), mat=m_glow_g)
-add_box("CR_SignTrimB", (0.11, 2.2, 0.035), (bx, by, 2.26), rot=(0, 0, E), mat=m_glow_g)
-add_torus("CR_SignMoon", 0.16, 0.045, (bx + 0.07 * DIR_E[0], by + 0.07 * DIR_E[1], 2.64),
-          rot=(radians(90), 0, E + pi / 2), mat=m_glow_g, ms=32, ns=6)
-torus_gap(bpy.data.objects["CR_SignMoon"], 70, 90)   # 开口朝上
-add_sphere("CR_SignStar", 0.055, (bx + 0.07 * DIR_E[0], by + 0.07 * DIR_E[1], 2.86),
-           mat=m_bulb, seg=10, ring=6, scale=(0.45, 0.45, 1.3))
-for k in range(5):
-    add_sphere(f"CR_SignDot{k}", 0.025,
-               (bx + 0.07 * DIR_E[0] + (k - 2) * 0.16 * -sin(E),
-                by + 0.07 * DIR_E[1] + (k - 2) * 0.16 * cos(E), 2.40),
-               mat=m_pain_i, seg=8, ring=5)
+    a = E + sgn * radians(POST_A)
+    px, py = POST_R * cos(a), POST_R * sin(a)
+    post_xy[sgn] = Vector((px, py, 0))
+    add_cyl(f"CR_SignPost{sgn}", 0.06, POST_H, (px, py, POST_H / 2), mat=m_gold_dp, verts=10)
+    add_sphere(f"CR_SignPostTop{sgn}", 0.08, (px, py, POST_H + 0.04), mat=m_bulb, seg=10, ring=6)
+# 板心: 与右柱同一径向深度, 从柱外侧 0.12m 起向走廊外挂
+_bc = _s_r * (POST_R * cos(radians(POST_A))) + _s_t * (POST_R * sin(radians(POST_A)) + 0.12 + SIGN_W / 2)
+_bc.z = SIGN_Z
+add_box("CR_SignBoard", (SIGN_T, SIGN_W, SIGN_H), _bc, rot=(0, 0, E), mat=m_velvet_d)
+for tag, dz in (("T", SIGN_H / 2 - 0.0175), ("B", -SIGN_H / 2 + 0.0175)):
+    add_box(f"CR_SignTrim{tag}", (SIGN_T + 0.012, SIGN_W, 0.035), _bc + Vector((0, 0, dz)),
+            rot=(0, 0, E), mat=m_glow_g)
+# 挑臂 + 两根吊杆 + 斜撑: 板与柱实心相连
+_pp = post_xy[1]
+_a0 = _pp + Vector((0, 0, ARM_Z))
+_a1 = Vector((_bc.x, _bc.y, ARM_Z)) + _s_t * (SIGN_W / 2 - 0.04)
+cyl_between("CR_SignArm", _a0, _a1, 0.03, m_gold_dp, verts=8)
+cyl_between("CR_SignBrace", _pp + Vector((0, 0, 2.26)), _a0.lerp(_a1, 0.55), 0.022, m_gold_dp, verts=8)
+for li, u in enumerate((-SIGN_W / 2 + 0.08, SIGN_W / 2 - 0.08)):
+    cyl_between(f"CR_SignLink{li}", _bc + _s_t * u + Vector((0, 0, SIGN_H / 2 - 0.03)),
+                _bc + _s_t * u + Vector((0, 0, ARM_Z)), 0.014, m_gold_dp, verts=6)
+add_sphere("CR_SignArmTip", 0.05, _a1 + _s_t * 0.06, m_gold_br, seg=10, ring=8)
+# 板面图样 (双面): 新月星徽 + 三枚圆牌
+for face in (1, -1):                       # +1 = 朝来路的正面; -1 = 背面 (图样左右镜像, 读者都从左读到右)
+    tag = "F" if face > 0 else "B"
+    nrm = _s_r * face
+    rot_p = (radians(90), 0, E + face * pi / 2)   # 本地 X = 该面读者的右方, 本地 Y = 上, 本地 Z = 外法向
+
+    def SP(u, v, w=0.0, _f=face, _n=nrm):
+        return _bc + _s_t * (_f * u) + Vector((0, 0, v)) + _n * w
+
+    w0 = SIGN_T / 2
+    moon = add_torus(f"CR_SignMoon{tag}", 0.17, 0.045, SP(-0.70, -0.02, w0 + 0.03), rot=rot_p,
+                     mat=m_glow_g, ms=32, ns=6)
+    torus_gap(moon, 70, 90)                # 开口朝上
+    add_sphere(f"CR_SignStar{tag}", 0.05, SP(-0.70, 0.235, w0 + 0.03), mat=m_bulb, seg=10, ring=6,
+               scale=(0.5, 0.5, 1.3))
+    for mi, (u, kind) in enumerate(((-0.196, "ghost"), (0.274, "ivory"), (0.744, "pumpkin"))):
+        add_cyl(f"CR_SignMedal{tag}{mi}", 0.20, 0.035, SP(u, 0, w0 + 0.008), rot=rot_p, mat=m_velvet, verts=24)
+        add_torus(f"CR_SignMedalRing{tag}{mi}", 0.20, 0.016, SP(u, 0, w0 + 0.03), rot=rot_p,
+                  mat=m_gold_br, ms=28, ns=6)
+        if kind == "ghost":
+            for j, (du, hh, rr_) in enumerate(((-0.078, 0.13, 0.040), (0.0, 0.21, 0.052), (0.078, 0.12, 0.038))):
+                add_cone(f"CR_SignFlame{tag}{j}", rr_, hh, SP(u + du, -0.115 + hh / 2, w0 + 0.034),
+                         mat=m_spirit, verts=8, r2=0.004)
+        elif kind == "ivory":
+            prism2d(f"CR_SignHorse{tag}", [(x * 0.30, y * 0.30) for x, y in HORSE_HEAD], 0.014, m_pain_i,
+                    SP(u, 0.0, w0 + 0.034), rot_p)
+        else:
+            lobed(f"CR_SignPump{tag}", 0.092, SP(u, -0.012, w0 + 0.012), m_pump_sh, lobes=8, amp=0.09, sz=0.80)
+            add_cyl(f"CR_SignPumpStem{tag}", 0.012, 0.05, SP(u, 0.084, w0 + 0.012), mat=m_vine, verts=6)
 
 # ================================ 机台 CR_Spin ==============================
 spin = add_empty("CR_Spin", (0, 0, 0))
@@ -496,26 +650,45 @@ for k in range(3):
     S(add_sphere(f"CR_LampGlobe{k}", 0.17, (lx, ly, LAMP["globe_z"]), m_bulb, seg=16, ring=10))
     S(add_cone(f"CR_LampDrop{k}", 0.035, 0.10, (lx, ly, LAMP["globe_z"] - 0.21), mat=m_gold_dp, verts=8,
                rot=(pi, 0, 0)))
+# 屋面 (E 组, 2026-11-25): 旧版 12 根肋的轴心贴着锥面 —— 上段大半埋进锥体 (埋深最多 5.2cm / 肋半径
+# 5.5cm), 只有靠檐口的下端露出来; 屋面没有任何别的东西, 从摩天轮顶 / 缠魂塔看下来是一个黑盘。
+# 现在肋轴沿锥面外法向抬 0.03m (嵌 45% 露 55%), 改用微发光的 CR_InlayGold; 加两道同心金环 (压扁的环面)。
+
+
+def cone_z(r):
+    return roof_z + P["roof_h"] / 2 - (P["roof_h"] / P["roof_r"]) * r      # 锥面在半径 r 处的高度
+
+
+_nr, _nz = 0.2814, 0.9596                       # 锥面外法向的 (径向, 竖向) 分量
 for k in range(12):
     th = k * pi / 6 + 0.26
     S(cyl_between(f"CR_RoofRib{k}",
-                  (0.85 * cos(th), 0.85 * sin(th), roof_z + P["roof_h"] / 2 - 0.25),
-                  (9.28 * cos(th), 9.28 * sin(th), P["canopy_z"] + 0.10),
-                  0.055, m_gold_dp, verts=6))
+                  ((0.85 + 0.03 * _nr) * cos(th), (0.85 + 0.03 * _nr) * sin(th), cone_z(0.85) + 0.03 * _nz),
+                  ((9.28 + 0.03 * _nr) * cos(th), (9.28 + 0.03 * _nr) * sin(th), cone_z(9.28) + 0.03 * _nz),
+                  0.06, m_inlay, verts=8))
+for i, rr in enumerate((3.2, 6.4)):
+    S(add_torus(f"CR_RoofRing{i}", rr, 0.05, (0, 0, cone_z(rr) + 0.012), mat=m_inlay, ms=80, ns=8,
+                scale=(1, 1, 0.4)))
 S(add_torus("CR_RoofRim", 9.35, 0.07, (0, 0, P["canopy_z"] + 0.06), mat=m_gold_br, ms=72, ns=8))
 
-# 波浪裙边: 36 瓣交叠 (紫/橙/象牙轮换) + 裙沿金杆 + 瓣间暖光灯珠
+# 波浪裙边 (E 组, 2026-11-25 重做; 配色用户定为契约色): 旧版是 36 颗紫/橙/象牙轮换的离散椭球「糖豆」
+# (相邻两瓣互穿 10.5cm, 读起来偏儿童乐园)。新版: 36 幅连续垂幔, 每 3 幅 = 象牙 1 幅 + 深绒紫 1 幅 +
+# 绒紫 1 幅 (南瓜橙只留给灯珠), 下缘一道鎏金描边, 每幅最低点挂一颗暖光灯珠 —— 灯串跟着波浪走。
 NS = 36
+VAL = {"z_top": P["canopy_z"] - 0.04, "d_seam": 0.26, "d_mid": 0.66, "r0": 9.16, "flare": 0.13, "fold": 0.03}
 for k in range(NS):
-    th = k * 2 * pi / NS
-    mat = (m_pain_v, m_pain_o, m_pain_i)[k % 3]
-    S(add_sphere(f"CR_Scallop{k}", 1.0, (9.15 * cos(th), 9.15 * sin(th), P["canopy_z"] - 0.36),
-                 mat=mat, seg=14, ring=8, scale=(0.155, 0.85, 0.42), rot=(0, 0, th)))
-S(add_torus("CR_ScallopRod", 9.15, 0.02, (0, 0, P["canopy_z"] - 0.02), mat=m_gold_br, ms=64, ns=6))
-for k in range(NS):
-    th = k * 2 * pi / NS
-    S(add_sphere(f"CR_ValanceBulb{k}", 0.075, (9.15 * cos(th), 9.15 * sin(th), P["canopy_z"] - 0.86),
-                 mat=m_bulb, seg=10, ring=6))
+    th0, th1 = k * 2 * pi / NS, (k + 1) * 2 * pi / NS
+    mat = (m_pain_i, m_val_d, m_val_v)[k % 3]
+    S(swag(f"CR_Scallop{k}", th0, th1, mat, VAL["z_top"], VAL["d_seam"], VAL["d_mid"],
+           VAL["r0"], VAL["flare"], VAL["fold"]))
+    S(swag(f"CR_ScallopTrim{k}", th0, th1, m_inlay, VAL["z_top"], VAL["d_seam"], VAL["d_mid"],
+           VAL["r0"], VAL["flare"], VAL["fold"], v0=0.90, v1=1.0, thick=0.014, nv=1))
+    thm = 0.5 * (th0 + th1)
+    S(add_sphere(f"CR_ValanceBulb{k}", 0.075,
+                 ((VAL["r0"] + VAL["flare"] + VAL["fold"]) * cos(thm),
+                  (VAL["r0"] + VAL["flare"] + VAL["fold"]) * sin(thm),
+                  VAL["z_top"] - VAL["d_mid"] - 0.075), mat=m_bulb, seg=10, ring=6))
+S(add_torus("CR_ScallopRod", 9.15, 0.02, (0, 0, P["canopy_z"] - 0.02), mat=m_gold_br, ms=96, ns=6))
 
 # ============================ 新月星芒顶饰 (F 组, 2026-11-25 重做) ============================
 # 旧版: 圆环弧月亮 R0.58 —— 眼高平视约 20m 内被自家檐口 (R9.35 @ z5.66) 挡死; 且没挂到旋转根下
@@ -678,22 +851,6 @@ def _refine(chain, per=3):
     return out
 
 
-def _mesh_obj(name, bm, mat, loc=(0, 0, 0)):
-    # bmesh -> 平滑着色的网格对象 (bpy.data 直建, 不走 op)
-    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
-    me = bpy.data.meshes.new(name)
-    bm.to_mesh(me)
-    bm.free()
-    ob = bpy.data.objects.new(name, me)
-    bpy.context.collection.objects.link(ob)
-    ob.location = loc
-    if mat:
-        me.materials.append(mat)
-    for poly in me.polygons:
-        poly.use_smooth = True
-    return ob
-
-
 LIFT = 0.07   # 躯干抬升量: 旧版腹底离蹄 0.56m (占身高 47%, 真马约 55%); 抬身后腿变长, 蹄位不动 (起伏下限不变)
 
 # 颈+躯干: (x, z_center, 侧向半宽 rx, 垂直半高 rz)  枕部 -> 颈 -> 鬐甲 -> 背胸腹 -> 臀 -> 尾根 (z 不含 LIFT)
@@ -795,31 +952,6 @@ def shell(name, x0, x1, half_deg, off, thick, mat, wave=0.10, nx=10, na=12):
         bm.faces.new((lo[0][j], lo[0][j + 1], hi[0][j + 1], hi[0][j]))
         bm.faces.new((lo[nx][j], hi[nx][j], hi[nx][j + 1], lo[nx][j + 1]))
     return _mesh_obj(name, bm, mat)
-
-
-def lobed(name, r, loc, mat, lobes=8, amp=0.07, sz=0.80, seg=32, ring=14):
-    # 瓜体: 带瓣的扁球 (南瓜), bpy.data 直建
-    bm = bmesh.new()
-    top = bm.verts.new((0, 0, r * sz))
-    rows = []
-    for j in range(1, ring):
-        ph = -pi / 2 + pi * j / ring
-        row = []
-        for i in range(seg):
-            th = 2 * pi * i / seg
-            rr = r * cos(ph) * (1 + amp * cos(lobes * th) * (0.35 + 0.65 * cos(ph) ** 2))
-            row.append(bm.verts.new((rr * cos(th), rr * sin(th), r * sz * sin(ph))))
-        rows.append(row)
-    bot = bm.verts.new((0, 0, -r * sz))
-    for i in range(seg):
-        i2 = (i + 1) % seg
-        bm.faces.new((top, rows[0][i2], rows[0][i]))
-        bm.faces.new((bot, rows[-1][i], rows[-1][i2]))
-    for j in range(len(rows) - 1):
-        for i in range(seg):
-            i2 = (i + 1) % seg
-            bm.faces.new((rows[j][i], rows[j][i2], rows[j + 1][i2], rows[j + 1][i]))
-    return _mesh_obj(name, bm, mat, loc)
 
 
 def flame(root, name, base, direction, length, r0, mat, sway=0.0, seg=8):

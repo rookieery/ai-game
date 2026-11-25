@@ -61,8 +61,9 @@ async function walk(az, r0, seconds, y = 0) {
 
 // ---------- F 围栏 ----------
 const fenceAz = [];
-// 基准方位取在入口走廊 (188°–220°) 之外: 走廊两端的端头圆会把斜着走来的人滑进走廊, 那是正常行为
-for (const base of [30, 138, 228, 306]) for (let d = -5; d <= 5; d++) fenceAz.push(base + d);
+// 基准方位取在入口走廊 (180°–228°) 之外: 走廊两端的端头圆会把斜着走来的人滑进走廊, 那是正常行为;
+// 走廊是否开阔由下面「台侧」两项断言 (188° / 216° 必须一路走到平台侧壁, 不能被围栏截在 r≈11)
+for (const base of [30, 138, 234, 306]) for (let d = -5; d <= 5; d++) fenceAz.push(base + d);
 const through = [];
 for (const az of fenceAz) {
   const w = await walk(az, 12.4, 1.7);
