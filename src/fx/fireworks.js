@@ -5,6 +5,7 @@
 // 声音: 升空 / 爆裂 / 火星分裂三个触发点把事件位置换算成「距离 + 方位」交给 audio;
 //       音色合成、声延迟(343m/s)、距离衰减、声像都在 core/fw_sound.js
 // 主题色板与品牌色一致; 零外部素材
+// 火星画法 (2026-11-25 细锐化): 高斯亮核 + 屏幕尺寸上限 + 能量补偿, 亮度滑杆 100% = BRIGHT_BASE (见常量区)
 import * as THREE from "three";
 
 const MAX = 6144;        // 粒子池容量（终曲全开 ~2500 并发仍有裕量）
@@ -13,6 +14,15 @@ const GRAV = 3.2;        // 余烬重力（远小于真实 g, 梦幻缓坠）
 const DRAG_PER_S = 0.6;  // vel *= DRAG_PER_S^dt 的大气阻尼
 const SHELL_G = 7.5;     // 壳体升空重力（v0y 由炸点高度反解: v0y = sqrt(2·SHELL_G·h)）
 const PAN_SPREAD = 0.85; // 炸点在相机右侧 → pan = +0.85, 左侧 → -0.85（等功率声像的方位系数）
+
+// ---- 火星画法: 把火星当「点光源」画——亮核很小、个头几乎不随距离变, 距离感靠亮度 ----
+// 精灵尺寸 = 世界尺寸投影(随 1/距离) 再钳到屏幕上下限。没有上限时近看(缠魂塔上 26-46m)一颗火星
+// 是 20-50px 的软圆片, 满屏散景; 11-17 的颗粒语言是按地面 47-57m 标定的, 当时没有这么近的机位。
+const SIZE_CAP = 0.0157;  // 精灵屏幕上限 / uScale(画布 CSS 半高): 1271px 高的画布上, aSize=SIZE_REF 的火星约 10px
+const SIZE_REF = 2.1;     // 「普通火星」的 aSize(牡丹均值); 上限按 sqrt(aSize/SIZE_REF) 浮动, 保住 大火星 > 火星 > 尾迹 的个头差
+const SIZE_MIN = 1.5;     // 精灵屏幕下限(像素), 防远处亚像素闪烁
+const CAP_BOOST = 0.25;   // 被上限截断时的能量补偿: vColor × (原尺寸/钳后尺寸)^(2×CAP_BOOST)。0 = 不补(近处不更亮); 0.5 = 按直径比补(近处炸点糊成光团)
+const BRIGHT_BASE = 0.2;  // 亮度滑杆 100% 对应的系数: 与高斯亮核配套标定(0.6 时爆裂后 0.5s 内辉光会把炸点周围的天空冲灰)
 
 export const KIND_NAME = { A: "牡丹发射架", B: "垂柳塔", C: "椰芯连环炮" };
 
@@ -31,17 +41,20 @@ const FALLBACK = [
   { id: "L6", kind: "C", x: 11,   z: 84,  dx: -0.13,  dz: -0.991, mz: 1.28 },
 ];
 
+// 火星纹理: 高斯亮核 + 弱晕。片元按 alpha² 落地(加色混合写法见片元着色器), 所以这里画的是
+// alpha = exp(-½(r/σ)²), σ = 0.52 个渐变半径 → 实际亮度半高全宽约为精灵直径的 41%。
+// (旧纹理是 55% 半径内全亮的平顶圆片: 远看是光点, 近看就是一张软边圆片——没有亮核, 变暗时只剩灰色平圆片)
+const GLOW_SIGMA = 0.52;
 function makeGlowTexture() {
   const c = document.createElement("canvas");
   c.width = c.height = 64;
   const g = c.getContext("2d");
   const grad = g.createRadialGradient(32, 32, 0, 32, 32, 30);
-  // 锐核光点: 颗粒分明的前提 (软晕会在大颗粒尺寸下糊成云)
-  grad.addColorStop(0, "rgba(255,255,255,1)");
-  grad.addColorStop(0.55, "rgba(255,255,255,0.95)");
-  grad.addColorStop(0.75, "rgba(255,255,255,0.5)");
-  grad.addColorStop(0.9, "rgba(255,255,255,0.12)");
-  grad.addColorStop(1, "rgba(255,255,255,0)");
+  for (let i = 0; i < 24; i++) {
+    const t = i / 24;
+    grad.addColorStop(t, `rgba(255,255,255,${Math.exp(-0.5 * (t / GLOW_SIGMA) ** 2).toFixed(4)})`);
+  }
+  grad.addColorStop(1, "rgba(255,255,255,0)"); // 渐变圆外(精灵四角)取末档颜色, 末档必须归零, 否则四角带一层淡光
   g.fillStyle = grad;
   g.fillRect(0, 0, 64, 64);
   return new THREE.CanvasTexture(c);
@@ -64,16 +77,27 @@ export function createFireworks(scene, { camera, audio, renderer }) {
   const points = new THREE.Points(
     geo,
     new THREE.ShaderMaterial({
-      uniforms: { uMap: { value: makeGlowTexture() }, uScale: { value: 720 } },
+      uniforms: {
+        uMap: { value: makeGlowTexture() }, uScale: { value: 720 },
+        uMaxPx: { value: 720 }, uMinPx: { value: SIZE_MIN }, uBoostExp: { value: CAP_BOOST },
+      },
       vertexShader: /* glsl */ `
         attribute vec3 aColor;
         attribute float aSize;
         uniform float uScale;
+        uniform float uMaxPx;
+        uniform float uMinPx;
+        uniform float uBoostExp;
         varying vec3 vColor;
         void main() {
-          vColor = aColor;
           vec4 mv = modelViewMatrix * vec4(position, 1.0);
-          gl_PointSize = aSize * (uScale / max(1.0, -mv.z));
+          // 世界尺寸投影(与 three 内置 points 同式) → 钳到屏幕上下限; 上下限随 aSize 浮动
+          float s = aSize * (uScale / max(1.0, -mv.z));
+          float rel = clamp(sqrt(aSize / ${SIZE_REF}), 0.5, 1.45);
+          float px = clamp(s, uMinPx * rel, uMaxPx * rel);
+          // 被钳掉的尺寸补成亮度: 近处的火星更亮, 而不是更大
+          vColor = aColor * pow(s / px, 2.0 * uBoostExp);
+          gl_PointSize = px;
           gl_Position = projectionMatrix * mv;
         }`,
       fragmentShader: /* glsl */ `
@@ -81,6 +105,7 @@ export function createFireworks(scene, { camera, audio, renderer }) {
         varying vec3 vColor;
         void main() {
           float a = texture2D(uMap, gl_PointCoord).a;
+          // 加色混合按 src×srcAlpha 累加, 而 rgb 已乘过一次 a → 实际落地的亮度按 a² 衰减
           gl_FragColor = vec4(vColor * a, a);
         }`,
       blending: THREE.AdditiveBlending,
@@ -407,9 +432,11 @@ export function createFireworks(scene, { camera, audio, renderer }) {
       colA[i3 + 2] = base[i3 + 2] * b;
       if (life[i] <= 0) kill(i);
     }
-    // uScale = 画布半高(设备像素): gl_PointSize 公式与 three 内部 points 一致
     if (renderer) {
-      points.material.uniforms.uScale.value = Math.max(1, renderer.domElement.height / (renderer.getPixelRatio() || 1) / 2); // CSS 像素基准, Hi-DPI 不放大
+      // uScale = 画布 CSS 半高: 精灵尺寸与上限都以它为基准, 同一视场角下各分辨率/缩放的火星视角大小一致
+      const u = points.material.uniforms;
+      u.uScale.value = Math.max(1, renderer.domElement.height / (renderer.getPixelRatio() || 1) / 2); // CSS 像素基准, Hi-DPI 不放大
+      u.uMaxPx.value = Math.max(3, u.uScale.value * SIZE_CAP);
     }
     geo.attributes.position.needsUpdate = true;
     geo.attributes.aColor.needsUpdate = true;
@@ -422,7 +449,9 @@ export function createFireworks(scene, { camera, audio, renderer }) {
 
   function applySettings(s) {
     period = Math.max(0, s.fireworkPeriod ?? 30);
-    bright = Math.min(2, Math.max(0, s.fireworkBright ?? 100)) / 100;
+    // 先除 100 再钳 0–2。旧写法 Math.min(2, Math.max(0, 值)) / 100 是先钳后除: 滑杆 5–200 一律得 0.02,
+    // 亮度设置自 f2703d2 起实际失效, 火星一直按设计亮度的 2% 渲染(灰平片、从不过辉光阈值)
+    bright = Math.min(2, Math.max(0, (s.fireworkBright ?? 100) / 100)) * BRIGHT_BASE;
     height = Math.min(90, Math.max(25, s.fireworkHeight ?? 55));
   }
 
