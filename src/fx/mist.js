@@ -41,14 +41,16 @@ function makePuffAtlas() {
 }
 
 // ---------- 共享 GLSL：灯光暖晕 + 场景夜雾一致混合 ----------
+const N_TINT = 9;   // 灯染槽数（= 下方 TINT_LIGHTS 的条数，GLSL 数组按它开）；增删灯染源时同步改这里
+
 const LIGHT_TINT_GLSL = /* glsl */ `
-  uniform vec3 uLightPos[8];
-  uniform vec3 uLightCol[8];
-  uniform float uLightR[8];
+  uniform vec3 uLightPos[${N_TINT}];
+  uniform vec3 uLightCol[${N_TINT}];
+  uniform float uLightR[${N_TINT}];
 
   vec3 lightTint(vec3 wp) {
     vec3 acc = vec3(0.0);
-    for (int i = 0; i < 8; i++) {
+    for (int i = 0; i < ${N_TINT}; i++) {
       float d = distance(wp, uLightPos[i]);
       acc += uLightCol[i] * smoothstep(uLightR[i], uLightR[i] * 0.12, d);
     }
@@ -210,17 +212,25 @@ const CLUSTERS = [
   [16, 92, 10, 7],      // 南外环灯下
 ];
 
-// 灯染源：live ≥ 0 跟随 world.plazaLights 对应灯的实时强度，-1 为静态南瓜点（随 parkLampLight 总增益）
+// 灯染源：live 为数字 = 跟随 world.plazaLights 对应下标的实时强度；live 为字符串 = 跟随 colliders.json lights 里
+// tag 同名的清单灯（位置取灯本体）；live = -1 为静态南瓜点（随 parkLampLight 总增益）
 const TINT_LIGHTS = [
   { pos: [12, 1.2, 12], color: "#ff9a5c", r: 14, live: 0, base: 90, gain: 0.9 },   // 广场东 ↔ plaza1
   { pos: [-12, 1.2, -14], color: "#ff9a5c", r: 14, live: 1, base: 70, gain: 0.5 }, // 广场西 ↔ plaza2
   { pos: [0, 1.2, 146], color: "#ffc46b", r: 20, live: 2, base: 55, gain: 0.55 },  // 大门(v3 r146) ↔ gate
-  { pos: [33.5, 1.2, 40.5], color: "#ff9a5c", r: 13, live: -1, gain: 0.9 },        // 墓园南瓜簇
+  // 墓园 (2026-11-26): 跟随两盏守墓灯。旧写法是在 (33.5,1.2,40.5) 摆一盏并不存在的「南瓜簇」静态灯染 —— 雾是暖的、地是黑的
+  { pos: [0, 0, 0], color: "#ffd9a8", r: 8, live: "PE_GraveLantern", gain: 0.45 },  // 守墓灯 北 (34, 36.4)
+  { pos: [0, 0, 0], color: "#ffd9a8", r: 8, live: "PE_GraveLanternS", gain: 0.45 }, // 守墓灯 南 (34, 48)
   { pos: [-25.5, 1.2, 30], color: "#ffa53b", r: 12, live: -1, gain: 0.8 },         // 摊位灯
   { pos: [-70, 1.2, 45], color: "#7fd8c8", r: 14, live: 3, base: 30, gain: 0.8 },  // 幽灵港 ↔ bay
   { pos: [15, 1.2, -100], color: "#ff9a5c", r: 16, live: 4, base: 42, gain: 0.8 }, // 北过山车 ↔ north
   { pos: [95, 1.2, 60], color: "#9b5bff", r: 14, live: 5, base: 26, gain: 0.8 },   // 东南秘境 ↔ east
 ];
+if (TINT_LIGHTS.length > N_TINT) {
+  console.warn(`[mist] 灯染源 ${TINT_LIGHTS.length} 条, 超出槽位 ${N_TINT} (改 N_TINT), 多出的未启用`);
+  TINT_LIGHTS.length = N_TINT;
+}
+while (TINT_LIGHTS.length < N_TINT) TINT_LIGHTS.push({ pos: [0, -50, 0], color: "#000000", r: 0.01, live: -1, gain: 0 });
 
 const BASE = { mist: 0.46 }; // mistDensity 100% 基准（旧 0.10 竖板方案的替代标定）
 
@@ -320,12 +330,22 @@ export function createMist(scene, world) {
 
   // ----- 灯染联动：实体灯取实时强度，静态南瓜点随 parkLampLight 总增益 -----
   const plazaLights = world.plazaLights ?? [];
+  const parkLights = world.parkLights ?? [];
   const tmpCol = new THREE.Color();
   let staticGain = 1; // parkLampLight 百分比
   function syncLights() {
     for (let i = 0; i < TINT_LIGHTS.length; i++) {
       const L = TINT_LIGHTS[i];
-      if (L.live >= 0 && plazaLights[L.live]) {
+      if (typeof L.live === "string") {
+        // 清单灯：位置与颜色取灯本体，强度按「当前 / 基准」折算（滑杆拉到 0 时灯染同步熄灭）；找不到该灯则不染
+        const slot = parkLights.find((s) => s.tag === L.live);
+        if (slot) {
+          uni.uLightPos.value[i].copy(slot.light.position);
+          tmpCol.copy(slot.light.color).multiplyScalar((slot.base > 0 ? slot.light.intensity / slot.base : 0) * L.gain * 1.4);
+        } else {
+          tmpCol.setRGB(0, 0, 0);
+        }
+      } else if (L.live >= 0 && plazaLights[L.live]) {
         const pl = plazaLights[L.live];
         tmpCol.copy(pl.color).multiplyScalar((pl.intensity / L.base) * L.gain * 1.4);
       } else {

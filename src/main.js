@@ -98,6 +98,9 @@ async function boot() {
     console.warn("[park] colliders.json 加载失败, 使用空碰撞");
   }
   window.__park = park;
+  // 园区清单灯 (墓园守墓灯等): 按 colliders.json 的 lights 定位, 再按持久化设置换算一次强度 (灯体已在 world 里建好)
+  world.setParkLights(park?.lights);
+  world.applySettings(settings.values);
   // 第 7 座发射架 (过山车提升顶旁的垂柳塔, 地标礼花用; 独立小资产 salute_launcher.glb):
   // 锚点须在 setLaunchers 之前并入, 碰撞圆须在下方 createPlayer 拷贝碰撞表之前并入
   try {

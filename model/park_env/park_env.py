@@ -276,6 +276,14 @@ def collider_rect(x, y, hw, hd):
     COLLIDER_RECTS.append({"x": round(x, 2), "y": round(y, 2),
                            "hw": round(hw, 2), "hd": round(hd, 2)})
 
+PARK_LIGHTS = []   # 园区脚本登记的真实点光（blender x, y, z + 参数）, 导出时转 app 坐标写进 colliders.json 的 lights
+
+def park_light(x, y, z, color, intensity, distance, decay=2, tag="", key="parkLampLight"):
+    """登记一盏由游戏运行时创建的真实点光（src/core/world.js 按清单建灯, 位置与模型同源）。
+    key = 控制它的设置面板滑杆键名（默认「园区照明亮度」parkLampLight）。"""
+    PARK_LIGHTS.append({"x": x, "y": y, "z": z, "color": color, "intensity": intensity,
+                        "distance": distance, "decay": decay, "tag": tag, "key": key})
+
 # ---------------- v3 植被 helper (弯叶/变径管/顶点色/雕空) ----------------
 def make_vcol_mat(name, color, rough=0.5, emit=None, strength=0.0):
     """顶点色材质: Base = 颜色 × COLOR_0 (three.js vertexColors 同语义, 白底=色全靠顶点色)"""
@@ -716,11 +724,17 @@ m_metal_d = make_mat("PE_MetalDark", HEX["metal_d"], rough=0.6, metal=0.7)
 m_steel   = make_mat("PE_Steel", "#3A4152", rough=0.35, metal=0.9)   # 发射器亮钢炮管
 m_wood_d  = make_mat("PE_WoodDark", "#3A2A1D", rough=0.9)            # 发射器深木件
 m_stone   = make_mat("PE_Stone", HEX["stone"], rough=0.85)
+# 墓碑专用顶点色材质 (2026-11-26 墓园 v4): 原 PE_Stone #3A3F4C 在夜园里被月光照到的面只有 2-5/255。
+# 下暗上亮的渐变约等于原石材的 2.5-6 倍反照率; 许愿池 / 石像鬼 / 路障仍用 PE_Stone, 不受影响。
+m_grst    = make_vcol_mat("PE_GraveStone", "#FFFFFF", rough=0.8)
+GV_STONE_LO = hex_lin("#565D6E")[:3]
+GV_STONE_HI = hex_lin("#8A93A6")[:3]
 m_wood    = make_mat("PE_Wood", HEX["wood"], rough=0.85)
 m_straw   = make_mat("PE_Straw", HEX["straw"], rough=0.9)
 m_cloth   = make_mat("PE_Cloth", HEX["cloth"], rough=0.95)
 m_ridge   = make_mat("PE_Ridge", HEX["ridge"], rough=1.0)
 m_warm    = make_mat("PE_EmitWarm", HEX["warm"], emit=HEX["warm"], strength=2.6)
+m_warm_s  = make_mat("PE_EmitWarmSoft", HEX["warm"], emit=HEX["warm"], strength=1.5)  # 守墓灯烛芯: 近景不糊 bloom (同发射器型别环的 soft 系列)
 m_orange  = make_mat("PE_EmitOrange", HEX["orange"], emit=HEX["orange"], strength=2.4)
 m_violet  = make_mat("PE_EmitViolet", HEX["violet"], emit=HEX["violet"], strength=2.2)
 m_green   = make_mat("PE_EmitGreen", HEX["green"], emit=HEX["green"], strength=2.2)
@@ -846,11 +860,15 @@ add_box("PE_SpokeCarousel", (CAR_SPUR[2] - CAR_SPUR[1] + 4.0, 3.0, 0.12),
 add_box("PE_PathGrave", (33.0, 3.0, 0.12), (17.0, -40.0, -0.02), mat=m_path)
 add_box("PE_PathStall", (31.0, 3.0, 0.12), (-16.0, -32.0, -0.02), mat=m_path)
 # 路缘草皮环 (广场外圈草地色带, 打破纯黑)
+# z 向压扁 0.06 -> 0.014 (2026-11-26): 0.06 时三圈环顶分别高出地面 +0.13 / +0.24 / +0.30 m, 而所有路面顶只有 +0.04,
+# 主路 / 支路 / 墓园横路穿过这三圈时整段被草皮盖住 (墓园横路 33 m 只剩最后 6 m 可见)。0.014 后环顶 -0.015 / +0.01 / +0.024,
+# 仍高于地坪顶 (-0.05) 所以色带还在, 但不再盖住任何路面。
 for i, (rr, w) in enumerate(((24.0, 3.2), (44.0, 5.0), (68.0, 6.0))):
-    add_torus(f"PE_GrassBand{i}", rr, w, (0, 0, -0.06), mat=m_grass, ms=96, ns=10, scale=(1, 1, 0.06))
+    add_torus(f"PE_GrassBand{i}", rr, w, (0, 0, -0.06), mat=m_grass, ms=96, ns=10, scale=(1, 1, 0.014))
 
-# 木马场地 (45,18) r14.6 内把草皮色带压到铺装面以下: 色带顶最高 +0.24, 高过木马铺装 (顶 0.04) 与地灯环 (顶 0.10),
-# 会从西北 / 东南两侧各盖住约 25° 的地灯环 (2026-11-25 评审)。压平范围比铺装 (r12.6) 多出 2m: 眼高 1.65m 在
+# 木马场地 (45,18) r14.6 内把草皮色带压到铺装面以下。2026-11-25 评审时色带顶最高 +0.24, 高过木马铺装 (顶 0.04)
+# 与地灯环 (顶 0.10), 从西北 / 东南两侧各盖住约 25° 的地灯环; 2026-11-26 起三条色带全园压扁 (z 向 0.014, 顶最高 +0.024),
+# 这段压平保留, 保证场地圆内色带顶不高于 -0.02。压平范围比铺装 (r12.6) 多出 2m: 眼高 1.65m 在
 # 16.5m 外看环, 环外 0.3m 处只要高出 0.16m 就挡住视线, 回弹斜坡必须离环 >=2.7m。只压落在场地圆内的顶点,
 # 外侧留出一个主分段 (~2.9m) 的斜坡。重跑园区后必须跟 scripts/patch_carousel_colliders.mjs。
 def sink_under(ob, cx, cy, r_site, z_max):
@@ -960,11 +978,12 @@ for i, (lx, ly, fry) in enumerate(lamp_positions):
     collider(lx, ly, 0.4)
 
 # ---------------- 跨路灯串 ----------------
-def string_lights(name, p1, p2, sag=0.55, step=0.55):
-    """悬链线灯串: p1/p2 = (x, y, z), 灯珠循环四色."""
+def string_lights(name, p1, p2, sag=0.55, step=0.55, mats=None):
+    """悬链线灯串: p1/p2 = (x, y, z), 灯珠循环四色 (mats 可指定循环材质表, 如墓园段只用暖白 + 紫)."""
     p1, p2 = Vector(p1), Vector(p2)
     L = (p2 - p1).length
     n = max(int(L / step), 3)
+    cyc = mats or m_dot
     prev = None
     for k in range(n + 1):
         t = k / n
@@ -973,8 +992,17 @@ def string_lights(name, p1, p2, sag=0.55, step=0.55):
         if prev is not None:
             cyl_between(f"{name}_c{k}", prev, pt, 0.015, m_iron, verts=5)
         add_sphere(f"{name}_b{k}", 0.055, (pt.x, pt.y, pt.z - 0.09),
-                   mat=m_dot[k % 4], seg=8, ring=5)
+                   mat=cyc[k % len(cyc)], seg=8, ring=5)
         prev = pt
+
+def light_pole(name, x, y, h=4.0, attach=None):
+    """灯串挂杆: 落地基座 + 铁杆 + 挂环 + 暖白顶珠 (灯串两端没有灯杆 / 树可挂时用; attach = 挂点高度, 默认杆顶下 0.3)"""
+    add_cyl(f"{name}_base", 0.17, 0.3, (x, y, 0.15), mat=m_iron, verts=10)
+    add_cyl(f"{name}_pole", 0.055, h, (x, y, h / 2), mat=m_iron, verts=8)
+    az = attach if attach is not None else h - 0.3
+    add_torus(f"{name}_ring", 0.07, 0.016, (x, y, az), mat=m_iron, ms=14, ns=5)
+    add_sphere(f"{name}_top", 0.07, (x, y, h + 0.03), mat=m_warm, seg=8, ring=5)
+    collider(x, y, 0.2)
 
 def bunting(name, p1, p2, sag=0.6, step=0.5):
     """悬链彩旗串: 三角旗循环四色."""
@@ -1004,11 +1032,19 @@ runs.append(((-4.4, -24.0, 3.6), (-10.6, -10.6, 3.6)))
 runs.append(((10.6, -10.6, 3.6), (10.6, 10.6, 3.6)))     # 广场对角
 runs.append(((-10.6, -10.6, 3.6), (-10.6, 10.6, 3.6)))
 runs.append(((-24.0, -26.0, 3.2), (-40.0, -30.0, 3.2)))  # 市集上空
-runs.append(((26.0, -34.0, 3.2), (40.0, -44.0, 3.2)))    # 墓园
+runs.append(((26.0, -34.0, 3.7), (40.0, -44.0, 3.7)))    # 墓园 (两端挂灯杆, 见下; 2026-11-26 由 3.2 抬到 3.7)
+GRAVE_RUN = len(runs) - 1
 # (41,14)->(49,22) 「旋转木马」灯串已于 2026-11-25 删除: 它横穿木马盘面上空 (高 3.56–4.11m),
 # 每次重跑园区都会再生成 (11-17 的 strip 脚本只删过一次), 骑乘 / 盘面仰视时是一条穿过天花的黑线
 for i, (a_, b_) in enumerate(runs):
-    string_lights(f"PE_Str{i}", a_, b_)
+    if i == GRAVE_RUN:
+        string_lights(f"PE_Str{i}", a_, b_, mats=[m_warm, m_violet])   # 墓园段只留暖白 + 紫
+    else:
+        string_lights(f"PE_Str{i}", a_, b_)
+# 墓园灯串两端挂杆 (2026-11-26): 原先两端悬空在 3.2 m (没有任何杆 / 树 / 门柱), 站在线下看像一串升空的烟花;
+# 抬到 3.7 m 后最低珠底离地 3.0 m, 跳起 (眼高 2.84) 不再穿过
+light_pole("PE_StrPoleGraveW", 26.0, -34.0)
+light_pole("PE_StrPoleGraveE", 40.0, -44.0)
 
 # 主路横跨彩旗 (每对灯杆之间) x8 + 外环灯间彩旗弦 x8
 bun_i = 0
@@ -1455,7 +1491,9 @@ for ci, (cx, cy) in enumerate(mush_circles):
         my = cy + ring_r * sin(a) + random.uniform(-0.15, 0.15)
         ms_ = random.uniform(0.7, 1.3)
         mushroom_v2(f"PE_Mush{ci}_{k}", mx, my, ms_)
-    collider(cx, cy, ring_r + 0.5)
+    # 碰撞圆 = 蘑菇圈本身 (2026-11-26 由 ring_r + 0.5 收回): 旧圆的隐形墙比可见蘑菇圈外扩 0.4-0.5 m,
+    # 菇体就长在 ring_r 上 (±0.15 抖动, 伞盖半径 <= 0.22), 加玩家半径 0.38 后人仍进不到圈里
+    collider(cx, cy, ring_r)
 
 
 def flower(name, x, y, violet=True, s=1.0):
@@ -1485,51 +1523,104 @@ for k, th in enumerate((radians(10), radians(70), radians(130),
         flower(f"PE_FlowerPlaza{k}_{f}", fx, fy, f % 2 == 0, s=random.uniform(0.9, 1.25))
     flower_spots.append((cx, cy))
 
+def grave_lantern(name, x, y):
+    """守墓灯 v2 (2026-11-26): 落地铁柱 (两道箍) + 六棱铁笼 + 暖白烛芯 + 紫火尖, 灯头中心离地约 2.1 m。
+    真实点光不烘进 glb —— 由 park_light 登记进 colliders.json 的 lights, 运行时 (src/core/world.js) 按清单建灯。
+    旧版 (铁柱 r0.16 高 0.5 + 紫球: 柱底离地 0.10, 无碰撞, 有火无光) 已替换。
+    高度与强度是配套的: 点光是平方反比, 灯头 1.44 m 时 1.4 m 外的碑过曝成白块; 抬到 2.1 m、强度 40 cd 后
+    2 m 外的碑面约 170/255、5 m 外约 60、8 m 外约 30, 都在辉光阈值以下 —— 所以碑要离灯 >= 2 m。"""
+    add_cyl(f"{name}_base", 0.17, 0.07, (x, y, 0.035), mat=m_iron, verts=10)
+    add_cyl(f"{name}_base2", 0.11, 0.10, (x, y, 0.12), mat=m_iron, verts=10)
+    cz0, cz1, cr = 1.90, 2.32, 0.17          # 笼: 下环 / 上环高度, 六边形外接圆半径
+    add_cyl(f"{name}_post", 0.05, cz0 - 0.17, (x, y, (cz0 + 0.17) / 2), mat=m_iron, verts=8)
+    for hz in (0.6, 1.5):
+        add_torus(f"{name}_hoop{hz:.2f}", 0.063, 0.014, (x, y, hz), mat=m_iron, ms=14, ns=5)
+    for czn in (cz0, cz1):
+        add_torus(f"{name}_ring{czn:.2f}", cr, 0.016, (x, y, czn), mat=m_iron, ms=6, ns=5)
+    for k in range(6):
+        a = k * pi / 3
+        cyl_between(f"{name}_bar{k}", (x + cr * cos(a), y + cr * sin(a), cz0),
+                    (x + cr * cos(a), y + cr * sin(a), cz1), 0.012, m_iron, verts=4)
+    add_cone(f"{name}_cap", 0.23, 0.17, (x, y, cz1 + 0.095), mat=m_iron, verts=6)
+    add_sphere(f"{name}_finial", 0.03, (x, y, cz1 + 0.20), mat=m_violet, seg=8, ring=5)
+    add_cyl(f"{name}_candle", 0.075, 0.22, (x, y, cz0 + 0.17), mat=m_warm_s, verts=8)
+    add_sphere(f"{name}_flame", 0.06, (x, y, cz0 + 0.34), mat=m_violet, seg=8, ring=5, scale=(1, 1, 1.35))
+    collider(x, y, 0.2)
+    park_light(x, y, cz0 + 0.24, "#FFD9A8", 40, 22, decay=2, tag=name, key="graveyardLight")
+
 # ---------------- 墓园角落 (东) + 彼岸花 x4 ----------------
+# 墓园 v4 第一批 (2026-11-26 评审后): 墓碑专用提亮材质 / 碰撞改盒墙 (原圆 r0.75 是碑身半对角线的 2 倍) /
+#   碑 0、2、5、6 让出墓园横路与路尾 / 守墓灯 x2 (真实点光) / 枯树重复碰撞圆删除。
+# 随机流约定: 这一段新增的随机一律走墓园自己的 rgv; 全局 random 在段内只保留「改造前就有」的消耗
+#   (枯树 spooky_tree 内部 + 段末 GV_LEGACY_DRAWS 占位)。这样墓园以后怎么改, 段后的园区
+#   (市集 / 长椅 / 枯树 / 远山 / 城市灯火) 都与改造前逐顶点一致。
+rgv = random.Random(20261126)
 gx0, gy0 = 34.0, -41.0
 add_cyl("PE_GravePatch", 8.5, 0.08, (gx0, gy0, -0.03), mat=m_grass, verts=32)
-stone_off = [(-3.2, 1.8, 6, 0.0), (-1.6, -2.2, -7, 8.0), (0.2, 2.6, 4, -6.0),
-             (2.1, -1.8, -5, 0.0), (3.6, 2.2, 8, 10.0), (-4.4, -0.6, -4, 5.0),
-             (1.2, 0.4, 7, -9.0), (-0.8, -3.6, -6, 3.0), (4.6, -0.4, 5, 0.0)]
-for i, (ox, oy, tilt, rotz) in enumerate(stone_off):
+
+def gv_stone_vcol(ob, height_of):
+    """墓碑件顶点色: height_of(v) = 该顶点离地高度 -> 自下而上 GV_STONE_LO -> GV_STONE_HI (1.05 m 处到顶色)"""
+    set_vcol(ob, [tuple(GV_STONE_LO[k] + (GV_STONE_HI[k] - GV_STONE_LO[k]) * min(1.0, max(0.0, height_of(v) / 1.05))
+                        for k in range(3)) for v in ob.data.vertices])
+
+# (dx, dy, 绕竖轴转角°)。0 / 2 / 5 / 6 号 2026-11-26 让路: 0 号原在路面内 (30.8, -39.2), 5 / 2 号紧贴路缘,
+# 6 号原在路尾正中 (35.2, -40.6) —— 路面 y -38.5..-41.5, 路尾 x 33.5。2 号同时让开北缘守墓灯 (碑离灯须 >= 2 m)。
+# 碑身不再带 2-3° 倾角: 盖帽不随碑身倾, 两者斜着相交会在接缝处闪出一条亮虚线 (倾角留给第三批重写碑型时整体处理)
+stone_off = [(-1.6, 4.4, 0.0), (-1.6, -2.2, 8.0), (1.3, 3.1, -6.0),
+             (2.1, -1.8, 0.0), (3.6, 2.2, 10.0), (-5.1, -1.5, 5.0),
+             (-2.7, -4.4, -9.0), (-0.8, -3.6, 3.0), (4.6, -0.4, 0.0)]
+for i, (ox, oy, rotz) in enumerate(stone_off):
     x, y = gx0 + ox, gy0 + oy
-    add_box(f"PE_Grave{i}", (0.72, 0.2, 1.05), (x, y, 0.52),
-            rot=(radians(tilt * 0.4), radians(tilt * 0.3), radians(rotz)), mat=m_stone)
-    add_cyl(f"PE_GraveCap{i}", 0.36, 0.2, (x, y, 1.05), rot=(radians(90), 0, radians(rotz)),
-            mat=m_stone, verts=12)
-    collider(x, y, 0.75)
+    rz = radians(rotz)
+    sb = add_box(f"PE_Grave{i}", (0.72, 0.2, 1.05), (x, y, 0.52), rot=(0, 0, rz), mat=m_grst)
+    gv_stone_vcol(sb, lambda v: v.co.z + 0.525)
+    # 盖帽比碑身大一圈 (半径 0.365 / 厚 0.21): 与碑身侧面共面时接缝处会闪出一条亮虚线
+    cap = add_cyl(f"PE_GraveCap{i}", 0.365, 0.21, (x, y, 1.05), rot=(radians(90), 0, rz),
+                 mat=m_grst, verts=12)
+    gv_stone_vcol(cap, lambda v: 1.05 + v.co.y)   # 圆柱绕 X 转 90° 后本地 y 即世界高度 (勿用 sc: 那是场景变量)
+    # 盒墙 = 碑身绕竖轴转角后的轴对齐包围盒; 玩家半径 0.38 由控制器另加
+    collider_rect(x, y, 0.365 * abs(cos(rz)) + 0.105 * abs(sin(rz)),
+                  0.365 * abs(sin(rz)) + 0.105 * abs(cos(rz)))
 for i, (ox, oy) in enumerate(((-2.6, 3.4), (3.2, -3.4))):
     x, y = gx0 + ox, gy0 + oy
     add_box(f"PE_CrossV{i}", (0.16, 0.14, 1.5), (x, y, 0.75), mat=m_wood)
     add_box(f"PE_CrossH{i}", (0.7, 0.14, 0.16), (x, y, 1.05), mat=m_wood)
-    collider(x, y, 0.5)
+    collider_rect(x, y, 0.35, 0.07)   # 整个十字的包围盒 (横臂离地 1.05 m, 钻不过去)
 for k in range(10):
     th = radians(-80 + k * 16)
     fx, fy = gx0 + 8.2 * cos(th), gy0 + 8.2 * sin(th) - 2.0
     add_box(f"PE_GFence{k}", (0.12, 0.12, 1.1), (fx, fy, 0.55), mat=m_iron)
-add_cyl("PE_GraveLantern", 0.16, 0.5, (gx0, gy0 + 4.6, 0.35), mat=m_iron, verts=8)
-add_sphere("PE_GraveFlame", 0.12, (gx0, gy0 + 4.6, 0.72), mat=m_violet, seg=10, ring=6)
-spooky_tree("PE_GraveTree", gx0 + 5.4, gy0 + 3.2, scale=1.2, variant="weep")
-collider(gx0 + 5.4, gy0 + 3.2, 0.7)
+grave_lantern("PE_GraveLantern", gx0, gy0 + 4.6)          # 北缘 (app 34, 36.4)
+grave_lantern("PE_GraveLanternS", gx0, gy0 - 7.0)         # 南缘 (app 34, 48), 与北灯同在南北轴上; 离最近的碑 (7 号) 3.5 m
+spooky_tree("PE_GraveTree", gx0 + 5.4, gy0 + 3.2, scale=1.2, variant="weep")   # spooky_tree 内部已加碰撞圆 r0.65
 
 # 彼岸花丛 x4 (墓园 v2: 弯茎 + 放射红蕊弯瓣, m_red 自发光)
+# 花的摆法与改造前相同: rlg 从「此刻的全局状态」起步取值, 等价于以前直接用全局 random; 段末再把全局流的消耗补回去
+rlg = random.Random()
+rlg.setstate(random.getstate())
 for ci, (cx, cy) in enumerate(((31.0, -43.0), (36.0, -38.0), (33.0, -46.0), (38.0, -42.0))):
     for f in range(7):
-        fx = cx + random.uniform(-0.7, 0.7)
-        fy = cy + random.uniform(-0.7, 0.7)
-        a0 = random.uniform(0, 2 * pi)
+        fx = cx + rlg.uniform(-0.7, 0.7)
+        fy = cy + rlg.uniform(-0.7, 0.7)
+        a0 = rlg.uniform(0, 2 * pi)
         bx, by = fx + 0.08 * cos(a0), fy + 0.08 * sin(a0)
         tube_frustum(f"PE_Higan{ci}_{f}_st",
                      [(fx, fy, 0.01), (fx + 0.04 * cos(a0), fy + 0.04 * sin(a0), 0.2),
                       (bx, by, 0.4)],
                      [0.014, 0.01, 0.006], m_stem, sides=5)
         for st in range(6):
-            a = st * 2 * pi / 6 + random.uniform(-0.2, 0.2)
+            a = st * 2 * pi / 6 + rlg.uniform(-0.2, 0.2)
             blade(f"PE_Higan{ci}_{f}_sp{st}", (bx, by, 0.42), 0.16, 0.02, a,
-                  random.uniform(0.9, 1.4), m_red,
+                  rlg.uniform(0.9, 1.4), m_red,
                   hex_lin("#8A1E1E")[:3], hex_lin("#FF4A4A")[:3], lean=0.5)
         add_sphere(f"PE_Higan{ci}_{f}_hd", 0.03, (bx, by, 0.44), mat=m_red, seg=6, ring=4)
-    collider(cx, cy, 1.0)
+    collider(cx, cy, 0.6)   # 2026-11-26 由 1.0 收到 0.6: 花丛散布半径约 0.7, 旧圆在花外 0.4 m 就挡人
+# 全局随机流占位: 上面的彼岸花丛改造前直接消耗全局 random —— 4 丛 x 7 株 x 15 次 uniform
+# (位置 2 + 朝向 1 + 6 根花丝各 2)。现在花改走 rlg, 这里补回同样的消耗; 以后重写彼岸花也不要动这一行,
+# 否则段后园区 (市集 / 长椅 / 枯树 / 远山 / 城市灯火) 会全部重新随机。
+GV_LEGACY_DRAWS = 4 * 7 * 15
+for _ in range(GV_LEGACY_DRAWS):
+    random.random()
 
 # ---------------- 市集亭 x3 (西) + 新摊车 x2 ----------------
 stall_defs = [(-25.0, -27.5, HEX["orange"], "treats"),
@@ -2235,13 +2326,21 @@ for lid, kd, (sx, sy) in LAUNCHER_SITES:
                                "x": round(sx, 2), "z": round(-sy, 2),
                                "dx": round(-sx / lapp, 3), "dz": round(sy / lapp, 3),
                                "mz": MUZZLE_LOCAL[kd][2]})
+# 园区真实点光 (park_light 登记): blender (x, y, z) -> app (x, z, -y); 运行时 src/core/world.js 按此建灯 (槽位数见 LIGHT_SLOTS)
+manifest_lights = [
+    {"x": round(l["x"], 2), "y": round(l["z"], 2), "z": round(-l["y"], 2), "color": l["color"],
+     "intensity": l["intensity"], "distance": l["distance"], "decay": l["decay"],
+     "tag": l["tag"], "key": l["key"]}
+    for l in PARK_LIGHTS
+]
 manifest = {
     "version": 3,
-    "note": "坐标为 glTF/app 空间 (x, z); 由 park_env.py v3 自动生成; h = 顶面高度(可站立), 缺省为无限高阻挡; rects = 轴对齐盒墙(可推挤); launchers = 烟花发射器锚点",
+    "note": "坐标为 glTF/app 空间 (x, z); 由 park_env.py v3 自动生成; h = 顶面高度(可站立), 缺省为无限高阻挡; rects = 轴对齐盒墙(可推挤); launchers = 烟花发射器锚点; lights = 园区真实点光 (x, y 高, z; tag = 来源件名, key = 控制它的设置键)",
     "boundaryR": 144.5,
     "spawn": {"x": 0.0, "z": 144.0},
     "boarding": {"x": 0.0, "z": 16.4},
     "launchers": manifest_launchers,
+    "lights": manifest_lights,
     "pois": [{"x": round(x, 2), "z": round(-y, 2), "label": lb} for x, y, lb in POIS],
     "rects": [
         {"x": r_["x"], "z": round(-r_["y"], 2), "hw": r_["hw"], "hd": r_["hd"]}
@@ -2255,7 +2354,7 @@ manifest = {
 }
 (OUT / "colliders.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=1),
                                     encoding="utf-8")
-print(f"COLLIDERS circles={len(manifest['circles'])} rects={len(manifest['rects'])} pois={len(manifest['pois'])}")
+print(f"COLLIDERS circles={len(manifest['circles'])} rects={len(manifest['rects'])} pois={len(manifest['pois'])} lights={len(manifest_lights)}")
 tmark("colliders written, rendering previews")
 
 # ---------------- 渲染预览 ----------------

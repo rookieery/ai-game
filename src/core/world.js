@@ -95,6 +95,42 @@ export function createWorld(scene) {
   const east = new THREE.PointLight("#9b5bff", BASE.east, 90, 1.7);  // 秘境预留区: 暗紫
   east.position.set(95, 9, 60);
   scene.add(east);
+  const plazaLights = [plaza1, plaza2, gate, bay, north, east];
+
+  // 清单灯位：园区脚本 (model/park_env/park_env.py 的 park_light) 登记的真实点光，如墓园守墓灯 ×2。
+  // 位置 / 颜色 / 强度来自 colliders.json 的 lights（与模型同源）。灯在这里一次建好、常驻，清单到位后只改参数、
+  // 不增删 —— three r187 下运行时增删灯光会让当帧渲染抛错（2026-11-26 实测）。
+  // 每盏灯挂在这个数组尾部，所以 plazaLights[6] 起就是它们（漂雾灯染按 tag 取用，不依赖下标）。
+  const LIGHT_SLOTS = 2;   // 清单灯数超过槽位时多出的被忽略并在控制台告警
+  const parkLights = [];   // { light, base, key, tag }
+  for (let i = 0; i < LIGHT_SLOTS; i++) {
+    const l = new THREE.PointLight("#ffd9a8", 0, 22, 2);
+    scene.add(l);
+    plazaLights.push(l);
+    parkLights.push({ light: l, base: 0, key: "parkLampLight", tag: "" });
+  }
+  function setParkLights(list) {
+    const items = Array.isArray(list) ? list : [];
+    if (items.length > parkLights.length) {
+      console.warn(`[park] colliders.json 的 lights 有 ${items.length} 盏, 超出槽位 ${parkLights.length}, 多出的未建灯`);
+    }
+    parkLights.forEach((slot, i) => {
+      const d = items[i];
+      if (!d) {
+        slot.base = 0;
+        slot.tag = "";
+        slot.light.intensity = 0;
+        return;
+      }
+      slot.light.color.set(d.color ?? "#ffd9a8");
+      slot.light.position.set(d.x, d.y ?? 2, d.z);
+      slot.light.distance = d.distance ?? 22;
+      slot.light.decay = d.decay ?? 2;
+      slot.base = d.intensity ?? 0;
+      slot.key = d.key ?? "parkLampLight";
+      slot.tag = d.tag ?? "";
+    });
+  }
 
   // 极光天穹（r150 园区 + 420+ 远景: 半径 700）
   const skyUniforms = { uTime: { value: 0 }, uAurora: { value: BASE.aurora } };
@@ -150,7 +186,7 @@ export function createWorld(scene) {
 
   // 应用设置面板（百分比 -> 实际参数）
   function applySettings(s) {
-    const pct = (k) => Math.min(200, Math.max(0, s[k])) / 100;
+    const pct = (k) => Math.min(200, Math.max(0, s[k] ?? 100)) / 100;
     moon.intensity = BASE.moon * pct("moonLight");
     hemi.intensity = BASE.hemi * pct("moonLight");
     plaza1.intensity = BASE.plaza1 * pct("parkLampLight");
@@ -159,6 +195,7 @@ export function createWorld(scene) {
     bay.intensity = BASE.bay * pct("parkLampLight");
     north.intensity = BASE.north * pct("parkLampLight");
     east.intensity = BASE.east * pct("parkLampLight");
+    for (const slot of parkLights) slot.light.intensity = slot.base * pct(slot.key); // 清单灯各随自己的滑杆 (墓园守墓灯: graveyardLight)
     scene.fog.density = BASE.fog * pct("fogDensity");
     skyUniforms.uAurora.value = BASE.aurora * pct("auroraLight");
     starMat.opacity = Math.min(1, BASE.starOpacity * pct("starBrightness"));
@@ -171,5 +208,5 @@ export function createWorld(scene) {
     }
   }
 
-  return { update, moon, applySettings, plazaLights: [plaza1, plaza2, gate, bay, north, east] };
+  return { update, moon, applySettings, plazaLights, parkLights, setParkLights };
 }

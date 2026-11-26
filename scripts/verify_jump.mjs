@@ -76,8 +76,11 @@ await page.screenshot({ path: `${outDir}/j2_barrel.png` });
 await page.evaluate(() => { window.__game.carousel.state.spinPeriod = 99999; });
 const spot = await page.evaluate(() => {
   const c = window.__game.carousel;
+  const _v = new c.spinRoot.position.constructor();   // THREE.Vector3 (页面内不引 three)
   const angs = c.rideRoots.filter(Boolean)
-    .map((r) => Math.atan2(r.position.z, r.position.x))
+    // 必须用世界坐标算空档 (2026-11-26): 骑乘根是 CR_Spin 的子节点, r.position 是盘面本地角, 而冻结时盘面停在任意相位,
+    // 本地空档在世界系里多半正对一匹马 —— 传送后被马身圆顶住走不出台缘 (新旧版本都约 1/4~1/3 概率假失败)
+    .map((r) => { r.updateWorldMatrix(true, false); r.getWorldPosition(_v); return Math.atan2(_v.z + 18, _v.x - 45); })
     .sort((a, b) => a - b);
   let best = 0;
   let gap = -1;
