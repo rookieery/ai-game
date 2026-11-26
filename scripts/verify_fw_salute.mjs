@@ -198,7 +198,10 @@ if (ONLY.has("A")) {
   m0 = (await ev()).length;
   await page.keyboard.press("KeyF");
   const eG = await waitForEv((r) => !r.aimed, 8000, m0);
-  const hOk = eG && eG.kind === "A" && Math.abs(eG.y - (55 + 0.42)) <= 55 * 0.08 + 0.1 && distTo(eG, 22, 22) <= 15.5;
+  // 炸点标称 = 管口高 (L1 mz 1.63) + 设置高度 55: 常规弹的 v0y 是按「管口以上的升高」反解的 (fireworks.js launchShell),
+  // 每发再叠 ±8% 自然变化, 所以实际炸点落在 52.1..61.0 m。旧写法按 55.42 ± 4.6 判, 高端的约 11% 发数会假失败
+  // (2026-11-26 复现: 4 发里 2 发落在 60.1 / 60.5)。窗口改成覆盖整个设计范围: 标称 56.63 ± (8% + 0.6 m 余量)
+  const hOk = eG && eG.kind === "A" && Math.abs(eG.y - (1.63 + 55)) <= 55 * 0.08 + 0.6 && distTo(eG, 22, 22) <= 15.5;
   check("A7 地面常规弹不变: L1 牡丹仍在 55m (±8%) 附近炸、朝园心漂移", !!hOk,
     eG ? `${eG.kind} 炸于 y=${eG.y.toFixed(1)}m, 离 L1 ${distTo(eG, 22, 22).toFixed(1)}m` : "未爆");
   await drain();

@@ -8,6 +8,8 @@ Run: blender --background --python park_env.py
   - 南入口大门 (0,-146) -> 石板主路 (7 段, 中途二道门牌楼 y=-60) -> 广场
   - 路网: 内环 r34 / 外环 r90 / 四条放射支路 (东北过山车 78°, 东南秘境 -32°,
           西南幽灵港 217.6°, 西北许愿池 147°) + 木马支路 22° / 墓园·市集横路
+  - 墓园 v4 (2026-11-26): 旧址 (34,-41) 改作入口前庭, 新址 = 椭圆 36x24 心 (37,-58) (app (37,58)),
+          北侧接路 (前庭 -> 新址) + 西侧支路 (主路 -> 新址)
   - 预留区 (围挡+敬请期待牌): 北 过山车 x[-30,60] y[70,130];
           西南 幽灵港(海盗船) x[-88,-52] y[-55,-35]; 东南 秘境 x[78,112] y[-78,-42]
   - 烟花发射器 x6 (三型×2: A 牡丹架 广场东北+木马缘 / B 垂柳塔 墓园东+许愿池 /
@@ -1548,29 +1550,56 @@ def grave_lantern(name, x, y):
     collider(x, y, 0.2)
     park_light(x, y, cz0 + 0.24, "#FFD9A8", 40, 22, decay=2, tag=name, key="graveyardLight")
 
-# ---------------- 墓园角落 (东) + 彼岸花 x4 ----------------
-# 墓园 v4 第一批 (2026-11-26 评审后): 墓碑专用提亮材质 / 碰撞改盒墙 (原圆 r0.75 是碑身半对角线的 2 倍) /
-#   碑 0、2、5、6 让出墓园横路与路尾 / 守墓灯 x2 (真实点光) / 枯树重复碰撞圆删除。
+# ---------------- 墓园 v4: 入口前庭 (旧址) + 南迁扩容的新墓园 + 彼岸花 x4 ----------------
+# 第一批 (2026-11-26 评审后): 墓碑专用提亮材质 / 碰撞改盒墙 (原圆 r0.75 是碑身半对角线的 2 倍) / 守墓灯 x2 (真实点光)。
+# 第二批 (2026-11-26, 用户选定): 旧址 (34,-41) r8.5 的边到过山车轨道只有 9 m, 整体南迁到空地 ——
+#   新址 = 椭圆 36x24 m (半轴 18 / 12), 心 app (37,58) = blender (37,-58), 边到轨道 22 m, 面积 679 m2 (旧址 227)。
+#   旧址草皮盘保留, 改作入口前庭; 两条通路: 横路 -> 前庭 -> 北侧接路 (PE_PathGraveN),
+#   以及主路东缘 -> 西侧支路 (PE_PathGraveW)。本批只搬家 + 扩场地 + 接通路: 现有布局按 1.5 倍等比搬进新址
+#   (布局的心在 (35,-58)); 门 / 走道 / 围栏 / 碑位重排在第三批。
 # 随机流约定: 这一段新增的随机一律走墓园自己的 rgv; 全局 random 在段内只保留「改造前就有」的消耗
-#   (枯树 spooky_tree 内部 + 段末 GV_LEGACY_DRAWS 占位)。这样墓园以后怎么改, 段后的园区
-#   (市集 / 长椅 / 枯树 / 远山 / 城市灯火) 都与改造前逐顶点一致。
+#   (枯树 spooky_tree 内部 + 段末 GV_LEGACY_DRAWS 占位)。段内也不改 on_path / pump_plan / tree_extras ——
+#   那些规则决定其后的散布 (南瓜伴生 / 草丛 / 地斑 / 树) 哪些候选被舍弃, 一改全园就重新随机。
+#   所以: 新址 / 新路上原有的散布件在段末按位置确定性清掉; 要挪的固定件 (打卡南瓜) 建完后整体平移;
+#   树若落进新址则在树段里确定性推出 (现在无一落入)。
 rgv = random.Random(20261126)
-gx0, gy0 = 34.0, -41.0
-add_cyl("PE_GravePatch", 8.5, 0.08, (gx0, gy0, -0.03), mat=m_grass, verts=32)
+GV_EX, GV_EY, GV_EA, GV_EB = 37.0, -58.0, 18.0, 12.0   # 新址椭圆: 心与半轴 (blender x / y)
+gv0x, gv0y, GS = 35.0, -58.0, 1.5                      # 搬迁布局的心与等比倍数 (旧址布局以 (34,-41) 为心、倍数 1)
+
+def gv_inside(x, y, ga=GV_EA, gb=GV_EB):
+    """blender (x, y) 是否落在新址椭圆内 (ga / gb = 外扩后的半轴)"""
+    return ((x - GV_EX) / ga) ** 2 + ((y - GV_EY) / gb) ** 2 <= 1.0
+
+def gv_on_new_paths(x, y, m=0.0):
+    """是否落在两条新路上 (blender 坐标, m = 外扩)"""
+    return ((33.5 - m < x < 36.5 + m and -48.0 - m < y < -40.0 + m) or
+            (2.25 - m < x < 20.25 + m and -56.2 - m < y < -53.2 + m))
+
+# 入口前庭 = 旧址草皮盘 (位置尺寸不变); 新墓园草皮盘 = 椭圆。
+# 两者重叠 3 m: 同材质、同高度 (+0.01) 的顶面重叠不会出痕迹 (着色完全相同)
+add_cyl("PE_GraveForecourt", 8.5, 0.08, (34.0, -41.0, -0.03), mat=m_grass, verts=32)
+gp = add_cyl("PE_GravePatch", 1.0, 0.08, (GV_EX, GV_EY, -0.03), mat=m_grass, verts=64)
+gp.scale = (GV_EA, GV_EB, 1.0)
+
+# 通路: 北侧接路 (app x 33.5..36.5, z 40..48: 从横路尾穿过前庭接到新址北缘) 与
+#       西侧支路 (app x 2.25..20.25, z 53.2..56.2: 主路东缘到新址西缘)。z 不能取 58: 主路东侧这一段排得很密 ——
+#       路灯 (4.4,52) / 指示牌 (2.3,57.3) / 长椅 (5.6,59) / 二道门牌楼柱 (2.99,60), 只有 z 52.4..58.9 一条空档;
+#       支路落在路灯与指示牌之间 (两侧各留 0.8 m), 离牌楼 2.7 m
+add_box("PE_PathGraveN", (3.0, 8.0, 0.12), (35.0, -44.0, -0.02), mat=m_path)
+add_box("PE_PathGraveW", (18.0, 3.0, 0.12), (11.25, -54.7, -0.02), mat=m_path)
 
 def gv_stone_vcol(ob, height_of):
     """墓碑件顶点色: height_of(v) = 该顶点离地高度 -> 自下而上 GV_STONE_LO -> GV_STONE_HI (1.05 m 处到顶色)"""
     set_vcol(ob, [tuple(GV_STONE_LO[k] + (GV_STONE_HI[k] - GV_STONE_LO[k]) * min(1.0, max(0.0, height_of(v) / 1.05))
                         for k in range(3)) for v in ob.data.vertices])
 
-# (dx, dy, 绕竖轴转角°)。0 / 2 / 5 / 6 号 2026-11-26 让路: 0 号原在路面内 (30.8, -39.2), 5 / 2 号紧贴路缘,
-# 6 号原在路尾正中 (35.2, -40.6) —— 路面 y -38.5..-41.5, 路尾 x 33.5。2 号同时让开北缘守墓灯 (碑离灯须 >= 2 m)。
-# 碑身不再带 2-3° 倾角: 盖帽不随碑身倾, 两者斜着相交会在接缝处闪出一条亮虚线 (倾角留给第三批重写碑型时整体处理)
+# (dx, dy, 绕竖轴转角°) = 旧址布局里相对旧址心的偏移, 乘 GS 落到新址。碑身不带倾角: 盖帽不随碑身倾,
+# 两者斜着相交会在接缝处闪出一条亮虚线 (碑型整体重做在第三批)
 stone_off = [(-1.6, 4.4, 0.0), (-1.6, -2.2, 8.0), (1.3, 3.1, -6.0),
              (2.1, -1.8, 0.0), (3.6, 2.2, 10.0), (-5.1, -1.5, 5.0),
              (-2.7, -4.4, -9.0), (-0.8, -3.6, 3.0), (4.6, -0.4, 0.0)]
 for i, (ox, oy, rotz) in enumerate(stone_off):
-    x, y = gx0 + ox, gy0 + oy
+    x, y = gv0x + GS * ox, gv0y + GS * oy
     rz = radians(rotz)
     sb = add_box(f"PE_Grave{i}", (0.72, 0.2, 1.05), (x, y, 0.52), rot=(0, 0, rz), mat=m_grst)
     gv_stone_vcol(sb, lambda v: v.co.z + 0.525)
@@ -1582,23 +1611,26 @@ for i, (ox, oy, rotz) in enumerate(stone_off):
     collider_rect(x, y, 0.365 * abs(cos(rz)) + 0.105 * abs(sin(rz)),
                   0.365 * abs(sin(rz)) + 0.105 * abs(cos(rz)))
 for i, (ox, oy) in enumerate(((-2.6, 3.4), (3.2, -3.4))):
-    x, y = gx0 + ox, gy0 + oy
+    x, y = gv0x + GS * ox, gv0y + GS * oy
     add_box(f"PE_CrossV{i}", (0.16, 0.14, 1.5), (x, y, 0.75), mat=m_wood)
     add_box(f"PE_CrossH{i}", (0.7, 0.14, 0.16), (x, y, 1.05), mat=m_wood)
     collider_rect(x, y, 0.35, 0.07)   # 整个十字的包围盒 (横臂离地 1.05 m, 钻不过去)
+# 围栏柱 (过渡): 10 根沿新址东侧的椭圆边 (参数角 -80°..150°: app x = 37 + 18 cos t, z = 58 + 12 sin t),
+# 西侧 (将来的西门) 与西北 (前庭一侧) 留空; 横杆 / 尖头 / 碰撞 / 补齐整圈在第三批
 for k in range(10):
-    th = radians(-80 + k * 16)
-    fx, fy = gx0 + 8.2 * cos(th), gy0 + 8.2 * sin(th) - 2.0
+    t = radians(-80 + k * 230 / 9)
+    fx, fy = GV_EX + GV_EA * cos(t), GV_EY - GV_EB * sin(t)
     add_box(f"PE_GFence{k}", (0.12, 0.12, 1.1), (fx, fy, 0.55), mat=m_iron)
-grave_lantern("PE_GraveLantern", gx0, gy0 + 4.6)          # 北缘 (app 34, 36.4)
-grave_lantern("PE_GraveLanternS", gx0, gy0 - 7.0)         # 南缘 (app 34, 48), 与北灯同在南北轴上; 离最近的碑 (7 号) 3.5 m
-spooky_tree("PE_GraveTree", gx0 + 5.4, gy0 + 3.2, scale=1.2, variant="weep")   # spooky_tree 内部已加碰撞圆 r0.65
+grave_lantern("PE_GraveLantern", gv0x, gv0y + 4.6 * GS)     # 北 (app 35, 51.1): 北侧接路轴线正前方 3 m
+grave_lantern("PE_GraveLanternS", gv0x, gv0y - 7.0 * GS)    # 南缘 (app 35, 68.5), 与北灯同轴
+spooky_tree("PE_GraveTree", gv0x + 5.4 * GS, gv0y + 3.2 * GS, scale=1.2, variant="weep")   # spooky_tree 内部已加碰撞圆 r0.65
 
-# 彼岸花丛 x4 (墓园 v2: 弯茎 + 放射红蕊弯瓣, m_red 自发光)
+# 彼岸花丛 x4 (墓园 v2: 弯茎 + 放射红蕊弯瓣, m_red 自发光); 偏移同样是旧址布局 x GS
 # 花的摆法与改造前相同: rlg 从「此刻的全局状态」起步取值, 等价于以前直接用全局 random; 段末再把全局流的消耗补回去
 rlg = random.Random()
 rlg.setstate(random.getstate())
-for ci, (cx, cy) in enumerate(((31.0, -43.0), (36.0, -38.0), (33.0, -46.0), (38.0, -42.0))):
+for ci, (ox, oy) in enumerate(((-3.0, -2.0), (2.0, 3.0), (-1.0, -5.0), (4.0, -1.0))):
+    cx, cy = gv0x + GS * ox, gv0y + GS * oy
     for f in range(7):
         fx = cx + rlg.uniform(-0.7, 0.7)
         fy = cy + rlg.uniform(-0.7, 0.7)
@@ -1621,6 +1653,38 @@ for ci, (cx, cy) in enumerate(((31.0, -43.0), (36.0, -38.0), (33.0, -46.0), (38.
 GV_LEGACY_DRAWS = 4 * 7 * 15
 for _ in range(GV_LEGACY_DRAWS):
     random.random()
+
+# 打卡南瓜 pumpkin_grave: 从旧址西北角 (30.5,-36.5) 挪到新址北门内 (37.6,-49.6), 标签不变。
+# pump_plan 里的坐标不能动 (它还喂着草丛 / 地斑的避让表, 改了全园散布就变) —— 建完之后整体平移它的几个部件,
+# 再改碰撞圆与 POI 记录
+GV_POI_FROM, GV_POI_TO = (30.5, -36.5), (37.6, -49.6)
+_poi_i = pump_plan.index(GV_POI_FROM)
+_pdx, _pdy = GV_POI_TO[0] - GV_POI_FROM[0], GV_POI_TO[1] - GV_POI_FROM[1]
+gv_poi_parts = [ob for ob in col.objects if ob.name.startswith(f"PE_Pump{_poi_i}_")]
+assert len(gv_poi_parts) >= 4, f"打卡南瓜部件不足: {len(gv_poi_parts)}"
+for ob in gv_poi_parts:
+    ob.location.x += _pdx
+    ob.location.y += _pdy
+gv_poi_hits = [c for c in COLLIDERS
+               if abs(c["x"] - GV_POI_FROM[0]) < 1e-6 and abs(c["y"] - GV_POI_FROM[1]) < 1e-6]
+assert len(gv_poi_hits) == 1, f"打卡南瓜的碰撞圆应恰有 1 条: {len(gv_poi_hits)}"
+gv_poi_hits[0].update(x=round(GV_POI_TO[0], 2), y=round(GV_POI_TO[1], 2))
+gv_poi_pois = [k for k, p in enumerate(POIS) if p[2] == "pumpkin_grave"]
+assert len(gv_poi_pois) == 1, f"POI pumpkin_grave 应恰有 1 条: {len(gv_poi_pois)}"
+POIS[gv_poi_pois[0]] = (GV_POI_TO[0], GV_POI_TO[1], "pumpkin_grave")
+
+# 清掉新址 / 两条新路上原有的散布件 (草丛 PE_Tuft* / 地斑 PE_GP*): 只删对象, 不动任何随机数
+gv_cleared = {"PE_Tuft": 0, "PE_GP": 0}
+for ob in list(col.objects):
+    pref = "PE_Tuft" if ob.name.startswith("PE_Tuft") else ("PE_GP" if ob.name.startswith("PE_GP") else None)
+    if pref is None or ob.type != "MESH" or not len(ob.data.vertices):
+        continue
+    c = ob.matrix_basis @ (sum((v.co for v in ob.data.vertices), Vector()) / len(ob.data.vertices))
+    m = 3.9 if pref == "PE_GP" else 0.3   # 地斑半径最大 3.6 m: 外扩判定, 免得地斑顶面 (0.011) 戳出新草皮盘顶面 (0.01)
+    if gv_inside(c.x, c.y, GV_EA + m, GV_EB + m) or gv_on_new_paths(c.x, c.y, m):
+        gv_cleared[pref] += 1
+        bpy.data.objects.remove(ob, do_unlink=True)
+print("GV_CLEARED", gv_cleared, "POI_PARTS", len(gv_poi_parts))
 
 # ---------------- 市集亭 x3 (西) + 新摊车 x2 ----------------
 stall_defs = [(-25.0, -27.5, HEX["orange"], "treats"),
@@ -2003,7 +2067,7 @@ gargoyle("PE_Gargoyle0", 15.0, -20.0, ry=radians(135))
 gargoyle("PE_Gargoyle1", -15.0, -20.0, ry=radians(45))
 
 # ---------------- 稻草人 x2 ----------------
-scarecrow("PE_Scarecrow0", 40.0, -47.0, ry=radians(30))
+scarecrow("PE_Scarecrow0", 38.4, -43.6, ry=radians(30))   # 2026-11-26: 原 (40,-47) 落在墓园新址北缘内, 挪到前庭东南角
 scarecrow("PE_Scarecrow1", -70.0, 20.0, ry=radians(-60))
 
 # ---------------- 花藤拱门 x3 ----------------
@@ -2154,6 +2218,19 @@ while len(tree_spots) < 22 and tries < 3000:
     if any((tx - x) ** 2 + (ty - y) ** 2 < 64 for tx, ty in tree_spots):
         continue
     tree_spots.append((x, y))
+# 墓园新址 (椭圆, 见墓园段) 内不落树。树位是确定性的, 现在无一落在园内 (最近的一棵在 (52.4,-47.6), 园外东北)。
+# 万一上游改动后有树落进来: 沿径向确定性推到园外 3 m —— 不重新抽随机数 (那会让其后的树 / 松 / 柳 / 远山全部换位)
+GV_TREE_PUSH = []
+for _i, (_x, _y) in enumerate(tree_spots):
+    if gv_inside(_x, _y, GV_EA + 3.0, GV_EB + 3.0):
+        _dx, _dy = _x - GV_EX, _y - GV_EY
+        if abs(_dx) < 1e-6 and abs(_dy) < 1e-6:
+            _dx = 1.0
+        _s = 1.02 / (((_dx / (GV_EA + 3.0)) ** 2 + (_dy / (GV_EB + 3.0)) ** 2) ** 0.5)
+        tree_spots[_i] = (GV_EX + _s * _dx, GV_EY + _s * _dy)
+        GV_TREE_PUSH.append(_i)
+if GV_TREE_PUSH:
+    print("GV_TREE_PUSHED", GV_TREE_PUSH)
 for i, (x, y) in enumerate(tree_spots):
     spooky_tree(f"PE_Tree{i}", x, y, scale=random.uniform(0.9, 1.4))
 
@@ -2227,7 +2304,7 @@ def add_cam(name, loc, target, lens=35):
 
 cam_aerial = add_cam("PE_CamAerial", (160, -160, 120), (0, 0, 4), lens=28)
 cam_street = add_cam("PE_CamStreet", (0.0, -105.0, 1.75), (0, -45, 5.5), lens=30)
-cam_corner = add_cam("PE_CamCorner", (26.0, -48.0, 2.2), (35.0, -40.0, 1.2), lens=38)
+cam_corner = add_cam("PE_CamCorner", (25.0, -48.0, 2.2), (37.0, -59.0, 1.2), lens=38)   # 2026-11-26: 墓园南迁后从前庭西侧朝新址看
 
 sc.view_settings.view_transform = "Standard"
 sc.view_settings.exposure = 0.35

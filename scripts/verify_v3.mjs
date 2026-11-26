@@ -89,10 +89,10 @@ await page.evaluate(() => {
 await page.waitForTimeout(500);
 await page.screenshot({ path: `${outDir}/v6_bay_zone.png` });
 
-// 6. 墓园彼岸花 (34,41 app)
+// 6. 墓园新址 (2026-11-26 南迁: 椭圆 36x24 心 app (37,58)); 从西侧支路上朝东看
 await page.evaluate(() => {
-  window.__game.player.teleport(28, 46);
-  window.__game.player.setView(-0.7, -0.08);
+  window.__game.player.teleport(20, 54.7);
+  window.__game.player.setView(-Math.PI / 2, -0.06);
 });
 await page.waitForTimeout(500);
 await page.screenshot({ path: `${outDir}/v7_graveyard.png` });

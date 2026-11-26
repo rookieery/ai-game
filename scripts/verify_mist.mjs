@@ -30,8 +30,8 @@ await page.evaluate(() => window.__game.player.teleport(12.5, 70));
 await page.waitForTimeout(1200);
 await shot("m1_entrance_east");
 
-// 机位2：墓园雾潭（33,41.5）——验证南瓜暖染，站北向南看
-await page.evaluate(() => window.__game.player.teleport(33, 53));
+// 机位2：墓园新址雾潭（37,58；2026-11-26 南迁，椭圆 36x24）——验证守墓灯暖染，站南向北看
+await page.evaluate(() => window.__game.player.teleport(36, 76));
 await page.waitForTimeout(1200);
 await shot("m2_grave_tint");
 
