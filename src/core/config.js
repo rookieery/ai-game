@@ -41,7 +41,7 @@ export const SETTINGS_GROUPS = [
       { key: "bgmOn", label: "背景音乐", type: "switch", def: true, fmt: (v) => (v ? "开" : "关") }, // 八音盒 BGM 总闸 (环境风/乘坐嗡鸣/风铃不受控)
       { key: "walkSpeed", label: "步行速度", min: 2, max: 16, step: 1, def: 4, fmt: (v) => `${v} 米/秒` }, // 疾走 = 步速 ×1.8
       { key: "parkLampLight", label: "园区照明亮度", min: 0, max: 200, step: 5, def: 100, fmt: pct },
-      { key: "graveyardLight", label: "墓园灯火亮度", min: 0, max: 200, step: 5, def: 100, fmt: pct }, // 墓园守墓灯 ×2 (colliders.json lights)
+      { key: "graveyardLight", label: "墓园灯火亮度", min: 0, max: 200, step: 5, def: 100, fmt: pct }, // 墓园 4 盏清单灯: 守墓灯 ×2 + 北门 / 西门的门灯 ×2 (colliders.json lights)
       { key: "pumpkinGlow", label: "南瓜灯发光亮度", min: 0, max: 200, step: 5, def: 100, fmt: pct },
       { key: "moonLight", label: "月光与环境光", min: 0, max: 200, step: 5, def: 100, fmt: pct },
       { key: "fogDensity", label: "夜雾浓度", min: 0, max: 200, step: 5, def: 100, fmt: pct },

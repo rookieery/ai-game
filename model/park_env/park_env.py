@@ -9,7 +9,8 @@ Run: blender --background --python park_env.py
   - 路网: 内环 r34 / 外环 r90 / 四条放射支路 (东北过山车 78°, 东南秘境 -32°,
           西南幽灵港 217.6°, 西北许愿池 147°) + 木马支路 22° / 墓园·市集横路
   - 墓园 v4 (2026-11-26): 旧址 (34,-41) 改作入口前庭, 新址 = 椭圆 36x24 心 (37,-58) (app (37,58)),
-          北侧接路 (前庭 -> 新址) + 西侧支路 (主路 -> 新址)
+          北侧接路 (前庭 -> 新址) + 西侧支路 (主路 -> 新址); 第三批: 丁字走道 (东西主走道 + 北脊) + 两个门
+          (石门柱 / 铁艺拱 / 新月星徽 / 石像鬼) + 一圈尖桩铁艺围栏 + 碑成行
   - 预留区 (围挡+敬请期待牌): 北 过山车 x[-30,60] y[70,130];
           西南 幽灵港(海盗船) x[-88,-52] y[-55,-35]; 东南 秘境 x[78,112] y[-78,-42]
   - 烟花发射器 x6 (三型×2: A 牡丹架 广场东北+木马缘 / B 垂柳塔 墓园东+许愿池 /
@@ -30,7 +31,7 @@ import time
 from math import radians, pi, cos, sin, atan2, hypot
 from pathlib import Path
 import numpy as np
-from mathutils import Vector, Quaternion
+from mathutils import Vector, Quaternion, Euler
 
 random.seed(11)
 T0 = time.time()
@@ -731,6 +732,10 @@ m_stone   = make_mat("PE_Stone", HEX["stone"], rough=0.85)
 m_grst    = make_vcol_mat("PE_GraveStone", "#FFFFFF", rough=0.8)
 GV_STONE_LO = hex_lin("#565D6E")[:3]
 GV_STONE_HI = hex_lin("#8A93A6")[:3]
+# 墓园铁件 (第三批): 电介质深灰蓝。场景没有环境贴图, metalness 0.8 的 PE_Iron 只剩点光高光, 在夜色里是纯黑 ——
+# 围栏 / 门拱 / 灯笼挂在灯下也看不出形。园内其余铁件仍用 PE_Iron (全园铁艺材质另行处理)
+m_grv_iron = make_mat("PE_GraveIron", "#3A3F52", rough=0.6, metal=0.15)
+m_grv_gold = make_mat("PE_GraveGold", "#C9A227", rough=0.45, metal=0.5, emit="#C9A227", strength=0.35)  # 鎏金: 门徽 / 月盘
 m_wood    = make_mat("PE_Wood", HEX["wood"], rough=0.85)
 m_straw   = make_mat("PE_Straw", HEX["straw"], rough=0.9)
 m_cloth   = make_mat("PE_Cloth", HEX["cloth"], rough=0.95)
@@ -999,10 +1004,10 @@ def string_lights(name, p1, p2, sag=0.55, step=0.55, mats=None):
 
 def light_pole(name, x, y, h=4.0, attach=None):
     """灯串挂杆: 落地基座 + 铁杆 + 挂环 + 暖白顶珠 (灯串两端没有灯杆 / 树可挂时用; attach = 挂点高度, 默认杆顶下 0.3)"""
-    add_cyl(f"{name}_base", 0.17, 0.3, (x, y, 0.15), mat=m_iron, verts=10)
-    add_cyl(f"{name}_pole", 0.055, h, (x, y, h / 2), mat=m_iron, verts=8)
+    add_cyl(f"{name}_base", 0.17, 0.3, (x, y, 0.15), mat=m_grv_iron, verts=10)
+    add_cyl(f"{name}_pole", 0.055, h, (x, y, h / 2), mat=m_grv_iron, verts=8)
     az = attach if attach is not None else h - 0.3
-    add_torus(f"{name}_ring", 0.07, 0.016, (x, y, az), mat=m_iron, ms=14, ns=5)
+    add_torus(f"{name}_ring", 0.07, 0.016, (x, y, az), mat=m_grv_iron, ms=14, ns=5)
     add_sphere(f"{name}_top", 0.07, (x, y, h + 0.03), mat=m_warm, seg=8, ring=5)
     collider(x, y, 0.2)
 
@@ -1482,7 +1487,7 @@ while len(patch_spots) < 55 and tries < 3000:
         ground_patch(f"PE_GP{len(patch_spots)}", x, y, random.uniform(1.2, 2.4), m_litter, 0.5, 0.95)
 
 # ---------------- 发光蘑菇圈 x8 (v2 波缘伞盖 + 菌褶底发光) ----------------
-mush_circles = [(30, -38), (38, -44), (60, 45), (-15, -70), (-75, 10),
+mush_circles = [(12, -50.5), (38, -44), (60, 45), (-15, -70), (-75, 10),
                 (30, -80), (75, -20), (-40, 80)]
 for ci, (cx, cy) in enumerate(mush_circles):
     n_m = random.randint(5, 8)
@@ -1493,6 +1498,7 @@ for ci, (cx, cy) in enumerate(mush_circles):
         my = cy + ring_r * sin(a) + random.uniform(-0.15, 0.15)
         ms_ = random.uniform(0.7, 1.3)
         mushroom_v2(f"PE_Mush{ci}_{k}", mx, my, ms_)
+    # 第一圈原在 (30,-38) 横路路口北侧, 碰撞圆挤窄了进墓园的路 (2026-11-26 第三批挪到西支路北侧 app (12,50.5) 引路)
     # 碰撞圆 = 蘑菇圈本身 (2026-11-26 由 ring_r + 0.5 收回): 旧圆的隐形墙比可见蘑菇圈外扩 0.4-0.5 m,
     # 菇体就长在 ring_r 上 (±0.15 抖动, 伞盖半径 <= 0.22), 加玩家半径 0.38 后人仍进不到圈里
     collider(cx, cy, ring_r)
@@ -1525,38 +1531,86 @@ for k, th in enumerate((radians(10), radians(70), radians(130),
         flower(f"PE_FlowerPlaza{k}_{f}", fx, fy, f % 2 == 0, s=random.uniform(0.9, 1.25))
     flower_spots.append((cx, cy))
 
-def grave_lantern(name, x, y):
-    """守墓灯 v2 (2026-11-26): 落地铁柱 (两道箍) + 六棱铁笼 + 暖白烛芯 + 紫火尖, 灯头中心离地约 2.1 m。
-    真实点光不烘进 glb —— 由 park_light 登记进 colliders.json 的 lights, 运行时 (src/core/world.js) 按清单建灯。
-    旧版 (铁柱 r0.16 高 0.5 + 紫球: 柱底离地 0.10, 无碰撞, 有火无光) 已替换。
-    高度与强度是配套的: 点光是平方反比, 灯头 1.44 m 时 1.4 m 外的碑过曝成白块; 抬到 2.1 m、强度 40 cd 后
-    2 m 外的碑面约 170/255、5 m 外约 60、8 m 外约 30, 都在辉光阈值以下 —— 所以碑要离灯 >= 2 m。"""
-    add_cyl(f"{name}_base", 0.17, 0.07, (x, y, 0.035), mat=m_iron, verts=10)
-    add_cyl(f"{name}_base2", 0.11, 0.10, (x, y, 0.12), mat=m_iron, verts=10)
-    cz0, cz1, cr = 1.90, 2.32, 0.17          # 笼: 下环 / 上环高度, 六边形外接圆半径
-    add_cyl(f"{name}_post", 0.05, cz0 - 0.17, (x, y, (cz0 + 0.17) / 2), mat=m_iron, verts=8)
-    for hz in (0.6, 1.5):
-        add_torus(f"{name}_hoop{hz:.2f}", 0.063, 0.014, (x, y, hz), mat=m_iron, ms=14, ns=5)
+def gv_lantern_head(name, x, y, cz0, cz1, cr):
+    """灯头 (守墓灯 / 门柱灯共用): 六棱铁笼 + 暖白烛芯 + 紫火尖。cz0 / cz1 = 笼的上下环高, cr = 六边形外接圆半径"""
     for czn in (cz0, cz1):
-        add_torus(f"{name}_ring{czn:.2f}", cr, 0.016, (x, y, czn), mat=m_iron, ms=6, ns=5)
+        add_torus(f"{name}_ring{czn:.2f}", cr, 0.016, (x, y, czn), mat=m_grv_iron, ms=6, ns=5)
     for k in range(6):
         a = k * pi / 3
         cyl_between(f"{name}_bar{k}", (x + cr * cos(a), y + cr * sin(a), cz0),
-                    (x + cr * cos(a), y + cr * sin(a), cz1), 0.012, m_iron, verts=4)
-    add_cone(f"{name}_cap", 0.23, 0.17, (x, y, cz1 + 0.095), mat=m_iron, verts=6)
+                    (x + cr * cos(a), y + cr * sin(a), cz1), 0.012, m_grv_iron, verts=4)
+    add_cone(f"{name}_cap", cr + 0.06, 0.17, (x, y, cz1 + 0.095), mat=m_grv_iron, verts=6)
     add_sphere(f"{name}_finial", 0.03, (x, y, cz1 + 0.20), mat=m_violet, seg=8, ring=5)
     add_cyl(f"{name}_candle", 0.075, 0.22, (x, y, cz0 + 0.17), mat=m_warm_s, verts=8)
     add_sphere(f"{name}_flame", 0.06, (x, y, cz0 + 0.34), mat=m_violet, seg=8, ring=5, scale=(1, 1, 1.35))
+
+def grave_lantern(name, x, y):
+    """守墓灯 v2 (2026-11-26): 落地铁柱 (两道箍) + 六棱铁笼 + 暖白烛芯 + 紫火尖, 灯头中心离地约 2.1 m。
+    真实点光不烘进 glb —— 由 park_light 登记进 colliders.json 的 lights, 运行时 (src/core/world.js) 按清单建灯。
+    高度与强度是配套的: 点光是平方反比, 灯头 1.44 m 时 1.4 m 外的碑过曝成白块; 抬到 2.1 m、强度 40 cd 后
+    2 m 外的碑面约 170/255、5 m 外约 60、8 m 外约 30, 都在辉光阈值以下 —— 所以碑要离灯 >= 2 m。"""
+    add_cyl(f"{name}_base", 0.17, 0.07, (x, y, 0.035), mat=m_grv_iron, verts=10)
+    add_cyl(f"{name}_base2", 0.11, 0.10, (x, y, 0.12), mat=m_grv_iron, verts=10)
+    cz0, cz1 = 1.90, 2.32
+    add_cyl(f"{name}_post", 0.05, cz0 - 0.17, (x, y, (cz0 + 0.17) / 2), mat=m_grv_iron, verts=8)
+    for hz in (0.6, 1.5):
+        add_torus(f"{name}_hoop{hz:.2f}", 0.063, 0.014, (x, y, hz), mat=m_grv_iron, ms=14, ns=5)
+    gv_lantern_head(f"{name}_head", x, y, cz0, cz1, 0.17)
     collider(x, y, 0.2)
     park_light(x, y, cz0 + 0.24, "#FFD9A8", 40, 22, decay=2, tag=name, key="graveyardLight")
 
-# ---------------- 墓园 v4: 入口前庭 (旧址) + 南迁扩容的新墓园 + 彼岸花 x4 ----------------
-# 第一批 (2026-11-26 评审后): 墓碑专用提亮材质 / 碰撞改盒墙 (原圆 r0.75 是碑身半对角线的 2 倍) / 守墓灯 x2 (真实点光)。
-# 第二批 (2026-11-26, 用户选定): 旧址 (34,-41) r8.5 的边到过山车轨道只有 9 m, 整体南迁到空地 ——
-#   新址 = 椭圆 36x24 m (半轴 18 / 12), 心 app (37,58) = blender (37,-58), 边到轨道 22 m, 面积 679 m2 (旧址 227)。
-#   旧址草皮盘保留, 改作入口前庭; 两条通路: 横路 -> 前庭 -> 北侧接路 (PE_PathGraveN),
-#   以及主路东缘 -> 西侧支路 (PE_PathGraveW)。本批只搬家 + 扩场地 + 接通路: 现有布局按 1.5 倍等比搬进新址
-#   (布局的心在 (35,-58)); 门 / 走道 / 围栏 / 碑位重排在第三批。
+def gv_gargoyle(name, x, y, z, ry, s):
+    """门柱顶石像鬼 (2026-11-26 第三批第二版): 蹲姿 —— 底座 + 圆盘 + 拱背的躯干 (后半身用一个大半重叠的椭球撑宽) + 前腿 (贴圆盘前伸) +
+    头 (吻部 / 双角 / 紫眼) + 每侧三片翼 (主翼 / 竖起的肘翼 / 前小叶)。x / y = Blender 坐标, z = 底座底高, ry = 前向 (头朝哪边),
+    s = 缩放 (门柱顶 0.4, 通高约 0.78 m)。每个件都要带顶点色 (墓碑石是顶点色材质)。
+    第一版照搬园里 gargoyle() 的三棱锥翼 (园大门那两尊是 1:1), 缩到 0.4 以后翼片与躯干之间露天空, 从每条来路看都像「球 + 几片
+    飘着的纸飞机」; 臀部 / 前爪单独用球也会读成挂在身侧的球。所以翼片改成四面体: 翼根两点都埋在躯干里, 不可能有悬空件。
+    造型沙盒 (同款图元 + 门灯位置, 几秒一轮): shots/graveyard_review/b3/garg_test.py + garg_new.py"""
+    def L_(da, db):
+        return (x + cos(ry) * da - sin(ry) * db, y + sin(ry) * da + cos(ry) * db)
+    def vc(ob, hc):
+        gv_stone_vcol(ob, lambda v: v.co.z + hc)
+    cx_, cy_ = L_(0, 0)
+    vc(add_box(f"{name}_ped", (1.1 * s, 1.1 * s, 0.5 * s), (cx_, cy_, z + 0.25 * s), rot=(0, 0, ry), mat=m_grst), z + 0.25 * s)
+    vc(add_cyl(f"{name}_pedtop", 0.5 * s, 0.22 * s, (cx_, cy_, z + 0.6 * s), mat=m_grst, verts=8), z + 0.6 * s)
+    vc(add_sphere(f"{name}_body", 0.46 * s, (cx_, cy_, z + 1.0 * s), mat=m_grst, seg=12, ring=8, scale=(1.08, 0.92, 1.0)), z + 1.0 * s)
+    rx_, ry_ = L_(-0.16, 0)                                               # 后半身: 大半重叠在躯干里, 把背撑成拱起的卵形 (单独的球会读成挂着的球)
+    vc(add_sphere(f"{name}_rump", 0.44 * s, (rx_, ry_, z + 0.98 * s), mat=m_grst, seg=12, ring=8, scale=(1.0, 1.04, 0.98)), z + 0.98 * s)
+    for hs in (-1, 1):
+        px_, py_ = L_(0.52, hs * 0.26)                                     # 前腿: 贴着圆盘往前伸 (扁长椭球, 后端埋在躯干里, 底面落在圆盘顶 0.71s 上)
+        vc(add_sphere(f"{name}_fore{hs}", 0.13 * s, (px_, py_, z + 0.80 * s), mat=m_grst, seg=8, ring=6, scale=(2.3, 0.85, 0.72)), z + 0.80 * s)
+    hx_, hy_ = L_(0.38, 0)
+    vc(add_sphere(f"{name}_head", 0.27 * s, (hx_, hy_, z + 1.38 * s), mat=m_grst, seg=10, ring=7), z + 1.38 * s)
+    sx_, sy_ = L_(0.62, 0)
+    vc(add_box(f"{name}_snout", (0.24 * s, 0.18 * s, 0.16 * s), (sx_, sy_, z + 1.3 * s), rot=(0, 0, ry), mat=m_grst), z + 1.3 * s)
+    for hs in (-1, 1):
+        px_, py_ = L_(0.22, hs * 0.17)
+        vc(add_cone(f"{name}_horn{hs}", 0.07 * s, 0.32 * s, (px_, py_, z + 1.68 * s), mat=m_grst, verts=5, rot=(radians(-20), 0, ry)), z + 1.68 * s)
+        px_, py_ = L_(0.56, hs * 0.1)
+        add_sphere(f"{name}_eye{hs}", 0.036 * s, (px_, py_, z + 1.42 * s), mat=m_violet, seg=6, ring=4)
+    for hs in (-1, 1):
+        def W_(da, db, dz):
+            wx_, wy_ = L_(da, db)
+            return (wx_, wy_, z + dz * s)
+        r1, r2 = W_(0.30, hs * 0.20, 1.20), W_(-0.34, hs * 0.16, 1.10)     # 主翼翼根 (两点都在躯干里)
+        t1, t2 = W_(-0.44, hs * 0.86, 1.72), W_(-0.33, hs * 0.88, 1.72)      # 主翼 (外段) 翼尖
+        f1, f2 = W_(0.14, hs * 0.62, 1.52), W_(0.20, hs * 0.64, 1.52)       # 前小叶翼尖
+        e1, e2 = W_(-0.20, hs * 0.50, 1.86), W_(-0.12, hs * 0.52, 1.86)     # 肘翼 (竖起的中段) 翼尖
+        for tag, vs in (("wing", [r1, r2, t1, t2]), ("wingf", [r1, W_(-0.05, hs * 0.30, 1.22), f1, f2]),
+                        ("winge", [W_(0.05, hs * 0.28, 1.24), W_(-0.22, hs * 0.24, 1.16), e1, e2])):
+            ob = _new_obj(f"{name}_{tag}{hs}", vs, [(0, 1, 2), (1, 0, 3), (0, 3, 2), (1, 2, 3)], m_grst, False)
+            gv_stone_vcol(ob, lambda v: v.co.z)
+
+
+# ---------------- 墓园 v4: 入口前庭 (旧址) + 园中墓园 (南迁新址) + 彼岸花 x4 ----------------
+# 第一批 (2026-11-26 评审后): 墓碑专用提亮材质 / 碰撞改盒墙 / 守墓灯 x2 (真实点光)。
+# 第二批 (用户选定): 旧址 (34,-41) r8.5 离过山车太近, 南迁到空地 —— 新址 = 椭圆 36x24 m (半轴 18 / 12),
+#   心 app (37,58) = blender (37,-58), 边到轨道 22 m; 旧址草皮盘保留作入口前庭; 北侧接路 (前庭 -> 新址北缘)
+#   + 西侧支路 (主路东缘 -> 新址西缘)。
+# 第三批 (用户选定「丁字一轴一脊 / 规整行列」): 两个门 (石门柱 + 铁艺拱 + 新月星徽 + 柱顶石像鬼, 门洞挂真实点光) /
+#   一圈尖桩铁艺围栏 (铁柱 + 双横杆 + 尖桩, 只在两个门处断开) / 园内走道 (东西主走道: 西门 -> 东端焦点庭;
+#   北脊: 北门 -> 主走道) / 碑按行重排 (宽面朝走道, 碑身带倾角) / 守墓灯挪到走道两侧 / 灯串在主走道上空之字形横跨 /
+#   蘑菇圈挪到西支路旁 / 稻草人守在北门外 / 长椅转向北门。碑型重做、加碑、焦点碑、地面与主题造型留给第四批。
 # 随机流约定: 这一段新增的随机一律走墓园自己的 rgv; 全局 random 在段内只保留「改造前就有」的消耗
 #   (枯树 spooky_tree 内部 + 段末 GV_LEGACY_DRAWS 占位)。段内也不改 on_path / pump_plan / tree_extras ——
 #   那些规则决定其后的散布 (南瓜伴生 / 草丛 / 地斑 / 树) 哪些候选被舍弃, 一改全园就重新随机。
@@ -1564,73 +1618,251 @@ def grave_lantern(name, x, y):
 #   树若落进新址则在树段里确定性推出 (现在无一落入)。
 rgv = random.Random(20261126)
 GV_EX, GV_EY, GV_EA, GV_EB = 37.0, -58.0, 18.0, 12.0   # 新址椭圆: 心与半轴 (blender x / y)
-gv0x, gv0y, GS = 35.0, -58.0, 1.5                      # 搬迁布局的心与等比倍数 (旧址布局以 (34,-41) 为心、倍数 1)
 
 def gv_inside(x, y, ga=GV_EA, gb=GV_EB):
     """blender (x, y) 是否落在新址椭圆内 (ga / gb = 外扩后的半轴)"""
     return ((x - GV_EX) / ga) ** 2 + ((y - GV_EY) / gb) ** 2 <= 1.0
 
 def gv_on_new_paths(x, y, m=0.0):
-    """是否落在两条新路上 (blender 坐标, m = 外扩)"""
+    """是否落在园外两条通路上 (blender 坐标, m = 外扩)"""
     return ((33.5 - m < x < 36.5 + m and -48.0 - m < y < -40.0 + m) or
             (2.25 - m < x < 20.25 + m and -56.2 - m < y < -53.2 + m))
 
-# 入口前庭 = 旧址草皮盘 (位置尺寸不变); 新墓园草皮盘 = 椭圆。
-# 两者重叠 3 m: 同材质、同高度 (+0.01) 的顶面重叠不会出痕迹 (着色完全相同)
+def gva(t):
+    """新址椭圆上参数角 t 的点, app (x, z): x = 37 + 18 cos t, z = 58 + 12 sin t"""
+    return (GV_EX + GV_EA * cos(t), -GV_EY + GV_EB * sin(t))
+
+# 入口前庭 = 旧址草皮盘 (位置尺寸不变); 新墓园草皮盘 = 椭圆。两者重叠 3 m: 同材质、同高度 (+0.01) 的顶面重叠不出痕迹
 add_cyl("PE_GraveForecourt", 8.5, 0.08, (34.0, -41.0, -0.03), mat=m_grass, verts=32)
 gp = add_cyl("PE_GravePatch", 1.0, 0.08, (GV_EX, GV_EY, -0.03), mat=m_grass, verts=64)
 gp.scale = (GV_EA, GV_EB, 1.0)
 
-# 通路: 北侧接路 (app x 33.5..36.5, z 40..48: 从横路尾穿过前庭接到新址北缘) 与
-#       西侧支路 (app x 2.25..20.25, z 53.2..56.2: 主路东缘到新址西缘)。z 不能取 58: 主路东侧这一段排得很密 ——
-#       路灯 (4.4,52) / 指示牌 (2.3,57.3) / 长椅 (5.6,59) / 二道门牌楼柱 (2.99,60), 只有 z 52.4..58.9 一条空档;
-#       支路落在路灯与指示牌之间 (两侧各留 0.8 m), 离牌楼 2.7 m
+# 园外通路: 北接路 (app x 33.5..36.5, z 40..48) 与西支路 (app x 2.25..20.25, z 53.2..56.2)。西支路 z 不能取 58:
+#   主路东侧 z 52..66 排着路灯 (4.4,52) / 指示牌 (2.3,57.3) / 长椅 (5.6,59) / 二道门牌楼柱 (+-2.99,60),
+#   只有 z 52.4..58.9 一条空档 —— 落在路灯与指示牌之间
 add_box("PE_PathGraveN", (3.0, 8.0, 0.12), (35.0, -44.0, -0.02), mat=m_path)
 add_box("PE_PathGraveW", (18.0, 3.0, 0.12), (11.25, -54.7, -0.02), mat=m_path)
+# 园内走道 (第三批): 东西主走道 (中线 = 西支路中线 app z 54.7, 宽 2.4) / 北脊 (中线 app x 35) / 东端焦点庭 (r2.4)
+GV_AZ, GV_AW = 54.7, 2.4
+GV_GATE_LIGHT_H, GV_GATE_CD = 2.6, 26   # 门的真实点光: 门洞正中的挂高 (m) 与强度 (cd), 由来见 gv_gate 末尾
+add_box("PE_PathGraveA", (28.9, GV_AW, 0.12), (33.95, -GV_AZ, -0.02), mat=m_path)
+add_box("PE_PathGraveS", (GV_AW, 8.9, 0.12), (35.0, -50.25, -0.02), mat=m_path)
+add_cyl("PE_PathGraveF", 2.4, 0.12, (50.4, -GV_AZ, -0.02), mat=m_path, verts=32)
 
 def gv_stone_vcol(ob, height_of):
     """墓碑件顶点色: height_of(v) = 该顶点离地高度 -> 自下而上 GV_STONE_LO -> GV_STONE_HI (1.05 m 处到顶色)"""
     set_vcol(ob, [tuple(GV_STONE_LO[k] + (GV_STONE_HI[k] - GV_STONE_LO[k]) * min(1.0, max(0.0, height_of(v) / 1.05))
                         for k in range(3)) for v in ob.data.vertices])
 
-# (dx, dy, 绕竖轴转角°) = 旧址布局里相对旧址心的偏移, 乘 GS 落到新址。碑身不带倾角: 盖帽不随碑身倾,
-# 两者斜着相交会在接缝处闪出一条亮虚线 (碑型整体重做在第三批)
-stone_off = [(-1.6, 4.4, 0.0), (-1.6, -2.2, 8.0), (1.3, 3.1, -6.0),
-             (2.1, -1.8, 0.0), (3.6, 2.2, 10.0), (-5.1, -1.5, 5.0),
-             (-2.7, -4.4, -9.0), (-0.8, -3.6, 3.0), (4.6, -0.4, 0.0)]
-for i, (ox, oy, rotz) in enumerate(stone_off):
-    x, y = gv0x + GS * ox, gv0y + GS * oy
-    rz = radians(rotz)
-    sb = add_box(f"PE_Grave{i}", (0.72, 0.2, 1.05), (x, y, 0.52), rot=(0, 0, rz), mat=m_grst)
-    gv_stone_vcol(sb, lambda v: v.co.z + 0.525)
-    # 盖帽比碑身大一圈 (半径 0.365 / 厚 0.21): 与碑身侧面共面时接缝处会闪出一条亮虚线
-    cap = add_cyl(f"PE_GraveCap{i}", 0.365, 0.21, (x, y, 1.05), rot=(radians(90), 0, rz),
-                 mat=m_grst, verts=12)
-    gv_stone_vcol(cap, lambda v: 1.05 + v.co.y)   # 圆柱绕 X 转 90° 后本地 y 即世界高度 (勿用 sc: 那是场景变量)
-    # 盒墙 = 碑身绕竖轴转角后的轴对齐包围盒; 玩家半径 0.38 由控制器另加
-    collider_rect(x, y, 0.365 * abs(cos(rz)) + 0.105 * abs(sin(rz)),
-                  0.365 * abs(sin(rz)) + 0.105 * abs(cos(rz)))
-for i, (ox, oy) in enumerate(((-2.6, 3.4), (3.2, -3.4))):
-    x, y = gv0x + GS * ox, gv0y + GS * oy
-    add_box(f"PE_CrossV{i}", (0.16, 0.14, 1.5), (x, y, 0.75), mat=m_wood)
-    add_box(f"PE_CrossH{i}", (0.7, 0.14, 0.16), (x, y, 1.05), mat=m_wood)
-    collider_rect(x, y, 0.35, 0.07)   # 整个十字的包围盒 (横臂离地 1.05 m, 钻不过去)
-# 围栏柱 (过渡): 10 根沿新址东侧的椭圆边 (参数角 -80°..150°: app x = 37 + 18 cos t, z = 58 + 12 sin t),
-# 西侧 (将来的西门) 与西北 (前庭一侧) 留空; 横杆 / 尖头 / 碰撞 / 补齐整圈在第三批
-for k in range(10):
-    t = radians(-80 + k * 230 / 9)
-    fx, fy = GV_EX + GV_EA * cos(t), GV_EY - GV_EB * sin(t)
-    add_box(f"PE_GFence{k}", (0.12, 0.12, 1.1), (fx, fy, 0.55), mat=m_iron)
-grave_lantern("PE_GraveLantern", gv0x, gv0y + 4.6 * GS)     # 北 (app 35, 51.1): 北侧接路轴线正前方 3 m
-grave_lantern("PE_GraveLanternS", gv0x, gv0y - 7.0 * GS)    # 南缘 (app 35, 68.5), 与北灯同轴
-spooky_tree("PE_GraveTree", gv0x + 5.4 * GS, gv0y + 3.2 * GS, scale=1.2, variant="weep")   # spooky_tree 内部已加碰撞圆 r0.65
+def gv_gate(name, pa, pb, out_n):
+    """墓园的门 (两个门同款): 两根石门柱 (pa / pb = 柱心, app 坐标) + 铁艺拱 (主拱 + 副拱 + 7 根立撑) +
+    新月星徽 (拱顶下, 鎏金) + 柱顶石像鬼 + 柱内外两面各一盏挑臂灯头 (只发光); 真实点光挂在门洞正中、离地 2.6 m。
+    out_n = 朝园外的单位法向 (app)。
+    返回拱顶的 app 坐标 (给灯串挂)"""
+    ax, az = pa
+    L_ = hypot(pb[0] - ax, pb[1] - az)
+    ux, uz = (pb[0] - ax) / L_, (pb[1] - az) / L_     # 门轴方向 a -> b (app)
+    phi = atan2(-uz, ux)                             # 门轴在 Blender 里的方位角
+    ry = atan2(-out_n[1], out_n[0])                   # 石像鬼前向 (Blender): 朝园外
+    ix, iz = -out_n[0], -out_n[1]                     # 朝园内 (走道一侧)
+    psi = atan2(ix, iz)                               # 横放圆柱的朝向: rot=(90,0,psi) 后轴向指向园内
+    def at(s, h):
+        return (ax + ux * s, -(az + uz * s), h)
+    for k, s in enumerate((0.0, L_)):
+        px, py, _ = at(s, 0.0)
+        o = add_box(f"{name}_plinth{k}", (0.66, 0.66, 0.22), (px, py, 0.11), rot=(0, 0, phi), mat=m_grst)
+        gv_stone_vcol(o, lambda v: v.co.z + 0.11)
+        o = add_box(f"{name}_shaft{k}", (0.42, 0.42, 2.70), (px, py, 1.57), rot=(0, 0, phi), mat=m_grst)
+        gv_stone_vcol(o, lambda v: v.co.z + 1.57)
+        o = add_box(f"{name}_cap{k}", (0.56, 0.56, 0.12), (px, py, 2.98), rot=(0, 0, phi), mat=m_grst)
+        gv_stone_vcol(o, lambda v: v.co.z + 2.98)
+        mx, my = px + ix * 0.225, py - iz * 0.225      # 内外面的鎏金小月盘
+        add_cyl(f"{name}_moon{k}", 0.11, 0.03, (mx, my, 2.25), rot=(radians(90), 0, psi), mat=m_grv_gold, verts=16)
+        add_cyl(f"{name}_moono{k}", 0.11, 0.03, (px - ix * 0.225, py + iz * 0.225, 2.25), rot=(radians(90), 0, psi), mat=m_grv_gold, verts=16)
+        gv_gargoyle(f"{name}_garg{k}", px, py, 3.04, ry, 0.4)
+        # 柱面挑臂 + 灯头 x2: 柱内侧、朝来路的外侧各一盏 (2.2 m 以上; 只发光 —— 每个门那一盏真实点光在门洞正中, 见函数末尾)。
+        # 第一版只装在内侧: 从来路走近只看见黑壳, 找不到亮着的灯, 「被门口的灯勾着走进来」不成立 (独立审阅意见)
+        for sd_ in ("i", "o"):
+            ox_, oz_ = (ix, iz) if sd_ == "i" else (-ix, -iz)
+            b0 = (px + ox_ * 0.21, py - oz_ * 0.21, 2.74)
+            b1 = (px + ox_ * 0.66, py - oz_ * 0.66, 2.74)
+            cyl_between(f"{name}_arm{k}{sd_}", b0, b1, 0.022, m_grv_iron, verts=5)
+            cyl_between(f"{name}_drop{k}{sd_}", b1, (b1[0], b1[1], 2.66), 0.012, m_grv_iron, verts=4)
+            gv_lantern_head(f"{name}_lamp{k}{sd_}", b1[0], b1[1], 2.22, 2.52, 0.14)
+        collider(px, py, 0.35)
+    # 铁艺拱: 过 (±半跨, 3.04) 与 (0, 3.95) 的圆弧; 副拱低 0.20 m, 两端插进门柱
+    half = L_ / 2
+    c = (6.3609 - half * half) / 1.82
+    R = 3.95 - c
+    th = atan2(half, (R * R - half * half) ** 0.5)
+    def archpt(t_, R_):
+        return at(half + R_ * sin(t_), c + R_ * cos(t_))
+    NS = 12
+    for k in range(NS):
+        a0 = -th + 2 * th * k / NS
+        a1 = -th + 2 * th * (k + 1) / NS
+        cyl_between(f"{name}_arch{k}", archpt(a0, R), archpt(a1, R), 0.045, m_grv_iron, verts=6)
+    R2 = R - 0.20
+    c2 = (2.86 - c) / R2
+    th2 = atan2((1.0 - c2 * c2) ** 0.5, c2)
+    for k in range(NS):
+        a0 = -th2 + 2 * th2 * k / NS
+        a1 = -th2 + 2 * th2 * (k + 1) / NS
+        cyl_between(f"{name}_arch2_{k}", archpt(a0, R2), archpt(a1, R2), 0.022, m_grv_iron, verts=5)
+    for k in range(7):
+        a = -th * 0.72 + 2 * th * 0.72 * k / 6
+        cyl_between(f"{name}_strut{k}", archpt(a, R), archpt(a, R2), 0.014, m_grv_iron, verts=4)
+    # 新月星徽: 拱顶下, 与门同平面
+    ex, ey, _ = at(half, 0.0)
+    ez = 3.42
+    moon = add_torus(f"{name}_emblem", 0.30, 0.035, (ex, ey, ez), rot=(radians(90), 0, phi), mat=m_grv_gold, ms=36, ns=7)
+    torus_gap(moon, 52, 60)   # 缺口在局部 +x / +y 之间 = 新月
+    add_sphere(f"{name}_star", 0.055, (ex, ey, ez), mat=m_grv_gold, seg=8, ring=6)
+    for k, (dv, rr) in enumerate((((0, 0, 1), (0, 0, 0)), ((0, 0, -1), (pi, 0, 0)),
+                                  ((ux, -uz, 0), (0, radians(90), phi)), ((-ux, uz, 0), (0, radians(-90), phi)))):
+        add_cone(f"{name}_spike{k}", 0.02, 0.22, (ex + dv[0] * 0.15, ey + dv[1] * 0.15, ez + dv[2] * 0.15),
+                 mat=m_grv_gold, verts=4, rot=rr)
+    # 真实点光挂在门洞正中、离地 2.6 m (两盏挑臂灯头之间), 不挂在新月徽上: 70 cd 贴着月徽时, 离灯 0.2-0.9 m 的月徽星点 /
+    # 拱顶铁件 / 柱顶石像鬼全被削顶, 默认辉光下整座门糊成一团白光 (西门外机位近白像素 1.47%)。灯是运行时对象, 改高度 / 强度
+    # 不必重跑模型 —— 页面里试了 7 组, 定在门洞正中 2.6 m (同机位近白 0.04%, 门外 / 门内 / 北门三个机位新月徽都读得出新月加星;
+    # 标定图 shots/graveyard_review/b3/calib/: 3.45m/70cd 1.47%, 3.0/30 0.12%, 3.2/25 0.13%, 2.6/30 0.04%)。柱面挑臂灯头内外各一盏,
+    # 点光就落在四盏灯头之间; 强度 30 -> 26 cd 是为了压一下柱内侧面的刺白 (独立审阅意见)
+    park_light((ax + pb[0]) / 2, -(az + pb[1]) / 2, GV_GATE_LIGHT_H, "#FFD9A8", GV_GATE_CD, 22, decay=2, tag=name, key="graveyardLight")
+    return (ax + ux * half, az + uz * half)
 
-# 彼岸花丛 x4 (墓园 v2: 弯茎 + 放射红蕊弯瓣, m_red 自发光); 偏移同样是旧址布局 x GS
+GV_GATE_N = gv_gate("PE_GateN", (33.2, 46.1), (36.8, 46.1), (0.0, -1.0))    # 北门: 北接路的园外段宽 3 m, 门洞同宽
+GV_GATE_W = gv_gate("PE_GateW", (19.9, 52.9), (19.9, 56.5), (-1.0, 0.0))   # 西门: 正对主走道轴线
+
+# ---------------- 围栏: 一圈尖桩铁艺, 只在两个门处断开 ----------------
+# 折线取自椭圆 (按弧长等分), 两端收到石门柱上; 西门两根门柱取同一个 x (正对主走道), 所以离椭圆略有进出,
+# 首尾一跨的横杆斜着接过去。碰撞圆沿同一条折线铺 —— 碰撞与可见围栏同线。
+def gv_arc_points(t0, t1, n):
+    """椭圆上从参数角 t0 到 t1 (t1 > t0 为 t 增方向, 反之为减方向) 按弧长 n 等分, 返回 n+1 个点 (app)"""
+    samples = []
+    prev = gva(t0)
+    s = 0.0
+    samples.append((0.0, prev))
+    N = 2400
+    for k in range(1, N + 1):
+        cur = gva(t0 + (t1 - t0) * k / N)
+        s += hypot(cur[0] - prev[0], cur[1] - prev[1])
+        samples.append((s, cur))
+        prev = cur
+    out = []
+    j = 0
+    for k in range(n + 1):
+        sk = s * k / n
+        while j < N and samples[j + 1][0] < sk:
+            j += 1
+        s0, p0 = samples[j]
+        s1, p1 = samples[min(j + 1, N)]
+        u = 0.0 if s1 <= s0 else (sk - s0) / (s1 - s0)
+        out.append((p0[0] + (p1[0] - p0[0]) * u, p0[1] + (p1[1] - p0[1]) * u))
+    return out
+
+def gv_t(px, pz):
+    """椭圆上离 app 点 (px, pz) 最近的参数角 (按归一化坐标取角)"""
+    return atan2((pz + GV_EY) / GV_EB, (px - GV_EX) / GV_EA)
+
+gv_fence_posts, gv_fence_circles, gv_fence_pickets = 0, 0, 0
+def gv_fence(name, pts):
+    """一段围栏。pts = 柱位 (app), 首尾是石门柱 (不立铁柱, 只把横杆接过去)。
+    中间每点: 铁柱 (1.5 m) + 箍 + 四棱尖头; 相邻柱间: 两道横杆 + 约 0.2 m 一根的细尖桩; 碰撞: 沿折线每 <=0.4 m 一个 r0.22 圆"""
+    global gv_fence_posts, gv_fence_circles, gv_fence_pickets
+    n = len(pts) - 1
+    for k in range(n + 1):
+        px, py = pts[k][0], -pts[k][1]
+        if 0 < k < n:
+            add_box(f"{name}_post{k}", (0.14, 0.14, 1.5), (px, py, 0.75), mat=m_grv_iron)
+            add_torus(f"{name}_collar{k}", 0.105, 0.022, (px, py, 1.40), mat=m_grv_iron, ms=10, ns=5)
+            add_cone(f"{name}_tip{k}", 0.085, 0.24, (px, py, 1.62), mat=m_grv_iron, verts=4)
+            gv_fence_posts += 1
+        if k < n:
+            qx, qy = pts[k + 1][0], -pts[k + 1][1]
+            seg = hypot(qx - px, qy - py)
+            for hz in (0.42, 1.18):
+                cyl_between(f"{name}_rail{k}_{hz}", (px, py, hz), (qx, qy, hz), 0.026, m_grv_iron, verts=5)
+            m = max(2, round(seg / 0.2))
+            for j in range(1, m):
+                u = j / m
+                bx, by = px + (qx - px) * u, py + (qy - py) * u
+                cyl_between(f"{name}_picket{k}_{j}", (bx, by, 0.10), (bx, by, 1.32), 0.015, m_grv_iron, verts=4)
+                add_cone(f"{name}_pickettip{k}_{j}", 0.04, 0.14, (bx, by, 1.39), mat=m_grv_iron, verts=4)
+                gv_fence_pickets += 1
+            c = max(1, int(seg / 0.4 + 0.9999))
+            for j in range(c):
+                u = (j + 0.5) / c
+                collider(px + (qx - px) * u, py + (qy - py) * u, 0.22)
+                gv_fence_circles += 1
+
+t_wn, t_nw = gv_t(19.9, 52.9), gv_t(33.2, 46.1)        # 西门北柱 / 北门西柱
+tA0, tA1 = min(t_wn, t_nw), max(t_wn, t_nw)            # 西北短弧
+tB0, tB1 = gv_t(36.8, 46.1), gv_t(19.9, 56.5)          # 北门东柱 -> 绕东、南到西门南柱
+while tB1 <= tB0:
+    tB1 += 2 * pi
+for nm_, (t0, t1, pa_, pb_) in {"A": (tA0, tA1, (19.9, 52.9), (33.2, 46.1)),
+                                "B": (tB0, tB1, (36.8, 46.1), (19.9, 56.5))}.items():
+    pts = gv_arc_points(t0, t1, 2400)
+    Lf = sum(hypot(pts[k + 1][0] - pts[k][0], pts[k + 1][1] - pts[k][1]) for k in range(2400))
+    pts = gv_arc_points(t0, t1, max(2, round(Lf / 2.4)))
+    pts[0], pts[-1] = pa_, pb_
+    gv_fence(f"PE_GFence{nm_}", pts)
+print("GV_FENCE posts", gv_fence_posts, "pickets", gv_fence_pickets, "colliders", gv_fence_circles)
+
+# ---------------- 碑: 按行重排, 宽面朝着走道, 碑身带倾角 ----------------
+def gv_stone(name, x, z, yaw, lx, ly):
+    """墓碑 (v4 第三批): 碑身 + 盖帽同倾角。x / z = 碑底中心的 app 坐标; yaw = 绕竖轴; lx / ly = 前后 / 左右倾角 (rad)。
+    盒墙碰撞取整块碑 (含盖帽、含倾斜)的水平包围盒。碑底下沉 2 cm: 倾斜后抬起来的那个角才不会悬空。"""
+    base = Vector((x, -z, -0.02))
+    R_ = Euler((lx, ly, yaw), "XYZ").to_matrix()
+    sb = add_box(f"{name}", (0.72, 0.2, 1.05), tuple(base + R_ @ Vector((0, 0, 0.525))), rot=(lx, ly, yaw), mat=m_grst)
+    gv_stone_vcol(sb, lambda v: v.co.z + 0.525)
+    cap = add_cyl(f"{name}Cap", 0.365, 0.21, tuple(base + R_ @ Vector((0, 0, 1.05))), rot=(lx + pi / 2, ly, yaw),
+                  mat=m_grst, verts=12)
+    gv_stone_vcol(cap, lambda v: 1.05 + v.co.y)   # 圆柱绕 X 转 90° 后本地 y 即碑身高度方向
+    pts_ = []
+    for sx in (-0.36, 0.36):
+        for sy in (-0.1, 0.1):
+            for sz in (0.0, 1.05):
+                pts_.append(base + R_ @ Vector((sx, sy, sz)))
+    for a in range(12):
+        for sy in (-0.105, 0.105):
+            pts_.append(base + R_ @ Vector((0.365 * cos(a * pi / 6), sy, 1.05 + 0.365 * sin(a * pi / 6))))
+    mnx, mxx = min(p.x for p in pts_), max(p.x for p in pts_)
+    mny, mxy = min(p.y for p in pts_), max(p.y for p in pts_)
+    collider_rect((mnx + mxx) / 2, (mny + mxy) / 2, (mxx - mnx) / 2, (mxy - mny) / 2)
+
+# 行 (app z): 北区两行 (z 51.3 / 48.9) 面朝南, 南区五行 (z 58.2 / 60.5 / 62.8 / 65.1 / 67.4) 面朝北。
+# x 槽位以中脊为轴每 2 m 一个 (35 +- 2m), 本批隔槽取用 = 4 m 等距: 25 / 29 / 33 / 37 / 41 / 45 / 49 —— 两行同一套槽位,
+# 隔着走道两两相对; 夹北脊 (app x 33.8..36.2) 的 33 / 37 放十字架, 十字架的碰撞盒离北脊可走带还有 0.05 m。
+# 第一版按 1.9 m 槽位零散取用 (北行间距 3.8 / 1.9 / 1.3 ...), 独立审阅指出读不成「规整行列」。
+# 本批只把现有的 9 块碑 + 2 个十字架放进靠走道的两行, 其余槽位留给第四批; 北行 45 让给枯树 (43.6,51.8, 根部外扩约 1 m)。
+gv_stone_slots = [(25.0, 51.3), (29.0, 51.3), (41.0, 51.3), (49.0, 51.3),                    # 北一行
+                 (25.0, 58.2), (29.0, 58.2), (33.0, 58.2), (37.0, 58.2), (41.0, 58.2)]        # 南一行
+for i, (sx, sz) in enumerate(gv_stone_slots):
+    yaw = radians(rgv.uniform(-6, 6))
+    lx = radians(rgv.uniform(4, 7)) * (1 if rgv.random() < 0.5 else -1)
+    ly = radians(rgv.uniform(2, 5)) * (1 if rgv.random() < 0.5 else -1)
+    gv_stone(f"PE_Grave{i}", sx, sz, yaw, lx, ly)
+for i, (sx, sz) in enumerate(((33.0, 51.3), (37.0, 51.3))):     # 十字架夹着北脊 (槽位 33 / 37), 与北一行同深
+    yaw = radians(rgv.uniform(-5, 5))
+    x, y = sx, -sz
+    add_box(f"PE_CrossV{i}", (0.16, 0.14, 1.5), (x, y, 0.75), rot=(0, 0, yaw), mat=m_wood)
+    add_box(f"PE_CrossH{i}", (0.7, 0.14, 0.16), (x, y, 1.05), rot=(0, 0, yaw), mat=m_wood)
+    collider_rect(x, y, 0.35 * abs(cos(yaw)) + 0.07 * abs(sin(yaw)), 0.35 * abs(sin(yaw)) + 0.07 * abs(cos(yaw)))
+
+# 守墓灯 x2: 主走道两侧的灯位带 (离走道边 0.45 m), 以中脊为轴对称 (35 +- 7.6), 各在相邻两块碑的正中 (离碑面约 2 m)
+grave_lantern("PE_GraveLantern", 27.4, -(GV_AZ + 1.65))
+grave_lantern("PE_GraveLanternS", 42.6, -(GV_AZ - 1.65))
+# 枯树挪到北脊与主走道的东北角外 (主干离走道边 1.05 m, 树冠探到走道上空); spooky_tree 内部已加碰撞圆 r0.65
+spooky_tree("PE_GraveTree", 43.6, -51.8, scale=1.2, variant="weep")
+
+# 彼岸花丛 x4 (墓园 v2: 弯茎 + 放射红蕊弯瓣, m_red 自发光): 行头、枯树下、北门内侧
 # 花的摆法与改造前相同: rlg 从「此刻的全局状态」起步取值, 等价于以前直接用全局 random; 段末再把全局流的消耗补回去
 rlg = random.Random()
 rlg.setstate(random.getstate())
-for ci, (ox, oy) in enumerate(((-3.0, -2.0), (2.0, 3.0), (-1.0, -5.0), (4.0, -1.0))):
-    cx, cy = gv0x + GS * ox, gv0y + GS * oy
+for ci, (cx, cz) in enumerate(((23.3, 51.3), (23.3, 58.2), (45.0, 52.9), (38.3, 47.6))):   # 行头两丛让到首块碑 (x 25) 外侧
+    cx, cy = cx, -cz
     for f in range(7):
         fx = cx + rlg.uniform(-0.7, 0.7)
         fy = cy + rlg.uniform(-0.7, 0.7)
@@ -1646,7 +1878,7 @@ for ci, (ox, oy) in enumerate(((-3.0, -2.0), (2.0, 3.0), (-1.0, -5.0), (4.0, -1.
                   rlg.uniform(0.9, 1.4), m_red,
                   hex_lin("#8A1E1E")[:3], hex_lin("#FF4A4A")[:3], lean=0.5)
         add_sphere(f"PE_Higan{ci}_{f}_hd", 0.03, (bx, by, 0.44), mat=m_red, seg=6, ring=4)
-    collider(cx, cy, 0.6)   # 2026-11-26 由 1.0 收到 0.6: 花丛散布半径约 0.7, 旧圆在花外 0.4 m 就挡人
+    collider(cx, cy, 0.6)   # 花丛散布半径约 0.7; 旧圆 1.0 在花外 0.4 m 就挡人
 # 全局随机流占位: 上面的彼岸花丛改造前直接消耗全局 random —— 4 丛 x 7 株 x 15 次 uniform
 # (位置 2 + 朝向 1 + 6 根花丝各 2)。现在花改走 rlg, 这里补回同样的消耗; 以后重写彼岸花也不要动这一行,
 # 否则段后园区 (市集 / 长椅 / 枯树 / 远山 / 城市灯火) 会全部重新随机。
@@ -1654,10 +1886,32 @@ GV_LEGACY_DRAWS = 4 * 7 * 15
 for _ in range(GV_LEGACY_DRAWS):
     random.random()
 
-# 打卡南瓜 pumpkin_grave: 从旧址西北角 (30.5,-36.5) 挪到新址北门内 (37.6,-49.6), 标签不变。
+# 灯串: 主走道上空之字形横跨 —— 西门拱顶 -> 北侧挂杆 -> 南侧挂杆 -> 北侧挂杆 -> 南侧挂杆 -> 焦点庭北侧挂杆。
+# 走在走道上时逐跨从头顶斜着过街 (之字形): 方向契约的首屏是站在走道正中朝东看, 与走道平行的灯串透视成一条短线,
+# 横跨走道的才读得出「灯串横贯上 1/3」。
+# 挂点离地 3.95 m、垂度 0.40、灯珠再低 0.09: 跨中最低的珠底约 3.4 m (跳跃碰不到)。北侧挂杆让开北脊 (app x 33.8..36.2)、
+# 守墓灯 (40.05,53.05) 与枯树 (43.6,51.8)。前庭灯串: 东挂杆顶 -> 北门东柱的拱脚。
+# 端点是 Blender 坐标 (x, y, 高度) —— 不是 glTF 的 (x, 高度, -y)。第一版按后者写, 主走道的灯串整串埋到地下 54 m、
+# 前庭那串一头挂到 44 m 高空: 灯珠数量照常增加 (数量比对看不出来), 游戏里只是「看不到灯串」, 靠逐网格顶点比对才查出来。
+# 下面所以加一条端点高度断言
+GV_STR_H = 3.95
+gv_str_poles = {"C": (26.5, GV_AZ - 2.2), "A": (33.2, GV_AZ + 2.2), "D": (37.0, GV_AZ - 2.2),
+                "B": (44.0, GV_AZ + 2.2), "E": (50.4, GV_AZ - 2.9)}
+for nm_, (px_, pz_) in gv_str_poles.items():
+    light_pole(f"PE_StrPoleGrave{nm_}", px_, -pz_, h=4.1, attach=GV_STR_H)
+gv_str_anchors = [(GV_GATE_W[0], -GV_GATE_W[1], 3.90)] + [(px_, -pz_, GV_STR_H) for px_, pz_ in gv_str_poles.values()]
+for k, (sp0_, sp1_) in enumerate(zip(gv_str_anchors, gv_str_anchors[1:])):
+    string_lights(f"PE_StrG{k}", sp0_, sp1_, sag=0.40, mats=[m_warm, m_violet])
+# 垂度压到 0.12 (0.30 时跨中最低的珠底只有 2.80 m, 低于跳跃眼高 2.84); 东端落在东柱柱帽外 0.3 m 的拱脚, 不把端头灯珠埋进柱帽
+gv_str_fore = [(40.0, -44.0, 3.70), (36.8 + 0.3 * 3.2 / 3.83, -46.1 + 0.3 * 2.1 / 3.83, 3.12)]
+string_lights("PE_StrG5", gv_str_fore[0], gv_str_fore[1], sag=0.12, mats=[m_warm, m_violet])
+for sp_ in gv_str_anchors + gv_str_fore:
+    assert 2.5 < sp_[2] < 8.0 and abs(sp_[1]) < 150.0, f"灯串端点应是 Blender 坐标 (x, y, 高度): {sp_}"
+
+# 打卡南瓜 pumpkin_grave: 从旧址西北角 (30.5,-36.5) 挪到北门内、北脊西侧 (32.7,-47.9), 标签不变。
 # pump_plan 里的坐标不能动 (它还喂着草丛 / 地斑的避让表, 改了全园散布就变) —— 建完之后整体平移它的几个部件,
 # 再改碰撞圆与 POI 记录
-GV_POI_FROM, GV_POI_TO = (30.5, -36.5), (37.6, -49.6)
+GV_POI_FROM, GV_POI_TO = (30.5, -36.5), (32.7, -47.9)
 _poi_i = pump_plan.index(GV_POI_FROM)
 _pdx, _pdy = GV_POI_TO[0] - GV_POI_FROM[0], GV_POI_TO[1] - GV_POI_FROM[1]
 gv_poi_parts = [ob for ob in col.objects if ob.name.startswith(f"PE_Pump{_poi_i}_")]
@@ -1673,7 +1927,7 @@ gv_poi_pois = [k for k, p in enumerate(POIS) if p[2] == "pumpkin_grave"]
 assert len(gv_poi_pois) == 1, f"POI pumpkin_grave 应恰有 1 条: {len(gv_poi_pois)}"
 POIS[gv_poi_pois[0]] = (GV_POI_TO[0], GV_POI_TO[1], "pumpkin_grave")
 
-# 清掉新址 / 两条新路上原有的散布件 (草丛 PE_Tuft* / 地斑 PE_GP*): 只删对象, 不动任何随机数
+# 清掉新址 / 通路 / 新落位件上原有的散布件 (草丛 PE_Tuft* / 地斑 PE_GP*): 只删对象, 不动任何随机数
 gv_cleared = {"PE_Tuft": 0, "PE_GP": 0}
 for ob in list(col.objects):
     pref = "PE_Tuft" if ob.name.startswith("PE_Tuft") else ("PE_GP" if ob.name.startswith("PE_GP") else None)
@@ -1681,7 +1935,11 @@ for ob in list(col.objects):
         continue
     c = ob.matrix_basis @ (sum((v.co for v in ob.data.vertices), Vector()) / len(ob.data.vertices))
     m = 3.9 if pref == "PE_GP" else 0.3   # 地斑半径最大 3.6 m: 外扩判定, 免得地斑顶面 (0.011) 戳出新草皮盘顶面 (0.01)
-    if gv_inside(c.x, c.y, GV_EA + m, GV_EB + m) or gv_on_new_paths(c.x, c.y, m):
+    hit = gv_inside(c.x, c.y, GV_EA + m, GV_EB + m) or gv_on_new_paths(c.x, c.y, m)
+    # 蘑菇圈挪到西支路旁 (12,-50.5): 圈内与圈缘不留野草; 附近的地斑清掉 (蘑菇自带的苔盘与地斑同高, 会闪)
+    dm = hypot(c.x - 12.0, c.y + 50.5)
+    hit = hit or (dm < (5.4 if pref == "PE_GP" else 1.5))
+    if hit:
         gv_cleared[pref] += 1
         bpy.data.objects.remove(ob, do_unlink=True)
 print("GV_CLEARED", gv_cleared, "POI_PARTS", len(gv_poi_parts))
@@ -1824,9 +2082,13 @@ def bench(name, bx, by, rotz_deg, variant=None):
 bench_spots = [(5.6, -31.0, 90), (-5.6, -45.0, 90), (5.6, -59.0, 90),
                (9.5, -9.5, 45), (-9.5, 9.5, 225), (13.0, 0.0, -90),
                (4.6, -72.0, 90), (-4.6, -102.0, 90), (4.6, -128.0, 90),
-               (60.0, 60.0, 135), (-67.2, 67.2, 225), (39.5, -45.5, 120)]
+               (60.0, 60.0, 135), (-67.2, 67.2, 225), (41.3, -44.6, -77)]   # 末张在北门外东侧、面朝北门 (第三批; 原位 (39.5,-45.5,120)。原位离墓园新围栏线只有 0.6 m, 转向正对北门后
+                        # 椅身沿南北展开, 南端连靠背南瓜跨在围栏尖桩上 —— 外移到离围栏线约 1 m 处, 与挂杆 / 发射器 L3 / 蘑菇圈都不重叠)
 for i, (bx, by, rotz) in enumerate(bench_spots):
     bench(f"PE_Bench{i}", bx, by, rotz)
+# 末张长椅 2026-11-26 外移到 (41.3,-44.6); 树的避让表 (下方 tree_extras) 仍按它的原位算 ——
+# tree_extras 决定树的候选哪些被否决, 改了它全园的树就可能重新随机 (同稻草人 (40,-47) / 旧蘑菇圈 (26,-36) 的留法)
+GV_BENCH_TREE_XY = (39.5, -45.5)
 
 # ---------------- 烟花发射器 x3 型 × 6 站 ----------------
 # 造型定稿: model/firework_launcher/design_preview.py (用户已确认)
@@ -2067,7 +2329,7 @@ gargoyle("PE_Gargoyle0", 15.0, -20.0, ry=radians(135))
 gargoyle("PE_Gargoyle1", -15.0, -20.0, ry=radians(45))
 
 # ---------------- 稻草人 x2 ----------------
-scarecrow("PE_Scarecrow0", 38.4, -43.6, ry=radians(30))   # 2026-11-26: 原 (40,-47) 落在墓园新址北缘内, 挪到前庭东南角
+scarecrow("PE_Scarecrow0", 37.6, -44.3, ry=radians(30))   # 守墓人: 北接路东侧、北门外 (第三批; 第二批时在前庭东南角 (38.4,-43.6))
 scarecrow("PE_Scarecrow1", -70.0, 20.0, ry=radians(-60))
 
 # ---------------- 花藤拱门 x3 ----------------
@@ -2120,7 +2382,7 @@ def signpost(name, x, y, arrows):
 
 signpost("PE_Sign0", 4.2, -30.0, [(0, 3), (90, 2)])          # 东墓园 / 北摩天轮
 signpost("PE_Sign1", -4.2, -75.0, [(213, 1), (147, 0)])      # 幽灵港 / 许愿池
-signpost("PE_Sign2", 2.3, -57.3, [(90, 0), (270, 3)])        # 北园 / 南园
+signpost("PE_Sign2", 2.3, -57.3, [(90, 0), (270, 3), (0, 1)])  # 北园 / 南园 / 东墓园 (第三批: 这块牌正立在墓园西支路口)
 signpost("PE_Sign3", 19.6, -20.2, [(0, 0)])                  # 烟花释放器(东)
 
 # ---------------- 三大预留区 (围挡 + 敬请期待牌 + 拱门) ----------------
@@ -2191,7 +2453,8 @@ tmark(f"props done (grass={len(tufts)} pumps={len(pump_plan)} flowers={len(flowe
 # ---------------- 园区树木布置 ----------------
 tree_extras = (list(pump_spots) + flower_spots +
                [(lx, ly) for lx, ly, _fry in lamp_positions] +
-               [(bx, by) for bx, by, _rz in bench_spots] +
+               [(GV_BENCH_TREE_XY if _bi == len(bench_spots) - 1 else (bx, by))
+                for _bi, (bx, by, _rz) in enumerate(bench_spots)] +   # 末张长椅按原位 (GV_BENCH_TREE_XY)
                [(15.0, -20.0), (-15.0, -20.0), (40.0, -47.0), (-70.0, 20.0),
                 (0.0, -146.0), (0.0, -60.0), (0.0, -100.0), (12.0, -40.0),
                 (29.0, 11.8), (15.0, 68.6), (-52.6, -40.0), (77.4, -51.0),
@@ -2304,7 +2567,7 @@ def add_cam(name, loc, target, lens=35):
 
 cam_aerial = add_cam("PE_CamAerial", (160, -160, 120), (0, 0, 4), lens=28)
 cam_street = add_cam("PE_CamStreet", (0.0, -105.0, 1.75), (0, -45, 5.5), lens=30)
-cam_corner = add_cam("PE_CamCorner", (25.0, -48.0, 2.2), (37.0, -59.0, 1.2), lens=38)   # 2026-11-26: 墓园南迁后从前庭西侧朝新址看
+cam_corner = add_cam("PE_CamCorner", (9.5, -51.8, 1.9), (42.0, -56.0, 2.4), lens=30)   # 墓园: 从西支路看西门与主走道 (2026-11-26 第三批; 离门 10 m、略偏北, 整座门 + 园内走道进画面)
 
 sc.view_settings.view_transform = "Standard"
 sc.view_settings.exposure = 0.35
