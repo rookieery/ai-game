@@ -97,13 +97,13 @@ export function createWorld(scene) {
   scene.add(east);
   const plazaLights = [plaza1, plaza2, gate, bay, north, east];
 
-  // 清单灯位：园区脚本 (model/park_env/park_env.py 的 park_light) 登记的真实点光，现为墓园 4 盏：
-  // 守墓灯 ×2 + 两个门的门灯 ×2（2026-11-26 第三批；门灯挂在门洞正中 2.6 m）。
+  // 清单灯位：园区脚本 (model/park_env/park_env.py 的 park_light) 登记的真实点光，现为墓园 5 盏：
+  // 守墓灯 ×3（走道两侧 + 焦点庭的方尖碑旁）+ 两个门的门灯 ×2（门灯挂在门洞正中 2.6 m）。
   // 位置 / 颜色 / 强度来自 colliders.json 的 lights（与模型同源）。灯在这里一次建好、常驻，清单到位后只改参数、
   // 不增删 —— three r187 下运行时增删灯光会让当帧渲染抛错（2026-11-26 实测）。
   // 每盏灯挂在这个数组尾部，所以 plazaLights[6] 起就是它们（漂雾灯染按 tag 取用，不依赖下标）。
   // 槽位数 = 清单灯数：多一个空槽也占着 forward 渲染里的点光名额（着色器按槽位数编译），所以清单增减灯时同步改这里。
-  const LIGHT_SLOTS = 4;   // 清单灯数超过槽位时多出的被忽略并在控制台告警
+  const LIGHT_SLOTS = 5;   // 清单灯数超过槽位时多出的被忽略并在控制台告警
   const parkLights = [];   // { light, base, key, tag }
   for (let i = 0; i < LIGHT_SLOTS; i++) {
     const l = new THREE.PointLight("#ffd9a8", 0, 22, 2);

@@ -3,12 +3,13 @@
 // 园区坐标 (app): 新址 = 椭圆 36x24 m 心 (37,58); 丁字走道 = 东西主走道 (中线 z 54.7, 宽 2.4) + 北脊 (中线 x 35);
 //   西门 (门柱 (19.9,52.9) / (19.9,56.5)) / 北门 ((33.2,46.1) / (36.8,46.1)); 围栏 = 沿椭圆一圈 r0.22 碰撞圆, 只在两个门处断开
 // 断言:
-//   L 清单灯  —— colliders.json lights 的 4 盏 (守墓灯 x2 + 两门拱顶灯 x2) 在场景里各有唯一一盏点光: 位置 / 颜色 / 强度与清单一致,
+//   L 清单灯  —— colliders.json lights 的 5 盏 (守墓灯 x3 + 两门门灯 x2) 在场景里各有唯一一盏点光: 位置 / 颜色 / 强度与清单一致,
 //               且都随「墓园灯火亮度」滑杆 (50% 减半, 0 熄灭)
 //   W 两个门  —— 主路沿西支路直进西门、园内沿北脊出北门: 真按 W 走到, 横向偏离 <= 0.12 m; 门柱之间的通道能过, 四根门柱都穿不进去
-//   A 主走道  —— 西门 -> 东端焦点庭中心一路通畅; 焦点庭再往东被围栏挡住 (挡在园内)
+//   A 主走道  —— 西门 -> 东端方尖碑正面停住 (碑座面 + 0.38); 绕方尖碑四分之三圈; 焦点庭再往东被围栏挡住 (挡在园内)
+//   M 低土冢  —— 两圈带 h 的圆, 能走上去站到 0.21 m, 再走下来
 //   F 围栏    —— 园内 23 个方位真按 W 朝外走: 全部停住、仍在园内、停点贴着围栏碰撞圆 (r0.22 + 0.38), 没有方位能穿出去
-//   S 碑 / 灯 —— 园里 20 块碑 + 2 个十字架都有盒墙; 正对石碑 / 摩天轮舱 / 过山车轮对走: 停点 = 可见面 + 玩家半径 (0.38) ± 0.08 m;
+//   S 碑 / 灯 —— 园里 20 块碑 + 2 个十字架 + 1 座方尖碑都有盒墙; 正对石碑 / 摩天轮舱 / 过山车轮对走: 停点 = 可见面 + 玩家半径 (0.38) ± 0.08 m;
 //               两行碑之间能走过去; 正对守墓灯走: 不穿进灯柱 (圆排斥件会让人绕过去)
 //   P 打卡点  —— 北门里的南瓜灯: 旁侧出「收集南瓜灯」提示, 正对它走被挡在 0.55 + 0.38 处
 // 用法: GAME_URL=http://127.0.0.1:8765 node scripts/verify_graveyard.mjs
@@ -90,7 +91,7 @@ const got = await page.evaluate(() => {
   window.__game.scene.traverse((o) => { if (o.isPointLight) out.push({ x: o.position.x, y: o.position.y, z: o.position.z, i: o.intensity, c: "#" + o.color.getHexString(), d: o.distance, dec: o.decay }); });
   return out;
 }, );
-expect("清单灯共 4 盏 (守墓灯 x2 + 门灯 x2)", lights.length === 4 && lights.filter((l) => l.key === "graveyardLight").length === 4, `lights=${lights.length}`);
+expect("清单灯共 5 盏 (守墓灯 x3 + 门灯 x2)", lights.length === 5 && lights.filter((l) => l.key === "graveyardLight").length === 5, `lights=${lights.length}`);
 const slots = lights.map((l) => {
   const hit = got.filter((o) => Math.hypot(o.x - l.x, o.y - l.y, o.z - l.z) < 0.05);
   return { l, hit };
@@ -122,10 +123,17 @@ if (sample) {
 const west = await walk(3.0, 54.7, [21.5, 54.7], { maxMs: 14000 });     // 主路东缘 -> 沿西支路 -> 过西门
 expect("主路沿西支路直进西门 (走到 x>=21.3)", west.stop === "reached" && west.end[0] >= 21.3, `${west.stop} end=${west.end} dev=${west.dev}`);
 expect("进西门一路横向偏离 <= 0.12 m", west.dev <= 0.12, `dev=${west.dev}m`);
-const axis = await page.evaluate(() => window.__gvWalk({ to: [50.4, 54.7], maxMs: 16000 }));   // 接着沿主走道走到焦点庭中心
-expect("主走道: 西门 -> 东端焦点庭中心一路通畅", axis.stop === "reached" && Math.hypot(axis.end[0] - 50.4, axis.end[2] - 54.7) <= 0.15, `${axis.stop} end=${axis.end} dev=${axis.dev}`);
+const axis = await page.evaluate(() => window.__gvWalk({ to: [52.0, 54.7], maxMs: 16000 }));   // 接着沿主走道往东: 停在东端方尖碑 (第四批 b) 的正面
+const obe = (manifest.rects ?? []).find((r) => Math.abs(r.x - 50.4) < 0.05 && Math.abs(r.z - 54.7) < 0.05);
+expect("主走道: 西门 -> 东端方尖碑正面停住 (碑座面 + 0.38 ± 0.08)", !!obe && axis.stop === "blocked" && Math.abs(axis.end[0] - (obe.x - obe.hw - PR)) <= 0.08, `${axis.stop} end=${axis.end} dev=${axis.dev}`);
 expect("主走道上横向偏离 <= 0.12 m", axis.dev <= 0.12, `dev=${axis.dev}m`);
-const focal = await page.evaluate(() => window.__gvWalk({ to: [58.0, 54.7], maxMs: 6000 }));     // 焦点庭再往东: 应被围栏挡住
+// 绕方尖碑四分之三圈 (西 -> 北 -> 东 -> 南; 西南角有第三盏守墓灯, 不走那一弧), 每一段都要走到
+const around = [];
+for (const to of [[49.0, 53.2], [50.4, 52.9], [51.9, 53.3], [52.1, 54.7], [51.8, 56.0], [50.4, 56.5]]) {
+  around.push(await page.evaluate((t) => window.__gvWalk({ to: t, maxMs: 4000, warmMs: 250 }), to));
+}
+expect("绕方尖碑四分之三圈 (西 -> 北 -> 东 -> 南) 每一段都走到", around.every((w) => w.stop === "reached"), around.map((w) => `${w.stop}@${w.end[0]},${w.end[2]}`).join(" "));
+const focal = await walk(52.1, 54.7, [58.0, 54.7], { maxMs: 6000 });                        // 焦点庭东侧再往东: 应被围栏挡住
 const focalEdge = EX + EA * Math.sqrt(1 - ((54.7 - EZ) / EB) ** 2);                            // 椭圆在 z=54.7 处的东边界
 expect("焦点庭往东被围栏挡住 (挡在园内 0.3..1.15 m)", focal.stop === "blocked" && focalEdge - focal.end[0] >= 0.3 && focalEdge - focal.end[0] <= 1.15,
   `${focal.stop} end=${focal.end} 离椭圆边 ${f(focalEdge - focal.end[0])}m`);
@@ -184,6 +192,13 @@ for (let t = 0; t < 360; t += 15) {
 expect(`围栏 ${nAz} 个方位朝外走全部被挡在园内 (贴着围栏碰撞面停住)`, through.length === 0, `挡住 ${nAz - through.length}/${nAz}${through.length ? "  穿出: " + through.join(" ") : ""}`);
 console.log("  围栏停点离碰撞面的偏差 (m): " + detail.join(" "));
 
+// ---------- M 低土冢 (第四批 b) ----------
+// 低土冢是两圈带 h 的圆 (外圈顶 0.11 / 内圈 0.21): 顶面不高于玩家一步 (0.35), controller 不推挤, 可以直接走上去站着
+const md = await walk(44.5, 66.4, [44.5, 63.3], { maxMs: 5000 });
+expect("低土冢 (44.5,63) 能走上去 (站到内圈顶面 0.21 m ± 0.02)", md.stop === "reached" && Math.abs(md.end[1] - 0.21) <= 0.02, `${md.stop} end=${md.end}`);
+const mdOff = await page.evaluate(() => window.__gvWalk({ to: [44.5, 67.2], maxMs: 5000, warmMs: 250 }));
+expect("从低土冢走下来回到地面 (y = 0)", mdOff.stop === "reached" && mdOff.end[1] === 0, `${mdOff.stop} end=${mdOff.end}`);
+
 // ---------- S 碑 / 灯 ----------
 const rectNear = (x, z) => (manifest.rects ?? []).find((r) => Math.hypot(r.x - x, r.z - z) < 0.15);
 const stoneS = rectNear(25.0, 58.2), stoneN = rectNear(31.0, 51.3);
@@ -193,7 +208,7 @@ if (stoneS && stoneN) {
   const eS = stoneS.z - stoneS.hd - PR;
   expect("碑 (25.0,58.2) 正面停点 = 碑面 + 0.38 ± 0.08", a.stop === "blocked" && Math.abs(a.end[2] - eS) <= 0.08, `${a.stop} end=${a.end} 期望 z=${f(eS)} 实际 ${a.end[2]} 差 ${f(a.end[2] - eS)}m`);
   const siteRects = (manifest.rects ?? []).filter((r) => r.x > 20 && r.x < 52 && r.z > 46 && r.z < 68);
-  expect("园里有 20 块碑 + 2 个十字架的盒墙", siteRects.length === 22, `${siteRects.length} 个`);
+  expect("园里有 20 块碑 + 2 个十字架 + 1 座方尖碑的盒墙", siteRects.length === 23, `${siteRects.length} 个`);
   const cabin = rectNear(28.99, 58.26), wheel = rectNear(39.0, 51.24);
   if (cabin) {
     const cw = await walk(cabin.x, 55.6, [cabin.x, 60.0], { maxMs: 6000 });          // 从主走道朝南走进半埋的摩天轮舱

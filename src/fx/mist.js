@@ -41,7 +41,7 @@ function makePuffAtlas() {
 }
 
 // ---------- 共享 GLSL：灯光暖晕 + 场景夜雾一致混合 ----------
-const N_TINT = 11;  // 灯染槽数（= 下方 TINT_LIGHTS 的条数，GLSL 数组按它开）；增删灯染源时同步改这里
+const N_TINT = 12;  // 灯染槽数（= 下方 TINT_LIGHTS 的条数，GLSL 数组按它开）；增删灯染源时同步改这里
 
 const LIGHT_TINT_GLSL = /* glsl */ `
   uniform vec3 uLightPos[${N_TINT}];
@@ -222,6 +222,7 @@ const TINT_LIGHTS = [
   // 墓园 (2026-11-26): 跟随两盏守墓灯。旧写法是在 (33.5,1.2,40.5) 摆一盏并不存在的「南瓜簇」静态灯染 —— 雾是暖的、地是黑的
   { pos: [0, 0, 0], color: "#ffd9a8", r: 8, live: "PE_GraveLantern", gain: 0.45 },  // 守墓灯 (主走道南侧, 26.6 56.35)
   { pos: [0, 0, 0], color: "#ffd9a8", r: 8, live: "PE_GraveLanternS", gain: 0.45 }, // 守墓灯 (主走道北侧, 43.4 53.05)
+  { pos: [0, 0, 0], color: "#ffd9a8", r: 8, live: "PE_GraveLanternE", gain: 0.45 }, // 守墓灯 (焦点庭方尖碑旁, 48.9 56.0; 第四批 b)
   // 门的门灯 (第三批): 挂在门洞正中 2.6 m、30 cd; 灯染半径略放大、增益压低, 门下不成一团亮雾
   { pos: [0, 0, 0], color: "#ffd9a8", r: 9, live: "PE_GateN", gain: 0.3 },         // 北门 (35, 46.1)
   { pos: [0, 0, 0], color: "#ffd9a8", r: 9, live: "PE_GateW", gain: 0.3 },         // 西门 (19.9, 54.7)
