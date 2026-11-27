@@ -47,12 +47,13 @@ export function createFerrisWheel(gltfRoot) {
 
   // 自发光材质登记（设置面板可调）：
   //   舱内照明 = FW_CabinGlow(天花发光盘) + FW_CoveLight(窗顶光槽) + FW_CabinLamp(顶灯)
-  //              + FW_RoofLamp(舱檐口灯线 / 雨棚吊灯) —— 随「舱内灯光亮度」
-  //   站台灯具 = FW_StationLamp(门楼 / 扶手 / 通道围栏 / 吊灯灯芯) —— 随「站台灯光亮度」（连吊灯点光）
-  //   装饰灯效 = 其余 FW_ 发光材质(轮缘/彩点/轮毂/招牌/灯环/舱体漆面/鎏金新月) —— 随「装饰灯亮度」
+  //              + FW_RoofLamp(舱檐口灯线) —— 随「舱内灯光亮度」
+  //   站台灯具 = FW_StationLamp(门楼 / 扶手 / 通道围栏 / 站台吊灯 / 檐口灯笼的灯芯) —— 随「站台灯光亮度」（连吊灯点光）
+  //   装饰灯效 = 其余 FW_ 发光材质(轮缘/彩点/轮毂/招牌/灯环/舱体漆面/鎏金新月/南瓜柱灯) —— 随「装饰灯亮度」
   //   FW_DoorSignal（登舱门框）/ FW_GateSignal（登舱闸柱灯）不进表：由停靠状态开关（见 applySignal）
   // 轮缘灯管近距离贴脸辉光偏强，基准系数 0.8 (远景观感由 Bloom 兜底)
   const CABIN_LIGHT_BASE = 22; // 所乘舱补光点光基准强度（挂在天花下 0.50 m，向下照）
+  const CABIN_LIGHT_T = 1.2;    // 登舱后舱内点光由暗转亮用的时间 s
   const SIGNAL_BASE = 1.1;     // 停靠舱门框灵火青强度（随装饰灯）
   const GATE_SIGNAL_BASE = 1.1;  // 登舱闸柱灯灵火青强度（随装饰灯）
   const STATION_LIGHT_BASE = 38; // 「站台灯光亮度」100% 时每盏吊灯点光的强度（cd，衰减 2、射程 16）
@@ -183,6 +184,8 @@ export function createFerrisWheel(gltfRoot) {
   const _rootInv = new THREE.Matrix4();
   let rideCabIdx = -1;
   let cabLight = null;
+  let cabLightT = 0;            // 舱内点光的开度 0..1（登舱后从 0 推到 1）
+  const cabLightNow = () => CABIN_LIGHT_BASE * state.cabinLight * (1 - (1 - cabLightT) * (1 - cabLightT));
 
   // 找到最低点附近的舱（登舱位置）
   function nearestBottomCabin() {
@@ -280,6 +283,12 @@ export function createFerrisWheel(gltfRoot) {
         applySignal();
       }
 
+      // 所乘舱的点光：登舱后 CABIN_LIGHT_T 秒由暗转亮（v3 第 3 批；转场淡入时看得见舱里亮起来）
+      if (cabLight && cabLightT < 1) {
+        cabLightT = Math.min(1, cabLightT + dt / CABIN_LIGHT_T);
+        cabLight.intensity = cabLightNow();
+      }
+
       // 登舱闸：吸附到位（轮停稳）就开。要关的时候如果人还站在闸线带里，只要没关严就（重新）打开；
       // 开合各一程 GATE_SWEEP_T
       if (docked >= 0) gateTarget = 1;
@@ -301,6 +310,8 @@ export function createFerrisWheel(gltfRoot) {
       // v3：灯挂在舱中央、天花下 0.50 m（略低于站姿眼位）向下照 —— v2 挂在脚边 0.29 m，柱根炸热点；
       //      再高会让深色天花被照成亮板（第 1 批实测：贴天花挂时顶部一条亮带）
       cabLight.position.set(0, CABIN.FLOOR_Y + 1.50, 0);
+      cabLight.intensity = 0;    // 从全暗开始，update 里推到设定值
+      cabLightT = 0;
       cabins[rideCabIdx].add(cabLight);
     },
     // 下客：恢复待机转速
@@ -333,9 +344,11 @@ export function createFerrisWheel(gltfRoot) {
       for (const { m, base } of decoGlowMats) m.emissiveIntensity = base * state.decoLight;
       for (const { m, base } of stationGlowMats) m.emissiveIntensity = base * state.stationLight;
       for (const pl of stationLights) pl.intensity = STATION_LIGHT_BASE * state.stationLight;
-      if (cabLight) cabLight.intensity = CABIN_LIGHT_BASE * state.cabinLight;
+      if (cabLight) cabLight.intensity = cabLightNow();
       applySignal();
     },
+    // 所乘舱的点光（取证 / 回归用；不在乘坐态为 null 或不在场景里）
+    get rideLight() { return cabLight; },
     // 合批开关（取证 / 对照用）：off = 各舱原网格逐个可见
     setInstanced(on) {
       for (const { im } of instanced) im.visible = !!on;

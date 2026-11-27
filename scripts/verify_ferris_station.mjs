@@ -1,4 +1,4 @@
-// 摩天轮站台动线端到端回归 (v3 第 2 批「站台成为必经之路」, 2026-11-27)
+// 摩天轮站台动线端到端回归 (v3 第 2 批「站台成为必经之路」2026-11-27; 第 3 批补 I / J 两块 2026-11-28)
 // 用法: 先起 dev server, 再 GAME_URL=http://127.0.0.1:8767 node scripts/verify_ferris_station.mjs [输出目录]
 //   只跑部分块: ONLY=C,E,G node scripts/verify_ferris_station.mjs   (块号见下; teleport 摆每块的起点)
 // 块:  A 登记与联动 (闸门节点 / 吊灯点光 / 「站台灯光亮度」)   B 地面登舱点取消 -> 台阶脚指路提示
@@ -6,6 +6,7 @@
 //      E 停靠舱是实体 (真键)              F 登舱闸: 关着挡人 / 停靠才开 / 离开即合 / 闸线带里不落闸 / 乘坐中关
 //      G 闸内 E 登舱 -> 下乘落回站台东侧 -> 真键走回地面
 //      H 从园区地面真键走完整动线 (台阶中间上 / 台阶东侧上经开口进通道) -> 闸内 E 登舱
+//      I 登舱时舱内点光由暗转亮 (v3 第 3 批)   J 雨棚柱 / 支腿脚 (v3 第 3 批, 真键)
 // 走线一律经 input -> controller -> tryMove 真链路 (页面内每帧设视线 + 键盘事件), teleport 只用来摆起点。
 // 任一断言失败或控制台报错 → exit 1。
 import { openGame } from "./lib_tower_shots.mjs";
@@ -352,6 +353,51 @@ await block("H", "从园区地面真键走完整动线", async () => { await goG
   p = await prompt();
   check("台阶东侧上 (偏离中线, 台阶与圆台接得上): 台阶东半边 → 东侧观景区 → 开口 (z 5.0) 进通道 → 登舱闸 → 停靠舱前, 出登舱提示", w.stop === "reached" && w.airFrames === 0 && p.shown && p.text === "乘坐摩天轮", brief(w) + " " + J(p));
   await ride("东侧上: 闸内 E 登舱, 再按 E 下乘");
+});
+
+// ================= I =================
+await block("I", "登舱时舱内灯由暗转亮 (v3 第 3 批)", async () => { await goPlatform(0, 2.05); }, async () => {
+  const light = () => page.evaluate(() => { const l = window.__game.ferris.rideLight; return l ? { i: +l.intensity.toFixed(3), inScene: !!l.parent } : null; });
+  check("没乘坐时舱内点光不在场景里 (闸口看进停靠舱是暗的)", !(await light())?.inScene, J(await light()));
+  await press("KeyE");
+  await page.waitForFunction(() => window.__game.state === "riding", { timeout: 8000 });
+  const s = await page.evaluate(async () => {
+    const g = window.__game, out = [], t0 = performance.now();
+    await new Promise((res) => { const tick = () => { const l = g.ferris.rideLight; out.push([Math.round(performance.now() - t0), l ? +l.intensity.toFixed(3) : null]);
+      if (performance.now() - t0 < 1900) requestAnimationFrame(tick); else res(); }; requestAnimationFrame(tick); });
+    return out.filter((q, k, a) => k % 15 === 0 || k === a.length - 1);
+  });
+  const vals = s.map((q) => q[1]);
+  // 首个采样点滞后于起亮约 0..150 ms (等 riding 态 + 一次往返), 所以只要求「起步不到三成」
+  check("登舱后舱内点光由暗转亮: 起步不到三成, 单调上升, 1.9 s 后到设定值 8.8 (22 cd × 舱内灯 40%)",
+    vals[0] < 0.3 * 8.8 && vals.every((v, k) => k === 0 || v >= vals[k - 1] - 1e-6) && Math.abs(vals[vals.length - 1] - 8.8) < 0.01, J(s));
+  await page.evaluate(() => window.__settings.store.set("cabinLight", 100));
+  await sleep(250);
+  check("乘坐中改「舱内灯光亮度」立即生效 (100% = 22 cd)", Math.abs((await light()).i - 22) < 0.01, J(await light()));
+  await page.evaluate(() => window.__settings.store.set("cabinLight", 40));
+  await press("KeyE");
+  await page.waitForFunction(() => window.__game.state === "walk", { timeout: 8000 });
+  check("下乘后舱内点光收起", !(await light())?.inScene);
+});
+
+// ================= J =================
+await block("J", "雨棚柱 / 支腿脚 (v3 第 3 批)", async () => { await goPlatform(7.6, 4.8); }, async () => {
+  // 雨棚柱 (4.172, 6.081) r 0.17 是圆排斥件: 斜着擦过去, 判据用全程离柱心 ≥ r + 0.38
+  await pose(7.6, 4.8, 1.55, 0);
+  let w = await walk([[2.4, 7.6]], { maxMs: 12000 });
+  const minD = Math.min(...w.path.map((q) => Math.hypot(q.x - 4.172, q.z - 6.081)));
+  check("雨棚柱挡人: 擦着柱面绕过去, 全程离柱心 ≥ 0.55 m", w.stop === "reached" && minD >= 0.52, J({ minD: +minD.toFixed(3), end: w.end }));
+  // 支腿脚 (±6.2, ±3.0): 方座 + 钢底板 = 1.28 × 1.28 盒墙
+  await pose(3.6, 3.0, 1.55, 0);
+  w = await walk([[8.0, 3.0]], { maxMs: 12000 });
+  // 盒墙半宽 0.64 + 玩家半径 0.38 → 圆心停在离腿心 1.02 m 处
+  check("支腿脚挡人: 从西侧径直往东走, 停在钢底板前 x ≈ 5.18", stoppedAt(w, 0, 5.18, 0.06) && near(w.end[2], 3.0, 0.1), brief(w));
+  await pose(6.2, 5.8, 1.55, 0);
+  w = await walk([[6.2, 0.0]], { maxMs: 12000 });
+  check("支腿脚挡人: 从南侧往北走, 停在 z ≈ 4.02", stoppedAt(w, 2, 4.02, 0.06), brief(w));
+  await pose(-6.2, -5.8, 1.55, 0);
+  w = await walk([[-6.2, 0.0]], { maxMs: 12000 });
+  check("支腿脚挡人 (对角那只): 从北侧往南走, 停在 z ≈ -4.02", stoppedAt(w, 2, -4.02, 0.06), brief(w));
 });
 
 console.log(`\nVERIFY_DONE  ${R.length - fails()}/${R.length} 通过`);

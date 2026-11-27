@@ -36,6 +36,13 @@ v3 第 2 批 站台成为必经之路 (2026-11-27; 见文件中段「v3 第 2 �
   - 停靠舱门前: 渡板 + 地面鎏金登舱标线
   - 旧排队围栏 (FW_QPost / FW_QRail, 台阶两侧 x=±2.7) 换成通长台阶扶手; 最上一级台阶加深到 1.2 m 塞进圆台下面
     (圆台边缘是弧线, 方台阶原先只在正中相接, 偏离中线上下台阶会踩空几帧)
+
+v3 第 3 批 站台与轮体造型 (2026-11-28; 见文件中段「v3 第 3 批」两个注释块):
+  - 雨棚: 八瓣椭圆锥薄壳 (半轴 5.9 x 8.6) + 露明椽子 / 檩 / 顶心圈 + 新月吊坠; 封檐板下沿一圈灯带 (与椽头对齐);
+    4 根铁柱挪到斜向檐角下; 檐口灯笼 x6; 原 8 盏悬空吊灯删除
+  - 支腿: 两榀平面格构 A 字架 (各自在 |y| = 3.0 的平面内), 两榀之间不再有杆件 (原先的 y 向横撑穿过轮辐平面);
+    轴承座挪到轮毂盘外侧, 轴接长; 脚改成站台面上的方座 + 钢底板 + 地脚螺栓
+  - 轮毂盘外侧加鎏金新月徽 (随轮转); 柱灯顶四色小球换成小南瓜灯; 轮缘灯珠只留暖白 + 暗夜紫两色
 """
 import bpy
 import bmesh
@@ -63,8 +70,8 @@ P = {
     "fps": 30,
     "leg_base_x": 6.2,
     "leg_base_y": 3.0,
-    "leg_top_x": 1.1,
-    "leg_top_y": 2.2,
+    "leg_top_x": 0.66,           # v3 第 3 批: 腿顶接轴承座侧面 (座 r 0.62, 在 |y| = 3.0); 原 1.1 接在转动的轮毂盘上
+    "leg_top_y": 3.0,            # v3 第 3 批: 两榀 A 字架各在 |y| = 3.0 的平面里 (原 2.2)
     "res_still": (1600, 900),
     "glass_alpha": 0.06,        # v3: 单层单片玻璃, 近乎无色 (0.20 -> 0.06: 不再给夜景压一层深蓝)
     "render_video": False,      # 迭代期 False, 定稿 True
@@ -267,7 +274,7 @@ col_wheel  = bpy.data.collections.new("WheelSpin")
 sc.collection.children.link(col_static)
 sc.collection.children.link(col_wheel)
 
-DOTS   = [HEX["warm"], HEX["orange"], HEX["violet"], HEX["green"]]
+DOTS   = [HEX["warm"], HEX["violet"]]   # v3 第 3 批: 轮缘灯珠只留暖白 + 暗夜紫两色 (原橙 / 紫 / 绿 / 红四色)
 
 # materials -------------------------------------------------------------
 m_metal    = make_mat("FW_Metal", HEX["metal"], rough=0.45, metal=0.85)
@@ -315,6 +322,9 @@ m_station = make_mat("FW_StationLamp", "#241C12", rough=0.4, emit=HEX["warm"], s
 # 登舱闸柱灯: 平时是喷漆钢色, 轮停稳、停靠舱吸附到位时亮灵火青 (与停靠舱门框同一个状态, ferris.js)
 m_gate_signal = make_mat("FW_GateSignal", "#2E2A38", rough=0.5, metal=0.25,
                          emit="#8FE3D9", strength=1.1, single=True)
+# v3 第 3 批: 柱灯顶的小南瓜灯 —— 本体微透光 (夜里看得出是南瓜), 镂空的脸自发光; 都随「装饰灯亮度」
+m_pump  = make_mat("FW_Pumpkin", "#C87419", rough=0.45, emit="#FF8A2A", strength=0.55)
+m_pface = make_mat("FW_PumpkinFace", "#241C12", rough=0.5, emit=HEX["warm"], strength=2.6)
 m_ring_a = make_mat("FW_RingAmber", HEX["orange"], rough=0.4, emit=HEX["orange"], strength=1.8)
 m_ring_v = make_mat("FW_RingViolet", HEX["violet"], rough=0.4, emit=HEX["violet"], strength=1.8)
 m_hub_g  = make_mat("FW_HubGlow", HEX["warm"], rough=0.4, emit=HEX["warm"], strength=2.6)
@@ -417,27 +427,174 @@ add_torus("FW_GroundRing2", 16.5, 0.05, (0, 0, 0.03), mat=m_ring_v, ms=96, ns=8)
 bollard_xy = [(10.4 * cos(i * pi / 6), 10.4 * sin(i * pi / 6))
               for i in range(12) if i != 9]
 bollard_xy += [(2.69, -10.05), (-2.69, -10.05)]
+def pumpkin_body(name, loc, r, h, mat, seg=24, ring=9, lobes=8, amp=0.07):
+    """带瓣纹的扁南瓜 (bmesh 直建): 周向 8 道鼓起, 底部略压扁。r = 水平半径, h = 上半高 (下半高 = 0.85 h)。"""
+    bm = bmesh.new()
+    top = bm.verts.new((loc[0], loc[1], loc[2] + h))
+    bot = bm.verts.new((loc[0], loc[1], loc[2] - h * 0.85))
+    rows = []
+    for j in range(1, ring):
+        phi = pi * j / ring
+        sp, cp = sin(phi), cos(phi)
+        row = []
+        for i in range(seg):
+            th = 2 * pi * i / seg
+            lobe = 1 + amp * (0.5 - 0.5 * cos(lobes * th)) * (sp ** 1.2)
+            row.append(bm.verts.new((loc[0] + r * sp * cos(th) * lobe, loc[1] + r * sp * sin(th) * lobe, loc[2] + h * cp * (0.85 if cp < 0 else 1.0))))
+        rows.append(row)
+    for i in range(seg):
+        i2 = (i + 1) % seg
+        bm.faces.new((top, rows[0][i2], rows[0][i]))
+        bm.faces.new((bot, rows[-1][i], rows[-1][i2]))
+    for j in range(len(rows) - 1):
+        for i in range(seg):
+            i2 = (i + 1) % seg
+            bm.faces.new((rows[j][i], rows[j + 1][i], rows[j + 1][i2], rows[j][i2]))
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+    me = bpy.data.meshes.new(name)
+    bm.to_mesh(me)
+    bm.free()
+    ob = bpy.data.objects.new(name, me)
+    sc.collection.objects.link(ob)
+    me.materials.append(mat)
+    smooth(ob)
+    return ob
+
+
 for i, (x, y) in enumerate(bollard_xy):
     add_cyl(f"FW_Bollard{i}", 0.1, 0.5, (x, y, 0.25), mat=m_iron, verts=10)
-    add_sphere(f"FW_BollardTop{i}", 0.1, (x, y, 0.56),
-               mat=m_dot[i % len(m_dot)], seg=12, ring=8)
+    # v3 第 3 批: 柱顶小南瓜灯 (原四色小球)。扁南瓜 + 瓜梗, 脸朝灯外; 台阶口那两盏朝南 (面向上台阶的人)
+    ry = atan2(y, x) if i < 11 else -pi / 2           # 脸的朝向 (环上的朝外)
+    pr, pz = 0.17, 0.125                              # 南瓜水平半径 / 上半高 (瓣纹 ±7%)
+    cz = 0.53 + 0.85 * pz                            # 南瓜底坐在柱顶箍上
+    add_cyl(f"FW_BollardCollar{i}", 0.125, 0.05, (x, y, 0.505), mat=m_gold, verts=10)
+    pumpkin_body(f"FW_BollardPump{i}", (x, y, cz), pr, pz, m_pump)
+    add_cyl(f"FW_BollardStem{i}", 0.028, 0.11, (x, y, cz + pz + 0.04), mat=m_metal_d, verts=6)
+    ca, sa = cos(ry), sin(ry)
+    rr = pr * math.sqrt(1 - (0.035 / pz) ** 2)       # 眼 / 嘴所在高度处南瓜的水平半径
+    for ex in (-0.062, 0.062):                       # 两只三角眼: 外面凸出瓜面 11..35 mm (瓣峰 / 瓣谷), 不会被瓜面埋住
+        d = rr - 0.012
+        add_cone(f"FW_BollardEye{i}_{ex}", 0.052, 0.07, (x + ca * d - sa * ex, y + sa * d + ca * ex, cz + 0.035),
+                 mat=m_pface, verts=3, rot=(radians(90), 0, ry + radians(90)))
+    for mk in (-0.062, 0.0, 0.062):                  # 三段嘴: 同理
+        d = rr - 0.002
+        add_box(f"FW_BollardMouth{i}_{mk}", (0.04, 0.05, 0.044), (x + ca * d - sa * mk, y + sa * d + ca * mk, cz - 0.035),
+                rot=(0, 0, ry), mat=m_pface)
 
-# 雨棚 (canopy): 4 角柱(棚顶四角正下方 ±6.222) + 四棱锥尖顶 + 周圈吊灯笼
-# 原六角环布在 (±3.6,±6.2) 的近/后两对正好卡在「排队->舱位」走廊和舱窗视野里(穿帮柱),
-# 角柱半径 8.8 < 平台 9.0 仍在台面上, 视线全部避开
+# ===== v3 第 3 批 (2026-11-28): 雨棚 = 八瓣椭圆锥 + 露明椽子 ==================================
+# 原雨棚是方锥 (角在 (±6.22, ±6.22)) 套一个圆环灯带 (R 6.55): 灯带沿轴向外伸 0.33 m、在角上缩进 1.59 m;
+# 8 盏吊灯悬在屋面投影外; 棚底一整块平板, 仰视没有椽梁。
+# 新雨棚平面是八边形椭圆, 半轴沿轮面 (x) 5.9、垂直轮面 (y) 8.6 —— 沿轮面只能到 5.9: 舱的吊架顶走 R 16.1 的圆,
+# x = 5.9 处高 5.64 m, 檐口灯带底 5.88 m, 余量 0.24 m, 再往外吊架会扫穿屋檐。
+#   棚面 = 一层薄壳 (仰视看得见壳底和椽檩); 8 根椽子在棱上, 两道檩 + 顶心圈 + 顶心盘 + 新月吊坠;
+#   封檐板下沿一圈灯带, 与椽头对齐; 4 根铁柱立在斜向 4 个檐角下 (±4.17, ±6.08);
+#   另 4 个檐口中点正好是 A 字支腿穿出屋面处 (不挂灯); 檐口灯笼挂在其余檐口上。
+CAN_AX, CAN_AY = 5.90, 8.60                  # 檐口椭圆半轴 (x 沿轮面, y 垂直轮面)
+CAN_Z, CAN_T, CAN_TOP = 6.10, 0.06, 7.60     # 棚面底 (檐口) / 棚面厚 / 顶尖
+RAF_R = 0.06                                 # 椽子半径
+RAF_IN_Z, RAF_OUT_Z = CAN_TOP - CAN_T - RAF_R, CAN_Z - RAF_R   # 椽子轴线: 顶心端 / 檐口端 (上沿贴棚面底)
+RHO_IN = 0.55 / CAN_AY                       # 顶心圈处的径向比例
+PH = P["platform_h"]
+THS8 = [i * pi / 4 for i in range(8)]
+
+
+def can_pt(th, rho, z):
+    return (CAN_AX * rho * cos(th), CAN_AY * rho * sin(th), z)
+
+
+def rafter_under_z(y):
+    """中央椽子 (沿 y 轴, x = 0) 在 (0, y) 处的下沿高度 —— 站台两盏大吊灯的吊杆挂在这里。"""
+    rho = abs(y) / CAN_AY
+    return RAF_IN_Z + (RAF_OUT_Z - RAF_IN_Z) * (rho - RHO_IN) / (1 - RHO_IN) - RAF_R
+
+
+def hang_lantern(name, x, y, zc, core_r=0.13, core_h=0.28, rod_top=6.0):
+    """吊灯笼: 吊杆 (从 rod_top 垂到灯帽) + 灯帽 + 六棱发光灯芯 + 铁艺竖棱 + 鎏金底环和吊坠。zc = 灯芯中心高。"""
+    k = core_r / 0.13
+    cap_h = 0.12 * k
+    cap_top = zc + core_h / 2 + cap_h
+    add_cyl(f"{name}_Drop", 0.015 * k, max(rod_top - cap_top, 0.02), (x, y, (rod_top + cap_top) / 2), mat=m_iron, verts=6)
+    add_cone(f"{name}_Cap", core_r * 1.62, cap_h, (x, y, zc + core_h / 2 + cap_h / 2), mat=m_iron, verts=6)
+    add_cyl(f"{name}_Core", core_r, core_h, (x, y, zc), mat=m_station, verts=6)
+    for j in range(6):
+        th = j * pi / 3                      # 竖棱立在六棱灯芯的棱上
+        add_cyl(f"{name}_Rib{j}", 0.012 * k, core_h + 0.02,
+                (x + (core_r + 0.015) * cos(th), y + (core_r + 0.015) * sin(th), zc), mat=m_iron, verts=6)
+    add_torus(f"{name}_Ring", core_r + 0.005, 0.012 * k, (x, y, zc - core_h / 2 - 0.01), mat=m_gold, ms=24, ns=6)
+    add_cone(f"{name}_Tip", 0.05 * k, 0.10 * k, (x, y, zc - core_h / 2 - 0.075 * k - 0.005), mat=m_gold, verts=6, rot=(pi, 0, 0))
+
+
+def _mesh_obj(name, bm, mat):
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+    me = bpy.data.meshes.new(name)
+    bm.to_mesh(me)
+    bm.free()
+    ob = bpy.data.objects.new(name, me)
+    sc.collection.objects.link(ob)
+    me.materials.append(mat)
+    return ob
+
+
+def poly_band(name, pts_lo, pts_hi, mat):
+    """闭合竖带 (上下两圈同点数): 封檐板 / 檐口灯带。"""
+    bm = bmesh.new()
+    lo = [bm.verts.new(p) for p in pts_lo]
+    hi = [bm.verts.new(p) for p in pts_hi]
+    for i in range(len(lo)):
+        j = (i + 1) % len(lo)
+        bm.faces.new((lo[i], lo[j], hi[j], hi[i]))
+    return _mesh_obj(name, bm, mat)
+
+
+def roof_shell(name):
+    """八瓣椭圆锥薄壳: 上下两层锥面 + 檐口一圈侧带 (闭合实体; 仰视看到的是壳底)。"""
+    bm = bmesh.new()
+    a_t = bm.verts.new((0, 0, CAN_TOP))
+    a_b = bm.verts.new((0, 0, CAN_TOP - CAN_T))
+    r_t = [bm.verts.new(can_pt(th, 1.0, CAN_Z + CAN_T)) for th in THS8]
+    r_b = [bm.verts.new(can_pt(th, 1.0, CAN_Z)) for th in THS8]
+    for i in range(8):
+        j = (i + 1) % 8
+        bm.faces.new((a_t, r_t[i], r_t[j]))
+        bm.faces.new((a_b, r_b[j], r_b[i]))
+        bm.faces.new((r_t[i], r_b[i], r_b[j], r_t[j]))
+    return _mesh_obj(name, bm, m_metal_d)
+
+
+roof_shell("FW_CanopyRoof")
+# 封檐板 (黑铁) + 檐口灯带 (暖白, 贴在封檐板下沿)
+poly_band("FW_CanopyFascia", [can_pt(th, 1.012, CAN_Z - 0.14) for th in THS8], [can_pt(th, 1.012, CAN_Z + 0.05) for th in THS8], m_iron)
+poly_band("FW_CanopyEave", [can_pt(th, 1.012, CAN_Z - 0.22) for th in THS8], [can_pt(th, 1.012, CAN_Z - 0.14) for th in THS8], m_edge_c)
+# 8 根椽子 (棱上) + 两道檩 (八边形折线, 贴在椽子下沿) + 顶心圈 + 顶心盘 + 鎏金新月吊坠
+for i, th in enumerate(THS8):
+    cyl_between(f"FW_Rafter{i}", can_pt(th, RHO_IN, RAF_IN_Z), can_pt(th, 0.995, RAF_OUT_Z), RAF_R, m_iron, verts=8)
+    cyl_between(f"FW_ApexRing{i}", can_pt(th, RHO_IN, RAF_IN_Z), can_pt(THS8[(i + 1) % 8], RHO_IN, RAF_IN_Z), 0.05, m_iron, verts=6)
+for t in (0.40, 0.72):
+    rho = RHO_IN + (1 - RHO_IN) * t
+    z = RAF_IN_Z + (RAF_OUT_Z - RAF_IN_Z) * t - RAF_R - 0.045
+    for i in range(8):
+        cyl_between(f"FW_Purlin{int(t * 100)}_{i}", can_pt(THS8[i], rho, z), can_pt(THS8[(i + 1) % 8], rho, z), 0.045, m_iron, verts=6)
+add_cyl("FW_ApexPlate", 0.42, 0.10, (0, 0, CAN_TOP - CAN_T - 0.05), mat=m_iron, verts=16)
+add_cyl("FW_ApexDrop", 0.015, 0.26, (0, 0, CAN_TOP - CAN_T - 0.23), mat=m_iron, verts=6)
+add_crescent("FW_ApexMoon", 0.30, (0, 0, CAN_TOP - CAN_T - 0.66), rot=(pi / 2, 0, 0), mat=m_gold, seg=28)
+# 4 根铁柱: 斜向 4 个檐角 (45 度) 下, 从站台面到檐口
 for sx in (1, -1):
     for sy in (1, -1):
-        cx_, cy_ = sx * 6.222, sy * 6.222
-        add_cyl(f"FW_CanopyCol{sx}_{sy}", 0.14, 6.0 - P["platform_h"],
-                (cx_, cy_, (6.0 + P["platform_h"]) / 2), mat=m_iron, verts=12)
-add_cone("FW_CanopyRoof", 8.8, 1.5, (0, 0, 6.75), mat=m_metal_d, verts=4,
-         rot=(0, 0, radians(45)))
-add_torus("FW_CanopyEave", 6.55, 0.07, (0, 0, 6.06), mat=m_edge_c, ms=64, ns=8)
-for i in range(8):
-    th = i * pi / 4 + pi / 8
-    lx, ly = 7.0 * cos(th), 7.0 * sin(th)
-    add_cyl(f"FW_CanDrop{i}", 0.02, 0.4, (lx, ly, 5.8), mat=m_iron, verts=8)
-    add_sphere(f"FW_CanLamp{i}", 0.1, (lx, ly, 5.5), mat=m_lamp, seg=12, ring=8)
+        cx_, cy_ = CAN_AX * 0.70711 * sx, CAN_AY * 0.70711 * sy
+        z0, z1 = PH + 0.30, CAN_Z - 0.22
+        add_cyl(f"FW_CanopyBase{sx}_{sy}", 0.21, 0.30, (cx_, cy_, PH + 0.15), mat=m_iron, verts=12)
+        add_cyl(f"FW_CanopyCol{sx}_{sy}", 0.14, z1 - z0, (cx_, cy_, (z0 + z1) / 2), mat=m_iron, verts=12)
+        add_cyl(f"FW_CanopyRing{sx}_{sy}", 0.165, 0.05, (cx_, cy_, z1 - 0.30), mat=m_gold, verts=12)
+        add_cyl(f"FW_CanopyCap{sx}_{sy}", 0.19, 0.10, (cx_, cy_, z1 - 0.05), mat=m_iron, verts=12)
+# 檐口灯笼 x6: 正南 / 正北檐角 + 斜向檐口中点 (那 4 个檐口正中的檐口被支腿占着, 不挂灯)
+EAVE_LANTERN_Z = 5.30
+for k, th in enumerate((pi / 2, 3 * pi / 2)):
+    x, y, _ = can_pt(th, 0.975, 0)
+    hang_lantern(f"FW_EaveLantern{k}", x, y, EAVE_LANTERN_Z, core_r=0.10, core_h=0.22, rod_top=CAN_Z - 0.22)
+for k, th in enumerate((radians(67.5), radians(112.5), radians(247.5), radians(292.5))):
+    a, b = can_pt(th - pi / 8, 0.975, 0), can_pt(th + pi / 8, 0.975, 0)
+    hang_lantern(f"FW_EaveLantern{2 + k}", (a[0] + b[0]) / 2, (a[1] + b[1]) / 2, EAVE_LANTERN_Z, core_r=0.10, core_h=0.22, rod_top=CAN_Z - 0.22)
+print(f"CANOPY ax={CAN_AX} ay={CAN_AY} eave_z={CAN_Z} top={CAN_TOP} columns=({CAN_AX * 0.70711:.3f}, {CAN_AY * 0.70711:.3f})")
 
 # ===== v3 第 2 批 (2026-11-27): 站台成为必经之路 ================================================
 # 动线: 南面主路 -> 入口门楼 (app z 17.4) -> 8 级台阶 (两侧铁艺扶手 + 灯笼) -> 站台 ->
@@ -454,7 +611,7 @@ ST_LANE_Z0, ST_LANE_Z1 = 2.0, 8.85   # 通道围栏 app z 范围 (8.85 = 站台�
 ST_GAP_Z = (4.0, 6.0)                # 东侧围栏开口 (app z): 台阶两侧上来的人从这里进通道
 ST_GATE_Z = 1.9                      # 登舱闸线 (app z)
 ST_PLATE_Z = (0.94, 1.34)            # 渡板 app z 范围: 紧贴停靠舱裙边 (z ±0.93) 外侧, 再往里会插进裙边
-ST_LAMPS = [(2.6, 5.18), (5.6, 5.18)]  # 站台吊灯 (app z, 灯心高): 雨棚只盖到 |y| 6.22; 灯芯自发光 + 运行时点光
+ST_LAMPS = [(2.6, 5.18), (5.6, 5.18)]  # 站台吊灯 (app z, 灯心高): 都在中央椽子 (x = 0) 下; 灯芯自发光 + 运行时点光
 PH = P["platform_h"]                 # 1.55
 
 # ---- 入口门楼: 两根黑铁柱 (柱箍 / 柱尖鎏金) + 横梁 + 鎏金新月 + 柱内侧灯笼 ----
@@ -563,17 +720,9 @@ for sx in (1, -1):      # 两侧纵线
     add_box(f"FW_MarkSide{sx}", (0.04, 0.82, 0.006), (sx * 0.66, -1.46, PH + 0.003), mat=m_gold)
 add_box("FW_MarkFront", (1.36, 0.04, 0.006), (0, -1.85, PH + 0.003), mat=m_gold)
 
-# ---- 站台吊灯 x2: 雨棚底下垂吊杆 + 灯帽 + 六棱发光灯芯 + 铁艺竖棱 + 鎏金底环和吊坠 ----
+# ---- 站台吊灯 x2 (v3 第 3 批改挂中央椽子下; 灯心位置不变, 吊杆长度按椽底高度算) ----
 for k, (az, lz) in enumerate(ST_LAMPS):
-    ly = -az
-    add_cyl(f"FW_StationDrop{k}", 0.015, 6.0 - (lz + 0.27), (0, ly, (6.0 + lz + 0.27) / 2), mat=m_iron, verts=6)
-    add_cone(f"FW_StationCap{k}", 0.21, 0.12, (0, ly, lz + 0.21), mat=m_iron, verts=6)
-    add_cyl(f"FW_StationCore{k}", 0.13, 0.28, (0, ly, lz), mat=m_station, verts=6)
-    for j in range(6):
-        th = j * pi / 3                      # 竖棱立在六棱灯芯的棱上
-        add_cyl(f"FW_StationRib{k}_{j}", 0.012, 0.30, (0.145 * cos(th), ly + 0.145 * sin(th), lz), mat=m_iron, verts=6)
-    add_torus(f"FW_StationRing{k}", 0.135, 0.012, (0, ly, lz - 0.15), mat=m_gold, ms=24, ns=6)
-    add_cone(f"FW_StationTip{k}", 0.05, 0.10, (0, ly, lz - 0.215), mat=m_gold, verts=6, rot=(pi, 0, 0))
+    hang_lantern(f"FW_StationLamp{k}", 0, -az, lz, rod_top=rafter_under_z(-az))
 print(f"STATION portal_y={-ST_PORTAL_Z} lane_x=±{ST_LANE_X} gap_z={ST_GAP_Z} gate_z={ST_GATE_Z} lamps={ST_LAMPS}")
 
 # 售票亭 (ticket booth, 右前; v2.3 落地 z=0 起步, 原按站台面标高悬空 1.55)
@@ -584,47 +733,72 @@ add_cone("FW_BoothRoof", 1.35, 0.75, (bx, by, 2.55), mat=m_metal_d, verts=4,
 add_box("FW_BoothSign", (0.95, 0.06, 0.5), (bx, by - 0.88, 1.7), mat=m_sign)
 add_box("FW_BoothCounter", (1.1, 0.25, 0.08), (bx, by - 0.78, 1.05), mat=m_wood)
 
-# support structure (static) ---------------------------------------------
-lbx, lby, ltx, lty = P["leg_base_x"], P["leg_base_y"], P["leg_top_x"], P["leg_top_y"]
-legs = {}
+# ===== v3 第 3 批 (2026-11-28): A 字支腿 = 两榀格构柱 + 轴承座 ==================================
+# 原支腿是 4 根光圆管: 腿顶接在转动的轮毂盘上, 底板埋在台体里; 两榀之间的 3 道横撑和交叉撑 (y 向) 穿过轮子的
+# 辐条平面 (|y| = 2.2), 辐条转过来会从杆件里穿过去。现在:
+#   · 两榀 A 字架各在自己的平面里 (|y| = LEG_Y = 3.0): 每根柱 4 根弦杆 + 8 层缀条 + 斜缀条, 截面从脚 0.70
+#     收到顶 0.44; 平面内 4 道横撑 + 之字斜撑。两榀之间不再有任何杆件 (轮子扫过的 |y| <= 2.51 里不放静止件)。
+#   · 腿顶接轴承座: 座挪到轮毂盘外侧 (|y| 2.70..3.30), 轴接长到 ±3.40 从座里穿过去, 外端加静止端盖。
+#   · 脚: 站台面上的方座 + 钢底板 + 4 颗地脚螺栓, 看得见 (原底板在台体里)。
+LEG_BASE_X, LEG_Y, LEG_TOP_X = P["leg_base_x"], P["leg_base_y"], P["leg_top_x"]
+LEG_Z0, LEG_W0, LEG_W1 = PH + 0.40, 0.70, 0.44        # 弦杆起点高 (底板顶) / 脚部截面宽 / 顶部截面宽
+HOUSING_R, HOUSING_D = 0.62, 0.60
+NL = 8                                                # 缀条层数 (8 个节间, 每节约 2.3 m)
+LEG_FACES = ((0, 2), (1, 3), (0, 1), (2, 3))          # 四个面的角点对: 沿 x 两面 / 沿 y 两面
+
+
+def leg_corners(a, b, t):
+    """格构柱在参数 t 处的 4 个角点: (+n,+y) (-n,+y) (+n,-y) (-n,-y); n = 平面内法向 (x-z)。"""
+    axis = (b - a).normalized()
+    nrm = Vector((axis.z, 0, -axis.x))
+    c = a.lerp(b, t)
+    w = LEG_W0 + (LEG_W1 - LEG_W0) * t
+    return [c + nrm * (sn * w / 2) + Vector((0, ss * w / 2, 0)) for sn in (1, -1) for ss in (1, -1)]
+
+
+def leg_x(z):
+    """A 字架两条柱的轴线在高度 z 处的 |x|。"""
+    return LEG_BASE_X + (LEG_TOP_X - LEG_BASE_X) * (z - LEG_Z0) / (HZ - LEG_Z0)
+
+
 for sx in (1, -1):
     for sy in (1, -1):
-        base = (sx * lbx, sy * lby, P["platform_h"])
-        top = (sx * ltx, sy * lty, HZ)
-        legs[(sx, sy)] = (base, top)
-        ob = cyl_between(f"FW_Leg_{sx}_{sy}", base, top, 0.30, m_metal_d)
-        link_col(ob, col_static)
-        ob = add_cyl(f"FW_Foot_{sx}_{sy}", 0.55, 0.18, (sx * lbx, sy * lby, 0.09),
-                     mat=m_metal_d, verts=12)
-        link_col(ob, col_static)
-
-def leg_point(sx, sy, t):
-    base, top = legs[(sx, sy)]
-    return tuple(Vector(base) + (Vector(top) - Vector(base)) * t)
-
+        bx, by = sx * LEG_BASE_X, sy * LEG_Y
+        add_box(f"FW_LegPlinth_{sx}_{sy}", (1.14, 1.14, 0.33), (bx, by, PH + 0.165), mat=m_platform)
+        add_box(f"FW_LegPlate_{sx}_{sy}", (1.24, 1.24, 0.06), (bx, by, PH + 0.36), mat=m_iron)
+        for ix in (1, -1):
+            for iy in (1, -1):
+                add_cyl(f"FW_LegBolt_{sx}_{sy}_{ix}_{iy}", 0.035, 0.11, (bx + ix * 0.50, by + iy * 0.50, PH + 0.44), mat=m_gold, verts=6)
+        a = Vector((bx, by, LEG_Z0))
+        b = Vector((sx * LEG_TOP_X, by, HZ))
+        c0, c1 = leg_corners(a, b, 0.0), leg_corners(a, b, 1.0)
+        for i in range(4):
+            cyl_between(f"FW_LegChord_{sx}_{sy}_{i}", c0[i], c1[i], 0.055, m_iron, verts=8)
+        for fi, (p, q) in enumerate(LEG_FACES):
+            for k in range(NL + 1):
+                cs = leg_corners(a, b, k / NL)
+                cyl_between(f"FW_LegBat_{sx}_{sy}_{fi}_{k}", cs[p], cs[q], 0.03, m_iron, verts=6)
+            for k in range(NL):
+                d0, d1 = leg_corners(a, b, k / NL), leg_corners(a, b, (k + 1) / NL)
+                u, v = (d0[p], d1[q]) if (k + fi) % 2 == 0 else (d0[q], d1[p])
+                cyl_between(f"FW_LegDiag_{sx}_{sy}_{fi}_{k}", u, v, 0.026, m_iron, verts=6)
+# 每榀 A 字架平面内 (y = ±LEG_Y): 4 道横撑 + 之字斜撑。最低一道 5.0 m 在雨棚下面, 其余在棚顶 (7.6) 以上
 for sy in (1, -1):
-    for t, rr in ((0.30, 0.15), (0.58, 0.15)):
-        p1 = leg_point(-1, sy, t)
-        p2 = leg_point(1, sy, t)
-        ob = cyl_between(f"FW_TieX_{sy}_{int(t*100)}", p1, p2, rr, m_metal_d)
-        link_col(ob, col_static)
-
-for sx in (1, -1):
-    for t in (0.25, 0.5, 0.75):
-        p1 = leg_point(sx, 1, t)
-        p2 = leg_point(sx, -1, t)
-        ob = cyl_between(f"FW_TieY_{sx}_{int(t*100)}", p1, p2, 0.12, m_metal_d)
-        link_col(ob, col_static)
-    for (t1, t2) in ((0.18, 0.52), (0.52, 0.85)):
-        p1 = leg_point(sx, 1, t1)
-        p2 = leg_point(sx, -1, t2)
-        ob = cyl_between(f"FW_Brace_{sx}_{int(t1*100)}", p1, p2, 0.06, m_metal_d)
-        link_col(ob, col_static)
-
-for sy in (1, -1):
-    ob = add_cyl(f"FW_Housing_{sy}", 0.6, 0.9, (0, sy * 1.9, HZ),
-                 rot=(radians(90), 0, 0), mat=m_metal, verts=20)
-    link_col(ob, col_static)
+    levels = (5.00, 8.80, 13.20, 17.40)
+    for z in levels:
+        cyl_between(f"FW_ATie_{sy}_{int(z * 10)}", (-leg_x(z), sy * LEG_Y, z), (leg_x(z), sy * LEG_Y, z), 0.07, m_iron, verts=8)
+    for i in range(len(levels) - 1):
+        z0, z1 = levels[i], levels[i + 1]
+        s = 1 if i % 2 == 0 else -1
+        cyl_between(f"FW_ADiag_{sy}_{i}", (-s * leg_x(z0), sy * LEG_Y, z0), (s * leg_x(z1), sy * LEG_Y, z1), 0.05, m_iron, verts=6)
+    s = 1 if (len(levels) - 1) % 2 == 0 else -1
+    cyl_between(f"FW_ADiagTop_{sy}", (-s * leg_x(levels[-1]), sy * LEG_Y, levels[-1]), (s * 0.45, sy * LEG_Y, HZ - 0.22), 0.05, m_iron, verts=6)
+    # 轴承座 (静止): 座筒 + 外侧法兰 + 连接两条柱顶的鞍座板 + 端盖
+    add_cyl(f"FW_Housing_{sy}", HOUSING_R, HOUSING_D, (0, sy * LEG_Y, HZ), rot=(radians(90), 0, 0), mat=m_metal, verts=24)
+    add_cyl(f"FW_HousingFlange_{sy}", HOUSING_R + 0.09, 0.06, (0, sy * (LEG_Y + HOUSING_D / 2 + 0.03), HZ), rot=(radians(90), 0, 0), mat=m_iron, verts=24)
+    add_box(f"FW_HousingSaddle_{sy}", (1.74, 0.12, 0.50), (0, sy * LEG_Y, HZ - 0.06), mat=m_iron)
+    add_cyl(f"FW_AxleCap_{sy}", 0.36, 0.10, (0, sy * (LEG_Y + HOUSING_D / 2 + 0.11), HZ), rot=(radians(90), 0, 0), mat=m_gold, verts=20)
+print(f"LEGS base_x={LEG_BASE_X} y={LEG_Y} top_x={LEG_TOP_X} z0={LEG_Z0:.2f} housing_r={HOUSING_R}")
 
 # wheel (rotating) ---------------------------------------------------------
 wheel = add_empty("FW_Wheel", (0, 0, HZ))
@@ -635,7 +809,7 @@ def wheel_child(ob):
     link_col(ob, col_wheel)
 
 # axle
-ob = add_cyl("FW_Axle", 0.34, 2 * G, (0, 0, HZ), rot=(radians(90), 0, 0), mat=m_metal, verts=16)
+ob = add_cyl("FW_Axle", 0.34, 6.8, (0, 0, HZ), rot=(radians(90), 0, 0), mat=m_metal, verts=16)  # v3 第 3 批: 接长到 ±3.4, 穿过轴承座
 wheel_child(ob)
 
 # 轮缘桁架: 每侧双弦杆 (外弦发光色, 内弦金属) + 之字斜撑
@@ -715,6 +889,10 @@ for sy in (1, -1):
         add_bolt = add_sphere(f"FW_HubBolt_{sy}_{k}", 0.05, (x, sy * (G + 0.12), z),
                               mat=m_metal_d, seg=8, ring=6)
         wheel_child(add_bolt)
+    # v3 第 3 批: 盘面鎏金新月徽 (随轮转), 贴在轮毂盘外侧面 (|y| = 2.30..2.385)。外径 1.12 略大于发光环内缘 (1.11):
+    # 盘面中心被静止的轴承座 (r 0.62) 挡着, 徽小了只剩边角; 放大后徽身在座的左侧、两只角伸到座的上下
+    wheel_child(add_crescent(f"FW_HubMoon_{sy}", 1.12, (0, sy * (G + 0.185), HZ),
+                             rot=(pi / 2 if sy > 0 else -pi / 2, 0, 0), mat=m_gold, seg=36))
 
 # 轮缘灯珠 (沿外弦)
 n_dots = 40
@@ -932,6 +1110,9 @@ cam_front = add_cam("FW_CamFront", (0, -64, 18), (0, 1, 17), lens=34)
 # v3 第 2 批: 站台正面 (门楼 / 台阶扶手 / 通道 / 登舱闸) 与 站台面上看登舱闸和停靠舱
 cam_station = add_cam("FW_CamStation", (0.9, -27.5, 5.2), (0, 0, 3.0), lens=32)
 cam_gate = add_cam("FW_CamGate", (2.3, -7.4, 3.25), (0, -1.6, 2.35), lens=30)
+# v3 第 3 批: 站台上仰视雨棚 / 轮毂 (南面上方)
+cam_canopy = add_cam("FW_CamCanopy", (3.6, -4.6, 3.2), (0, 0.6, 6.9), lens=20)
+cam_hub = add_cam("FW_CamHub", (8.5, -10.5, 24.5), (0, -2.4, 20.41), lens=50)
 cam_three = add_cam("FW_CamThree", (46, -52, 27), (0, 0, 16), lens=36)
 cam_side  = add_cam("FW_CamSide", (70, -5, 19), (0, 0, 17), lens=35)
 
@@ -1070,7 +1251,8 @@ except Exception:
 stills = [("01_front.png", cam_front), ("02_three_quarter.png", cam_three),
           ("03_side.png", cam_side), ("04_cabin_detail.png", cam_det),
           ("05_interior_fp.png", cam_fp), ("06_station.png", cam_station),
-          ("07_gate.png", cam_gate)]
+          ("07_gate.png", cam_gate), ("08_canopy_under.png", cam_canopy),
+          ("09_hub.png", cam_hub)]
 ok = True
 for name, cam in stills:
     if not render_still(name, cam):

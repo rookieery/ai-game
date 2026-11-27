@@ -103,13 +103,10 @@ export function createPlayer(camera, input, park) {
     ...stationPosts,
     ...bollards,
   ];
-  // 站台家具阻挡小圆: 雨棚角柱 x4 (ferris_wheel.py:334-341) + A 字支腿 x4 (:376-387)
+  // 站台家具阻挡: 雨棚柱 x4（v3 第 3 批挪到椭圆雨棚斜向檐角下, ferris_wheel.py「v3 第 3 批」雨棚段 CAN_AX / CAN_AY）
   for (const sx of [1, -1]) {
     for (const sy of [1, -1]) {
-      extra.push(
-        { x: sx * 6.222, z: sy * 6.222, r: 0.14 },
-        { x: sx * 6.2, z: sy * 3.0, r: 0.30 },
-      );
+      extra.push({ x: sx * 4.172, z: sy * 6.081, r: 0.17 });
     }
   }
   const circles = [...(park?.circles ?? []), ...extra];
@@ -138,6 +135,11 @@ export function createPlayer(camera, input, park) {
     // 台阶扶手：立在台阶两侧（x ±2.3），从台阶脚到台阶口；顺带封住台阶侧面，不会从台阶边掉下去
     rail(-STATION.HR_X, STATION.HR_Z[0], STATION.HR_Z[1]),
     rail(STATION.HR_X, STATION.HR_Z[0], STATION.HR_Z[1]),
+    // A 字支腿脚 x4（v3 第 3 批）：站台面上的方座 1.14 + 钢底板 1.24（ferris_wheel.py 支腿段 LEG_BASE_X / LEG_Y）
+    { x: -6.2, z: -3.0, hw: 0.64, hd: 0.64, solid: true },
+    { x: 6.2, z: -3.0, hw: 0.64, hd: 0.64, solid: true },
+    { x: -6.2, z: 3.0, hw: 0.64, hd: 0.64, solid: true },
+    { x: 6.2, z: 3.0, hw: 0.64, hd: 0.64, solid: true },
   );
   const stepRects = [];
   for (let k = 0; k < 8; k++) {

@@ -39,7 +39,7 @@ npm run dev          # http://127.0.0.1:8765
 
 ```
 ├─ model/                    # Blender 程序化资产源（source of truth）
-│  ├─ ferris_wheel/          # 摩天轮 v3（参数化脚本 + glb + 预览；含站台动线：门楼 / 通道 / 登舱闸 / 吊灯）
+│  ├─ ferris_wheel/          # 摩天轮 v3（参数化脚本 + glb + 预览；含站台动线：门楼 / 通道 / 登舱闸 / 吊灯，椭圆雨棚 + 格构支腿）
 │  ├─ roller_coaster/        # 幽冥回环过山车（轨道 + 列车 + 站台动线；脚本 + glb + centerline + colliders_coaster.json + 预览）
 │  ├─ lookout_tower/         # 缠魂塔 v3（螺旋梯 + 升降梯，环廊 40m；脚本 + glb + colliders_tower.json + 预览；已接入游戏）
 │  └─ park_env/              # 园区环境（脚本 + glb + colliders.json + 预览）
@@ -78,6 +78,6 @@ draw calls ~90/帧（预算 <300）、渲染三角面 ~16 万/帧、桌面 1080p
 
 - UI 设计系统：「降神之夜 The Séance」（DESIGN.md），impeccable 工作流产出并通过 finish review
 - 画面验证：`node scripts/screenshot.mjs shots/<名> game|states|spin`
-- 摩天轮站台动线验证：起 dev server 后 `GAME_URL=http://127.0.0.1:8767 node scripts/verify_ferris_station.mjs`（真键走线 53 项：门楼 / 台阶扶手 / 通道围栏 / 停靠舱碰撞 / 登舱闸开合与防夹 / 登舱提示范围 / 闸内登舱下乘 / 两条上台阶路线，任一失败 exit 1；`ONLY=C,F` 可单块重跑）
+- 摩天轮站台动线验证：起 dev server 后 `GAME_URL=http://127.0.0.1:8767 node scripts/verify_ferris_station.mjs`（真键走线 61 项：门楼 / 台阶扶手 / 通道围栏 / 停靠舱碰撞 / 登舱闸开合与防夹 / 登舱提示范围 / 闸内登舱下乘 / 两条上台阶路线 / 登舱灯由暗转亮 / 雨棚柱与支腿脚，任一失败 exit 1；`ONLY=C,F` 可单块重跑）
 - 烟花音效验证：`node scripts/probe_fw_audio.mjs`（离线渲染出 before/after WAV 与客观指标）、`node scripts/verify_fw_audio.mjs`（游戏内端到端：触发点传参 / 设置项 / 录音分析）；参数表在 `src/core/fw_sound.js` 顶部，调参用试听页 `npm run dev` → `/prototype/fw_sound/`
 - 缠魂塔验证：`node scripts/verify_tower_colliders.mjs`（碰撞表离线校验 32 项）→ 起 dev server 后 `GAME_URL=http://127.0.0.1:8767 node scripts/verify_tower_game.mjs`（端到端断言：出生点真键步行进轿厢 / 乘梯上下 / 门洞防挟 / 真键走螺旋梯上下 / 塔顶打卡 / 自动呼梯 / 设置联动 / 摩天轮联锁回归，任一失败 exit 1）；机位截图 `node scripts/verify_tower_shots.mjs`
