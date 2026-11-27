@@ -220,8 +220,8 @@ const TINT_LIGHTS = [
   { pos: [-12, 1.2, -14], color: "#ff9a5c", r: 14, live: 1, base: 70, gain: 0.5 }, // 广场西 ↔ plaza2
   { pos: [0, 1.2, 146], color: "#ffc46b", r: 20, live: 2, base: 55, gain: 0.55 },  // 大门(v3 r146) ↔ gate
   // 墓园 (2026-11-26): 跟随两盏守墓灯。旧写法是在 (33.5,1.2,40.5) 摆一盏并不存在的「南瓜簇」静态灯染 —— 雾是暖的、地是黑的
-  { pos: [0, 0, 0], color: "#ffd9a8", r: 8, live: "PE_GraveLantern", gain: 0.45 },  // 守墓灯 (主走道南侧, 27.4 56.35)
-  { pos: [0, 0, 0], color: "#ffd9a8", r: 8, live: "PE_GraveLanternS", gain: 0.45 }, // 守墓灯 (主走道北侧, 42.6 53.05)
+  { pos: [0, 0, 0], color: "#ffd9a8", r: 8, live: "PE_GraveLantern", gain: 0.45 },  // 守墓灯 (主走道南侧, 26.6 56.35)
+  { pos: [0, 0, 0], color: "#ffd9a8", r: 8, live: "PE_GraveLanternS", gain: 0.45 }, // 守墓灯 (主走道北侧, 43.4 53.05)
   // 门的门灯 (第三批): 挂在门洞正中 2.6 m、30 cd; 灯染半径略放大、增益压低, 门下不成一团亮雾
   { pos: [0, 0, 0], color: "#ffd9a8", r: 9, live: "PE_GateN", gain: 0.3 },         // 北门 (35, 46.1)
   { pos: [0, 0, 0], color: "#ffd9a8", r: 9, live: "PE_GateW", gain: 0.3 },         // 西门 (19.9, 54.7)

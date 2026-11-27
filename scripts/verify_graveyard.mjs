@@ -8,7 +8,8 @@
 //   W 两个门  —— 主路沿西支路直进西门、园内沿北脊出北门: 真按 W 走到, 横向偏离 <= 0.12 m; 门柱之间的通道能过, 四根门柱都穿不进去
 //   A 主走道  —— 西门 -> 东端焦点庭中心一路通畅; 焦点庭再往东被围栏挡住 (挡在园内)
 //   F 围栏    —— 园内 23 个方位真按 W 朝外走: 全部停住、仍在园内、停点贴着围栏碰撞圆 (r0.22 + 0.38), 没有方位能穿出去
-//   S 碑 / 灯 —— 正对碑面走: 停点 = 碑面 + 玩家半径 (0.38) ± 0.08 m; 正对守墓灯走: 不穿进灯柱 (圆排斥件会让人绕过去)
+//   S 碑 / 灯 —— 园里 20 块碑 + 2 个十字架都有盒墙; 正对石碑 / 摩天轮舱 / 过山车轮对走: 停点 = 可见面 + 玩家半径 (0.38) ± 0.08 m;
+//               两行碑之间能走过去; 正对守墓灯走: 不穿进灯柱 (圆排斥件会让人绕过去)
 //   P 打卡点  —— 北门里的南瓜灯: 旁侧出「收集南瓜灯」提示, 正对它走被挡在 0.55 + 0.38 处
 // 用法: GAME_URL=http://127.0.0.1:8765 node scripts/verify_graveyard.mjs
 import { chromium } from "playwright";
@@ -185,21 +186,36 @@ console.log("  围栏停点离碰撞面的偏差 (m): " + detail.join(" "));
 
 // ---------- S 碑 / 灯 ----------
 const rectNear = (x, z) => (manifest.rects ?? []).find((r) => Math.hypot(r.x - x, r.z - z) < 0.15);
-const stoneS = rectNear(25.0, 58.2), stoneN = rectNear(29.0, 51.3);
-expect("清单里找到正对走道的两块碑 (25.0,58.2) / (29.0,51.3)", !!stoneS && !!stoneN);
+const stoneS = rectNear(25.0, 58.2), stoneN = rectNear(31.0, 51.3);
+expect("清单里找到正对走道的两块碑 (25.0,58.2) / (31.0,51.3)", !!stoneS && !!stoneN);
 if (stoneS && stoneN) {
   const a = await walk(stoneS.x, 55.6, [stoneS.x, 61.0], { maxMs: 6000 });     // 从主走道朝南走进碑面
   const eS = stoneS.z - stoneS.hd - PR;
   expect("碑 (25.0,58.2) 正面停点 = 碑面 + 0.38 ± 0.08", a.stop === "blocked" && Math.abs(a.end[2] - eS) <= 0.08, `${a.stop} end=${a.end} 期望 z=${f(eS)} 实际 ${a.end[2]} 差 ${f(a.end[2] - eS)}m`);
+  const siteRects = (manifest.rects ?? []).filter((r) => r.x > 20 && r.x < 52 && r.z > 46 && r.z < 68);
+  expect("园里有 20 块碑 + 2 个十字架的盒墙", siteRects.length === 22, `${siteRects.length} 个`);
+  const cabin = rectNear(28.99, 58.26), wheel = rectNear(39.0, 51.24);
+  if (cabin) {
+    const cw = await walk(cabin.x, 55.6, [cabin.x, 60.0], { maxMs: 6000 });          // 从主走道朝南走进半埋的摩天轮舱
+    const ec = cabin.z - cabin.hd - PR;
+    expect("摩天轮舱 (29,58.2) 正面停点 = 舱面 + 0.38 ± 0.08", cw.stop === "blocked" && Math.abs(cw.end[2] - ec) <= 0.08, `${cw.stop} end=${cw.end} 期望 z=${f(ec)}`);
+  }
+  if (wheel) {
+    const ww = await walk(wheel.x, 53.9, [wheel.x, 49.5], { maxMs: 6000 });          // 从主走道朝北走进过山车轮对
+    const ew = wheel.z + wheel.hd + PR;
+    expect("过山车轮对 (39,51.3) 正面停点 = 轮面 + 0.38 ± 0.08", ww.stop === "blocked" && Math.abs(ww.end[2] - ew) <= 0.08, `${ww.stop} end=${ww.end} 期望 z=${f(ew)}`);
+  }
+  const lane = await walk(33.0, 59.3, [33.0, 62.6], { maxMs: 5000 });                // 南二行两块碑之间 (x 31 与 35) 走过去
+  expect("南二行两块碑之间能走过去", lane.stop === "reached", `${lane.stop} end=${lane.end}`);
   const b = await walk(stoneN.x, 53.9, [stoneN.x, 48.5], { maxMs: 6000 });     // 从主走道朝北走进碑面
   const eN = stoneN.z + stoneN.hd + PR;
-  expect("碑 (29.0,51.3) 正面停点 = 碑面 + 0.38 ± 0.08", b.stop === "blocked" && Math.abs(b.end[2] - eN) <= 0.08, `${b.stop} end=${b.end} 期望 z=${f(eN)} 实际 ${b.end[2]} 差 ${f(b.end[2] - eN)}m`);
+  expect("碑 (31.0,51.3) 正面停点 = 碑面 + 0.38 ± 0.08", b.stop === "blocked" && Math.abs(b.end[2] - eN) <= 0.08, `${b.stop} end=${b.end} 期望 z=${f(eN)} 实际 ${b.end[2]} 差 ${f(b.end[2] - eN)}m`);
 }
 // 圆排斥件 (灯柱 / 南瓜) 正对着走, 人会被顺着圆面推着从侧边绕过去 —— 和现实里绕开灯柱一样, 不是穿模。
 // 所以判据是「全程离圆心不小于 r + 0.38」
-const lanC = (manifest.circles ?? []).find((c) => c.r === 0.2 && Math.abs(c.x - 27.4) < 0.05 && Math.abs(c.z - 56.35) < 0.05);
-const lan = await walk(lanC ? lanC.x - 2.65 : 24.75, 56.35, [lanC ? lanC.x + 2.35 : 29.75, 56.35], { maxMs: 6000, near: lanC ? [lanC.x, lanC.z] : [27.4, 56.35] });   // 朝东走进守墓灯
-expect("守墓灯 (27.4,56.35): 正对它走不会穿进灯柱 (全程离柱心 >= 0.54 m)", !!lanC && lan.minD >= 0.2 + PR - 0.04, `${lan.stop} 离柱心最近 ${lan.minD}m (碰撞半径 ${f(0.2 + PR)}m) end=${lan.end}`);
+const lanC = (manifest.circles ?? []).find((c) => c.r === 0.2 && Math.abs(c.x - 26.6) < 0.05 && Math.abs(c.z - 56.35) < 0.05);
+const lan = await walk(lanC ? lanC.x - 2.1 : 24.5, 56.35, [lanC ? lanC.x + 2.3 : 28.9, 56.35], { maxMs: 6000, near: lanC ? [lanC.x, lanC.z] : [26.6, 56.35] });   // 朝东走进守墓灯
+expect("守墓灯 (26.6,56.35): 正对它走不会穿进灯柱 (全程离柱心 >= 0.54 m)", !!lanC && lan.minD >= 0.2 + PR - 0.04, `${lan.stop} 离柱心最近 ${lan.minD}m (碰撞半径 ${f(0.2 + PR)}m) end=${lan.end}`);
 
 // ---------- P 打卡点 ----------
 const poi = (manifest.pois ?? []).find((p) => p.label === "pumpkin_grave");
