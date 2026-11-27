@@ -44,6 +44,26 @@ export const CABIN = {
   SPAWN: { x: 0, z: 0.35 },       // 登舱落位（门侧）
 };
 
+// 摩天轮站台动线（app 坐标 x 东 / z 南；2026-11-27 v3 第 2 批「站台成为必经之路」）。
+// 数字与 ferris_wheel.py「v3 第 2 批」段逐一对应；interact.js（登舱锚点、指路提示）、main.js（下乘落点、
+// 闸线碰撞）、ferris.js（闸门、吊灯）都从这里取，改模型时四处一起改。
+export const STATION = {
+  H: 1.55,                           // 站台顶
+  GATE_Z: 1.9,                       // 登舱闸线（轮停稳、舱吸附到位才开）
+  BOARD: { x: 0, z: 1.3, r: 1.0 },   // 登舱锚点：在站台上、到了闸口（z < GATE_Z + 0.4）、离锚点 < r、且轮已停靠才出「乘坐摩天轮」
+  EXIT: { x: 2.4, z: 0.6 },          // 下乘落点：站台东侧（停靠舱与东侧观景区之间），南侧台阶下台
+  PORTAL: { x: 0, z: 17.4, r: 7.0 }, // 入口门楼（台阶脚）：地面 r 内出指路提示「乘坐请上站台」，没有 E 动作
+  LANE_X: 0.8,                       // 排队通道围栏（x = ±0.8）
+  LANE_Z: [2.0, 8.85],               // 通道 app z 范围（8.85 = 站台南缘，再往南是台阶口）
+  GAP_Z: [4.0, 6.0],                 // 东侧围栏开口：台阶两侧上来的人从这里进通道
+  HR_X: 2.3,                         // 台阶扶手（x = ±2.3，立在台阶旁的地面）
+  HR_Z: [8.6, 16.5],                 // 扶手 app z 范围（台阶口 → 台阶脚）
+  LAMPS: [                           // 站台吊灯 ×2 的灯心（自发光灯芯在资产里，点光在 rides/ferris.js）
+    { x: 0, y: 5.18, z: 2.6 },       // 闸前 / 渡板上方
+    { x: 0, y: 5.18, z: 5.6 },       // 通道中段 / 东侧开口上方
+  ],
+};
+
 export function createPlayer(camera, input, park) {
   const spawn = park?.spawn ?? { x: 0, z: 60 };
   const pos = new THREE.Vector3(spawn.x, 0, spawn.z);
@@ -59,12 +79,15 @@ export function createPlayer(camera, input, park) {
   let landDip = 0;       // 落地相机下沉
 
   // 碰撞圆: colliders.json（含可站顶面 h 的圆：长椅/干草/木桶/旋转木马平台）
-  // + 摩天轮登舱站台（顶面可站）/排队围栏/售票亭/矮柱灯
+  // + 摩天轮登舱站台（顶面可站）/售票亭/矮柱灯/入口门楼柱/登舱闸柱/通道开口柱
   // 圆无 h = 无限高阻挡（树/灯/柱/南瓜…）；有 h = 顶面可站立（详见 park_env.py collider()）
   const booth = { x: 7.6, z: 8.2, r: 1.25 };
-  const queueRails = [-2.7, 2.7].flatMap((lx) =>
-    [11.0, 12.6, 14.2].map((z) => ({ x: lx, z, r: 0.55 }))
-  );
+  // v3 第 2 批 (2026-11-27): 入口门楼两根柱 (地面, 台阶脚) + 登舱闸柱 + 通道东侧开口的两根柱 (站台面上)
+  const stationPosts = [
+    { x: -2.5, z: STATION.PORTAL.z, r: 0.24 }, { x: 2.5, z: STATION.PORTAL.z, r: 0.24 },
+    { x: -STATION.LANE_X, z: STATION.GATE_Z, r: 0.08 }, { x: STATION.LANE_X, z: STATION.GATE_Z, r: 0.08 },
+    { x: STATION.LANE_X, z: STATION.GAP_Z[0], r: 0.11 }, { x: STATION.LANE_X, z: STATION.GAP_Z[1], r: 0.11 },
+  ];
   const bollards = [];
   for (let i = 0; i < 12; i++) {
     if (i === 9) continue; // 南向走廊让位登舱台阶 (管线侧同步跳过, 台阶口两侧另补)
@@ -77,7 +100,7 @@ export function createPlayer(camera, input, park) {
     // 侧壁 = 圆推挤（地面走近被挡, 1.55 超出跳高, 只能走台阶），顶面 = 可站立平台
     { x: 0, z: 0, r: 9.0, h: 1.55 },
     booth,
-    ...queueRails,
+    ...stationPosts,
     ...bollards,
   ];
   // 站台家具阻挡小圆: 雨棚角柱 x4 (ferris_wheel.py:334-341) + A 字支腿 x4 (:376-387)
@@ -94,13 +117,33 @@ export function createPlayer(camera, input, park) {
 
   // 矩形碰撞体两类：
   //   solid（墙）—— colliders.json rects（市集亭体等精确盒墙, 无 h, 各高度推挤）
-  //   平台（顶面）—— 登舱台阶 8 级 (ferris_wheel.py:313-317: 每级 4.4×0.9×0.194,
-  //     blender -y 侧 → app +z；第 k 级 z = 9.45 + k*0.9, 顶 = 1.55-(k+1)*0.194),
+  //   平台（顶面）—— 登舱台阶 8 级 (ferris_wheel.py「台阶」段: 每级 4.4×0.9×0.194,
+  //     blender -y 侧 → app +z；第 k 级 z = 9.45 + k*0.9, 顶 = 1.55-(k+1)*0.194;
+  //     第 0 级加深到 1.2、北端 z 8.70 塞进圆台下面, 偏离中线上下台阶不踩空),
   //     不推挤, 只做「顶面支撑 + 超高阻挡」（canStand 分轴挡向）
   const stallRects = (park?.rects ?? []).map((r) => ({ ...r, solid: true }));
+  // v3 第 2 批 (2026-11-27): 摩天轮站台动线的盒墙（围栏用薄盒不用圆：异径圆链会被斜向走线挤穿）
+  // 注意: 这里直接 push 的墙必须自带 solid: true —— tryMove / groundAt 只认 solid, 漏了会被当成台阶顶面, 整面墙形同不存在
+  const [laneZ0, laneZ1] = STATION.LANE_Z;
+  const rail = (x, z0, z1, extra = {}) => ({ x, z: (z0 + z1) / 2, hw: 0.05, hd: (z1 - z0) / 2, solid: true, ...extra });
+  stallRects.push(
+    // 停靠舱是实体（舱外廓 2.20 × 1.80，含檐板 2.34 × 1.94；门朝南）—— 登舱走 E，人走不进去
+    { x: 0, z: 0, hw: 1.22, hd: 1.02, solid: true },
+    // 排队通道围栏：西侧通长；东侧留开口（GAP_Z），台阶两侧上来的人从开口进通道
+    rail(-STATION.LANE_X, laneZ0, laneZ1),
+    rail(STATION.LANE_X, laneZ0, STATION.GAP_Z[0]),
+    rail(STATION.LANE_X, STATION.GAP_Z[1], laneZ1),
+    // 登舱闸线：轮停稳、舱吸附到位后由 main.js 按 ferris.gatePassable 禁用（tag "fwGate"）
+    rail(0, STATION.GATE_Z - 0.05, STATION.GATE_Z + 0.05, { hw: STATION.LANE_X, tag: "fwGate" }),
+    // 台阶扶手：立在台阶两侧（x ±2.3），从台阶脚到台阶口；顺带封住台阶侧面，不会从台阶边掉下去
+    rail(-STATION.HR_X, STATION.HR_Z[0], STATION.HR_Z[1]),
+    rail(STATION.HR_X, STATION.HR_Z[0], STATION.HR_Z[1]),
+  );
   const stepRects = [];
   for (let k = 0; k < 8; k++) {
-    stepRects.push({ x: 0, z: 9.45 + k * 0.9, hw: 2.2, hd: 0.45, h: 1.55 - (k + 1) * 0.194 });
+    // v3 第 2 批: 最上一级加深到 1.2、起点 z 8.70 (塞进圆台下面; 圆台边缘是弧线, 方台阶两侧原本接不上)
+    const z0 = k === 0 ? 8.70 : 9.0 + k * 0.9, hd = k === 0 ? 0.6 : 0.45;
+    stepRects.push({ x: 0, z: z0 + hd, hw: 2.2, hd, h: 1.55 - (k + 1) * 0.194 });
   }
   // 过山车台阶顶面 (M3: colliders_coaster.json steps — 站台双 deck / 双槽 7 级)
   for (const s of park?.steps ?? []) stepRects.push(s);

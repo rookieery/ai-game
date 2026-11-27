@@ -5,16 +5,19 @@
 //   FW_C<i>_<材质>  —— 每舱的网格节点；v3（2026-11-27 舱体重做）起 16 个舱共用同一套网格
 //                     （glb 里 16 个节点引用同一个 mesh），载入后合批成每种材质一个 InstancedMesh；
 //                     登舱门框 FW_DoorSignal 例外（要逐舱开关灵火青），保留 16 个独立网格
+//   FW_BoardGate_L|R —— 登舱闸两扇门（铰链在闸线两端的空节点，子网格是门扇）；只在轮停稳、舱吸附到位时开
 // 实现：glTF 导出会带 Y-up/Z-up 转换，空节点的本地轴不可靠。因此：
 //   · 旋转轴由几何检测得出：轮体是圆盘，世界包围盒「最薄」的方向即轮轴（水平穿轮心）
 //   · 每帧把每个舱根的世界姿态精确设回「初始摆正姿态」（轴无关、绝对水平）
 import * as THREE from "three";
-import { CABIN } from "../player/controller.js";
+import { CABIN, STATION } from "../player/controller.js";
 
 const _pq = new THREE.Quaternion();
 const _wq = new THREE.Quaternion();
 const _inv = new THREE.Quaternion();
+const _gq = new THREE.Quaternion();
 const _frame = { pos: new THREE.Vector3(), quat: new THREE.Quaternion() };
+const WORLD_UP = new THREE.Vector3(0, 1, 0);
 
 // 从世界包围盒推导圆盘类资产的轴方向（最薄维度）
 function detectDiscAxis(object) {
@@ -45,20 +48,28 @@ export function createFerrisWheel(gltfRoot) {
   // 自发光材质登记（设置面板可调）：
   //   舱内照明 = FW_CabinGlow(天花发光盘) + FW_CoveLight(窗顶光槽) + FW_CabinLamp(顶灯)
   //              + FW_RoofLamp(舱檐口灯线 / 雨棚吊灯) —— 随「舱内灯光亮度」
+  //   站台灯具 = FW_StationLamp(门楼 / 扶手 / 通道围栏 / 吊灯灯芯) —— 随「站台灯光亮度」（连吊灯点光）
   //   装饰灯效 = 其余 FW_ 发光材质(轮缘/彩点/轮毂/招牌/灯环/舱体漆面/鎏金新月) —— 随「装饰灯亮度」
-  //   FW_DoorSignal（登舱门框）不进表：每个舱一份材质，由停靠状态逐舱开关（见 applySignal）
+  //   FW_DoorSignal（登舱门框）/ FW_GateSignal（登舱闸柱灯）不进表：由停靠状态开关（见 applySignal）
   // 轮缘灯管近距离贴脸辉光偏强，基准系数 0.8 (远景观感由 Bloom 兜底)
   const CABIN_LIGHT_BASE = 22; // 所乘舱补光点光基准强度（挂在天花下 0.50 m，向下照）
   const SIGNAL_BASE = 1.1;     // 停靠舱门框灵火青强度（随装饰灯）
+  const GATE_SIGNAL_BASE = 1.1;  // 登舱闸柱灯灵火青强度（随装饰灯）
+  const STATION_LIGHT_BASE = 38; // 「站台灯光亮度」100% 时每盏吊灯点光的强度（cd，衰减 2、射程 16）
+  const GATE_SWEEP_T = 1.1;      // 登舱闸开 / 合一程的时长 s
   const cabinGlowMats = [];
   const decoGlowMats = [];
+  const stationGlowMats = [];
+  const gateSignalMats = [];   // FW_GateSignal 在静组里是一份材质（闸柱灯 ×2 合并在同一个网格）
   gltfRoot.traverse((o) => {
     const mats = Array.isArray(o.material) ? o.material : (o.material ? [o.material] : []);
     for (const m of mats) {
-      if (!m.name || !m.name.startsWith("FW_") || m.name === "FW_DoorSignal") continue;
+      if (m.name === "FW_GateSignal" && !gateSignalMats.includes(m)) gateSignalMats.push(m);
+      if (!m.name || !m.name.startsWith("FW_") || m.name === "FW_DoorSignal" || m.name === "FW_GateSignal") continue;
       if (!m.emissive || m.emissive.r + m.emissive.g + m.emissive.b < 1e-3) continue; // 非自发光
       const base = m.emissiveIntensity ?? 1;
       if (/^FW_(CabinGlow|CoveLight|CabinLamp|RoofLamp)$/.test(m.name)) cabinGlowMats.push({ m, base });
+      else if (m.name === "FW_StationLamp") stationGlowMats.push({ m, base });
       else decoGlowMats.push({ m, base: m.name.startsWith("FW_Rim") ? base * 0.8 : base });
     }
   });
@@ -113,6 +124,45 @@ export function createFerrisWheel(gltfRoot) {
     c.getWorldQuaternion(new THREE.Quaternion())
   );
 
+  // ---------- 登舱闸（v3 第 2 批：站台是必经之路）----------
+  // 两扇铁艺闸门 FW_BoardGate_L / _R（铰链在闸线两端），只在联锁吸附到位（轮停稳）时开。
+  // 绕世界竖轴各转 90°，开位贴回两侧围栏（往南），不侵入停靠舱。和轮体一样走
+  // 「世界旋转 -> 反解本地四元数」，不信空节点的本地轴。
+  const gateLeaves = [];
+  gltfRoot.traverse((o) => {
+    const side = o.name === "FW_BoardGate_L" ? "L" : o.name === "FW_BoardGate_R" ? "R" : null;
+    if (!side) return;
+    gateLeaves.push({
+      node: o,
+      // L 扇朝 +x 伸、R 扇朝 -x 伸；自由端都要转向 +z（南）。绕 +Y 转 θ: (1,0,0) -> (cosθ,0,-sinθ)
+      openAngle: side === "L" ? -Math.PI / 2 : Math.PI / 2,
+      rest: o.getWorldQuaternion(new THREE.Quaternion()),
+      parentInv: o.parent
+        ? o.parent.getWorldQuaternion(new THREE.Quaternion()).invert()
+        : new THREE.Quaternion(),
+    });
+  });
+  if (gateLeaves.length !== 2) console.warn("[ferris] FW_BoardGate_L / _R 节点不全:", gateLeaves.length);
+  let gateOpen01 = 0;    // 实际开度 0 关 .. 1 开
+  let gateTarget = 0;    // 目标开度
+  let gateClear = true;  // 闸线带里没人（main.js 每帧给）：有人时不落闸
+  function applyGate() {
+    const e = gateOpen01 * gateOpen01 * (3 - 2 * gateOpen01); // 缓入缓出
+    for (const g of gateLeaves) {
+      g.node.quaternion.copy(g.parentInv).multiply(_gq.setFromAxisAngle(WORLD_UP, g.openAngle * e)).multiply(g.rest);
+    }
+  }
+
+  // ---------- 站台吊灯点光 ×2 ----------
+  // 常驻、只调强度（运行时增删灯光会让当帧出问题）；灯体自发光 FW_StationLamp 一起随「站台灯光亮度」
+  const stationLights = STATION.LAMPS.map((L) => {
+    const pl = new THREE.PointLight("#ffd9a8", 0, 16, 2);
+    pl.position.set(L.x, L.y, L.z);
+    pl.name = "FW_StationLight";
+    gltfRoot.add(pl);
+    return pl;
+  });
+
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
   const state = {
@@ -122,6 +172,7 @@ export function createFerrisWheel(gltfRoot) {
     ridePeriod: 75,   // 乘坐周期：秒/圈（约 1.5 分钟一圈）
     cabinLight: 0.4,  // 舱内灯光系数（补光 + 自发光联动）
     decoLight: 1.0,   // 装饰灯系数
+    stationLight: 1.0, // 站台吊灯系数（点光 + 灯具自发光）
   };
 
   const _v = new THREE.Vector3();
@@ -145,16 +196,20 @@ export function createFerrisWheel(gltfRoot) {
   }
 
   // ---------- 站台安全联锁 ----------
-  // 有人站在登舱站台时轮体缓停，并把最近的舱吸附到最低点（站台可站立行走 +
-  // 停靠舱旁 E 登舱）；避免底舱持续掠过站台行人头顶。离开站台后恢复旋转。
+  // 有人站在登舱站台时轮体缓停，并把最近的舱吸附到最低点（站台可站立行走；吸附到位后
+  // 登舱闸开、闸内 E 登舱）；避免底舱持续掠过站台行人头顶。离开站台后恢复旋转。
   let holdWanted = false;
   let snapTheta = null; // 停靠目标角（非 null 时 theta 向它缓动）
   let signalIdx = -1;   // 当前门框亮灵火青的舱（-1 = 全灭）
 
-  // 停靠舱门框灵火青：只有吸附到位（轮停稳）的最低那一舱亮，其余全灭
+  // 停靠舱门框灵火青：只有吸附到位（轮停稳）的最低那一舱亮，其余全灭。
+  // 登舱闸柱灯是同一个状态（轮停稳 = 闸开 = 这一舱可上）
   function applySignal() {
     for (const { cab, mat } of doorMats) {
       mat.emissiveIntensity = cab === cabins[signalIdx] ? SIGNAL_BASE * state.decoLight : 0;
+    }
+    for (const m of gateSignalMats) {
+      m.emissiveIntensity = signalIdx >= 0 ? GATE_SIGNAL_BASE * state.decoLight : 0;
     }
   }
 
@@ -178,6 +233,9 @@ export function createFerrisWheel(gltfRoot) {
     cabinRoots: cabins,
     wheelRoot: wheel,
     spinAxis, // 轮轴 (世界系单位向量, 水平): fx/fw_director.js 算所乘舱离顶时间要用
+    // 登舱闸线能否通行（main.js 每帧据此开关闸线碰撞）：开始开就放行，关严才重新挡
+    get gatePassable() { return gateOpen01 > 0.02; },
+    stationLights, // 站台吊灯点光 ×2（取证 / 回归用）
     instancedMeshes: instanced.map((x) => x.im),
     update(dt) {
       if (!wheel) return;
@@ -221,6 +279,16 @@ export function createFerrisWheel(gltfRoot) {
         signalIdx = docked;
         applySignal();
       }
+
+      // 登舱闸：吸附到位（轮停稳）就开。要关的时候如果人还站在闸线带里，只要没关严就（重新）打开；
+      // 开合各一程 GATE_SWEEP_T
+      if (docked >= 0) gateTarget = 1;
+      else gateTarget = gateClear ? 0 : (gateOpen01 > 0 ? 1 : 0);
+      if (gateOpen01 !== gateTarget) {
+        const dir = Math.sign(gateTarget - gateOpen01);
+        gateOpen01 = clamp(gateOpen01 + (dir * dt) / GATE_SWEEP_T, 0, 1);
+        applyGate();
+      }
     },
     // 登舱：锁定最低点舱位（转速由 update 按 riding 态取用），挂舱内暖光
     board() {
@@ -248,14 +316,23 @@ export function createFerrisWheel(gltfRoot) {
       if (!h) snapTheta = null;
       holdWanted = h;
     },
+    // 已停靠 = 联锁吸附到位（轮停稳）。登舱闸和「乘坐摩天轮」提示都只在此时有效（main.js / interact.js）
+    isDocked: () => signalIdx >= 0,
+    // 登舱闸开度 0..1（取证用）
+    gateOpen01: () => gateOpen01,
+    // 闸线带里有没有人（main.js 每帧给）：有人就不落闸
+    setGateClear(clear) { gateClear = !!clear; },
     // 应用设置面板（百分比 -> 实际参数）
     applySettings(s) {
       state.idlePeriod = clamp(s.ferrisIdlePeriod, 12, 60);
       state.ridePeriod = clamp(s.ferrisRidePeriod, 40, 120);
       state.cabinLight = clamp(s.cabinLight, 0, 200) / 100;
       state.decoLight = clamp(s.decoLight, 0, 200) / 100;
+      state.stationLight = clamp(s.ferrisStationLight ?? 100, 0, 200) / 100;
       for (const { m, base } of cabinGlowMats) m.emissiveIntensity = base * state.cabinLight;
       for (const { m, base } of decoGlowMats) m.emissiveIntensity = base * state.decoLight;
+      for (const { m, base } of stationGlowMats) m.emissiveIntensity = base * state.stationLight;
+      for (const pl of stationLights) pl.intensity = STATION_LIGHT_BASE * state.stationLight;
       if (cabLight) cabLight.intensity = CABIN_LIGHT_BASE * state.cabinLight;
       applySignal();
     },

@@ -107,9 +107,10 @@ await page.screenshot({ path: `${outDir}/v8_outring.png` });
 
 // 8. 摩天轮顶俯瞰全园（雾/远景校准）
 await page.evaluate(() => {
-  window.__game.player.teleport(0, 18.8);
+  window.__game.player.teleport(0, 1.5, 1.55); // v3 第 2 批: 站台闸内登舱 (地面登舱点取消)
 });
-await page.waitForTimeout(300);
+await page.waitForFunction(() => window.__game.ferris.isDocked(), { timeout: 15000 });
+await page.waitForTimeout(200);
 await page.keyboard.press("KeyE");
 await page.waitForTimeout(1600);
 await page.evaluate(() => {

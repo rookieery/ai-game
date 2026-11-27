@@ -12,6 +12,7 @@ export const SETTINGS_GROUPS = [
       { key: "ferrisRidePeriod", label: "乘坐转速", min: 40, max: 120, step: 1, def: 75, fmt: (v) => `${v} 秒/圈` },
       { key: "cabinLight", label: "舱内灯光亮度", min: 0, max: 200, step: 5, def: 40, fmt: pct }, // 补光点光 + 舱内自发光面板联动
       { key: "decoLight", label: "装饰灯亮度", min: 0, max: 200, step: 5, def: 100, fmt: pct }, // 轮缘/彩点/轮毂/招牌/站台灯环
+      { key: "ferrisStationLight", label: "站台灯光亮度", min: 0, max: 200, step: 5, def: 100, fmt: pct }, // 站台吊灯 ×2 点光 + 门楼/扶手/通道灯笼 (站台唯一真实照明)
     ],
   },
   {

@@ -3,7 +3,7 @@
 // 断言:
 //   跳上长椅(0.665)/木桶(0.955)/旋转木马平台(0.555), 走出台缘下落归零
 //   8 级登舱台阶逐级走上 1.55 站台; 站台占用轮体缓停吸附(theta 不再变化)
-//   站台 E 登舱 -> E 下乘后回到地面登舱点 (y=0, z=16.4)
+//   站台过登舱闸 (v3 第 2 批: 轮停稳才开) 在停靠舱前 E 登舱 -> E 下乘后落回站台东侧 (y=1.55, x≈2.4, z≈0.6)
 // 截图: 长椅/木桶/旋转木马/站台/舱内
 import { chromium } from "playwright";
 import { mkdirSync } from "node:fs";
@@ -129,26 +129,28 @@ const t2 = await theta();
 await expect("站台占用 -> 轮体停驻 (theta 不变)", Math.abs(t1 - t2) < 1e-4, `θ=${t1}→${t2}`);
 await page.screenshot({ path: `${outDir}/j4_platform.png` });
 
-// T6 站台停靠舱旁 E 登舱
+// T6 沿排队通道走过登舱闸 (v3 第 2 批: 轮停稳、舱吸附到位才开), 停靠舱是实体 —— 停在舱门前, E 登舱
 await page.keyboard.down("KeyW");
-await page.waitForTimeout(1300);
+await page.waitForTimeout(1900);
 await page.keyboard.up("KeyW");
 await page.waitForTimeout(300);
+p = await pos();
+await expect("停靠舱是实体: 走到舱门前停住 (z≈1.40)", Math.abs(p.z - 1.40) < 0.05 && Math.abs(p.x) < 0.1, JSON.stringify(p));
 await page.keyboard.press("KeyE");
 await page.waitForTimeout(1800);
 const riding = await page.evaluate(() => ({
   state: window.__game.state,
   local: window.__game.player.cabinLocal(),
 }));
-await expect("站台 E 登舱成功", riding.state === "riding" && riding.local !== null, JSON.stringify(riding));
+await expect("舱门前 E 登舱成功", riding.state === "riding" && riding.local !== null, JSON.stringify(riding));
 await page.screenshot({ path: `${outDir}/j5_cabin.png` });
 
-// T7 E 下乘 -> 回地面登舱点
+// T7 E 下乘 -> 落回站台东侧 (v3 第 2 批: 不再送回地面)
 await page.keyboard.press("KeyE");
 await page.waitForTimeout(1600);
 p = await pos();
 const st = await page.evaluate(() => window.__game.state);
-await expect("下乘回到地面登舱点 (y=0, z≈16.4)", st === "walk" && p.y === 0 && Math.abs(p.z - 16.4) < 0.05, `state=${st} ${JSON.stringify(p)}`);
+await expect("下乘落回站台东侧 (y=1.55, x≈2.4, z≈0.6)", st === "walk" && Math.abs(p.y - 1.55) < 0.02 && Math.hypot(p.x - 2.4, p.z - 0.6) < 0.05, `state=${st} ${JSON.stringify(p)}`);
 
 console.log("result:", fails.length ? `FAILED x${fails.length}: ${fails.join("; ")}` : "all passed");
 console.log("console-errors:", errors.length ? JSON.stringify(errors) : "none");

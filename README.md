@@ -28,9 +28,9 @@ npm run dev          # http://127.0.0.1:8765
 
 烟花音效全程序合成：爆裂（裂响→碎裂→轰鸣→滚动尾音）、升空哨音（一路滑到炸点）、按 343 m/s 滞后闪光的声延迟与左右声像；音量、声延迟、升空哨音响量、裂响亮度、碎裂都在园区设置的「烟花」组里调。
 
-流程：点五芒星入园 → 沿主路走到摩天轮站台 → `E` 乘坐（舱内可走动 `WASD`、`C` 坐下起身、360° 环视，75s/圈，随时 `E` 下乘）→ 绕园收集 12 盏南瓜灯点亮星图。
+流程：点五芒星入园 → 沿主路到摩天轮台阶脚的入口门楼 → 上站台、沿排队通道走到登舱闸（轮停稳、舱吸附到位才开）→ 停靠舱门前 `E` 乘坐（舱内可走动 `WASD`、`C` 坐下起身、360° 环视，75s/圈，随时 `E` 下乘）→ 落回站台东侧、原路下台 → 绕园收集 12 盏南瓜灯点亮星图。
 
-- 登舱台阶可逐级走上 1.55m 站台环视全园；有人站台时摩天轮会缓停并把舱位停靠到最低点，站台旁 `E` 一样可登舱
+- 登舱台阶可逐级走上 1.55m 站台环视全园；有人站台时摩天轮会缓停并把舱位停靠到最低点，这时登舱闸打开、停靠舱门框和闸柱灯亮灵火青，闸内按 `E` 登舱。地面不再有登舱点，台阶脚只出指路提示「乘坐请上站台」；停靠舱是实体，走不进去
 - 地面的长椅、干草堆、木桶、旋转木马平台都能 `空格` 跳上去站着看风景（舱内净高不足，禁跳）
 - 缠魂塔（过山车地面灯环处，环廊 40m 全园制高点）：从南侧草坪进门厅，走近停靠点轿厢自动开来；走进轿厢按 `E` 升到环廊（约 12 秒），或者沿 242 级螺旋梯走上去。环廊上有一盏南瓜灯，塔顶俯瞰摩天轮与过山车
 - 显灵木马（东北园区，过山车旁）：沿入口台阶走上平台，盘面上 `E` 骑上就近的灵兽或座车（提示会报出坐骑名），自由环视，随时 `E` 下乘；盘心中柱脚下的祭坛上有一盏南瓜灯
@@ -39,7 +39,7 @@ npm run dev          # http://127.0.0.1:8765
 
 ```
 ├─ model/                    # Blender 程序化资产源（source of truth）
-│  ├─ ferris_wheel/          # 摩天轮 v2（参数化脚本 + glb + 预览）
+│  ├─ ferris_wheel/          # 摩天轮 v3（参数化脚本 + glb + 预览；含站台动线：门楼 / 通道 / 登舱闸 / 吊灯）
 │  ├─ roller_coaster/        # 幽冥回环过山车（轨道 + 列车 + 站台动线；脚本 + glb + centerline + colliders_coaster.json + 预览）
 │  ├─ lookout_tower/         # 缠魂塔 v3（螺旋梯 + 升降梯，环廊 40m；脚本 + glb + colliders_tower.json + 预览；已接入游戏）
 │  └─ park_env/              # 园区环境（脚本 + glb + colliders.json + 预览）
@@ -78,5 +78,6 @@ draw calls ~90/帧（预算 <300）、渲染三角面 ~16 万/帧、桌面 1080p
 
 - UI 设计系统：「降神之夜 The Séance」（DESIGN.md），impeccable 工作流产出并通过 finish review
 - 画面验证：`node scripts/screenshot.mjs shots/<名> game|states|spin`
+- 摩天轮站台动线验证：起 dev server 后 `GAME_URL=http://127.0.0.1:8767 node scripts/verify_ferris_station.mjs`（真键走线 53 项：门楼 / 台阶扶手 / 通道围栏 / 停靠舱碰撞 / 登舱闸开合与防夹 / 登舱提示范围 / 闸内登舱下乘 / 两条上台阶路线，任一失败 exit 1；`ONLY=C,F` 可单块重跑）
 - 烟花音效验证：`node scripts/probe_fw_audio.mjs`（离线渲染出 before/after WAV 与客观指标）、`node scripts/verify_fw_audio.mjs`（游戏内端到端：触发点传参 / 设置项 / 录音分析）；参数表在 `src/core/fw_sound.js` 顶部，调参用试听页 `npm run dev` → `/prototype/fw_sound/`
 - 缠魂塔验证：`node scripts/verify_tower_colliders.mjs`（碰撞表离线校验 32 项）→ 起 dev server 后 `GAME_URL=http://127.0.0.1:8767 node scripts/verify_tower_game.mjs`（端到端断言：出生点真键步行进轿厢 / 乘梯上下 / 门洞防挟 / 真键走螺旋梯上下 / 塔顶打卡 / 自动呼梯 / 设置联动 / 摩天轮联锁回归，任一失败 exit 1）；机位截图 `node scripts/verify_tower_shots.mjs`

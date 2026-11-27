@@ -40,9 +40,9 @@ await page.waitForFunction(() => {
 await page.click("#enter-btn");
 await page.waitForTimeout(1200);
 
-// 登舱
-await page.evaluate(() => window.__game.player.teleport(0, 18.8));
-await page.waitForTimeout(400);
+// 登舱 (v3 第 2 批: 地面登舱点取消 —— 站台闸内等轮停稳后 E)
+await page.evaluate(() => window.__game.player.teleport(0, 1.5, 1.55));
+await page.waitForFunction(() => window.__game.ferris.isDocked(), { timeout: 15000 }); // 轮停稳、舱吸附到位才可登舱 (v3 第 2 批)
 await page.keyboard.press("KeyE");
 await page.waitForTimeout(1800);
 

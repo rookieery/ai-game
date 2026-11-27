@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
 """
-Ferris Wheel v2 - Halloween Night "幽眠摩天轮" (game-ready glTF asset)
+Ferris Wheel v3 - Halloween Night "幽眠摩天轮" (game-ready glTF asset)
 Run: blender --background --python ferris_wheel.py
 All sizes in meters. Wheel spins about local Y (axle), cabins stay level.
+现行尺寸以 params 段的 P 字典为准 (下面 v2 各条是历史记录, 括号里的轮心 / 台面高是当时的值)。
 
-v2 万圣节惊魂夜重做:
-  - R=16m, 16 cabins, hub 19m  (登舱平台顶 1.0m, 舱底地板 ~1.06m 正好踏板)
+v2 万圣节惊魂夜重做 (初版; 轮心 19m / 台面 1.0m 均已作废):
+  - R=16m, 16 cabins  (当时 hub 19m / 登舱平台顶 1.0m)
   - 双弦杆轮缘桁架 + 之字斜撑 + 内环 + 24 辐条 + 细张拉杆
   - 舱体: 弧顶灯笼 + 密分格玻璃带 + 内饰(地板/端墙长椅/中柱/暖光天花墙裙)
     + 南瓜徽牌 + 裙边缓冲 + 门框  (v2.1: 舱内可走动布局)
@@ -27,6 +28,14 @@ v3 舱体重做 (2026-11-27, 「景版」; 造型语言跟缠魂塔 / 墓园: �
   - 天花: 深色板 + 顶灯 (FW_CabinLamp) + 窗顶内侧光槽 (FW_CoveLight) + 发光盘 (FW_CabinGlow, 远看窗内亮)
   - 舱只建一次, 按材质合并后 16 个舱共用同一套网格 (glb 里 16 个节点引用同一 mesh,
     运行时 ferris.js 合批成 InstancedMesh); 不导出动画 / UV (运行时程序化转轮)
+
+v3 第 2 批 站台成为必经之路 (2026-11-27; 见文件中段「v3 第 2 批」注释块):
+  - 动线: 入口门楼 -> 8 级台阶 (铁艺扶手 + 灯笼) -> 站台排队通道 (铁艺围栏) -> 登舱闸 (轮停稳才开) -> 停靠舱
+  - 地面登舱点取消 (登舱只在闸内按 E, 由应用端 interact.js 实现); 停靠舱是实体, 走不进去
+  - 站台吊灯 x2 (自发光灯芯 + 运行时点光), 通道 / 扶手 / 门楼的灯笼与「站台灯光亮度」联动
+  - 停靠舱门前: 渡板 + 地面鎏金登舱标线
+  - 旧排队围栏 (FW_QPost / FW_QRail, 台阶两侧 x=±2.7) 换成通长台阶扶手; 最上一级台阶加深到 1.2 m 塞进圆台下面
+    (圆台边缘是弧线, 方台阶原先只在正中相接, 偏离中线上下台阶会踩空几帧)
 """
 import bpy
 import bmesh
@@ -45,7 +54,7 @@ P = {
     "inner_ring_r": 9.6,
     "hub_z": 20.41,             # v3: 20.1 -> 20.41 (舱变高后停靠地板仍离站台 0.16; 轮顶 36.4 < 缠魂塔 40)
     "platform_r": 9.0,
-    "platform_h": 1.55,         # 高站台: 落舱时舱地板(1.76)与站台(1.55)差 0.21 可跨入
+    "platform_h": 1.55,         # 高站台: v3 停靠时舱地板 1.71, 比台面高 cabin_step 0.16 (见 cabin_step)
     "ground_r": 70.0,
     "cabins": 16,
     "spokes_per_side": 24,
@@ -300,6 +309,12 @@ m_cablamp = make_mat("FW_CabinLamp", "#241C12", rough=0.4, emit=HEX["warm"], str
 # 登舱门框: 平时是喷漆钢色, 运行时停靠且停稳的舱亮灵火青 (ferris.js)
 m_signal  = make_mat("FW_DoorSignal", "#2E2A38", rough=0.5, metal=0.25,
                      emit="#8FE3D9", strength=1.1, single=True)
+# v3 第 2 批: 站台灯具 (门楼 / 扶手 / 通道围栏 / 吊灯灯芯) —— 随「站台灯光亮度」(ferris.js, 连吊灯点光一起调)。
+# 基色取暗: 灯芯贴着吊灯点光, 亮基色会被照白。站台灯具密集 (二十来盏), 强度比舱檐灯线 (2.6) 低一档, 默认辉光下不发闷
+m_station = make_mat("FW_StationLamp", "#241C12", rough=0.4, emit=HEX["warm"], strength=2.2, single=True)
+# 登舱闸柱灯: 平时是喷漆钢色, 轮停稳、停靠舱吸附到位时亮灵火青 (与停靠舱门框同一个状态, ferris.js)
+m_gate_signal = make_mat("FW_GateSignal", "#2E2A38", rough=0.5, metal=0.25,
+                         emit="#8FE3D9", strength=1.1, single=True)
 m_ring_a = make_mat("FW_RingAmber", HEX["orange"], rough=0.4, emit=HEX["orange"], strength=1.8)
 m_ring_v = make_mat("FW_RingViolet", HEX["violet"], rough=0.4, emit=HEX["violet"], strength=1.8)
 m_hub_g  = make_mat("FW_HubGlow", HEX["warm"], rough=0.4, emit=HEX["warm"], strength=2.6)
@@ -310,6 +325,71 @@ G = P["rim_half_gap"]
 HZ = P["hub_z"]
 CA, CB = P["rim_chord_a_r"], P["rim_chord_b_r"]
 
+
+# ---- 通用小件 (v3 舱体与站台共用): 单面片 / 新月片 / 浅穹顶 / 把对象变换烘进网格 ----
+def add_plane(name, w, h, loc, rot=(0, 0, 0), mat=None):
+    bpy.ops.mesh.primitive_plane_add(size=1.0, location=loc, rotation=rot)
+    ob = bpy.context.active_object
+    ob.name = name
+    ob.scale = (w, h, 1.0)
+    if mat: ob.data.materials.append(mat)
+    return ob
+
+
+def add_crescent(name, s, loc, rot=(0, 0, 0), mat=None, depth=0.10, seg=28):
+    """新月片: 外圆 (R=1) 减内圆 (r=0.88, 圆心偏 0.44) 的轮廓, 沿本地 +Z 拉厚 depth*s。
+    平面在本地 XY (y 向上), 上下对称; 贴到哪个面就绕 X / Z 转过去。"""
+    R_, r_, cx = 1.0, 0.88, 0.44
+    x = (R_ * R_ - r_ * r_ + cx * cx) / (2 * cx)
+    y = math.sqrt(max(R_ * R_ - x * x, 0.0))
+    a_out = math.atan2(y, x)             # 外圆上的交点角
+    a_in = math.atan2(y, x - cx)         # 内圆上的交点角
+    pts = []
+    for k in range(seg + 1):             # 外圆: 上交点 -> 左侧 -> 下交点
+        a = a_out + (2 * pi - 2 * a_out) * k / seg
+        pts.append((R_ * cos(a), R_ * sin(a)))
+    for k in range(1, seg):              # 内圆: 下交点 -> (-0.44, 0) -> 上交点
+        a = -a_in - (2 * pi - 2 * a_in) * k / seg
+        pts.append((cx + r_ * cos(a), r_ * sin(a)))
+    bm = bmesh.new()
+    bm.faces.new([bm.verts.new((px * s, py * s, 0.0)) for px, py in pts])
+    res = bmesh.ops.extrude_face_region(bm, geom=bm.faces[:])
+    bmesh.ops.translate(bm, vec=(0.0, 0.0, depth * s),
+                        verts=[v for v in res["geom"] if isinstance(v, bmesh.types.BMVert)])
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+    me = bpy.data.meshes.new(name)
+    bm.to_mesh(me)
+    bm.free()
+    ob = bpy.data.objects.new(name, me)
+    sc.collection.objects.link(ob)
+    ob.location = loc
+    ob.rotation_euler = rot
+    if mat: me.materials.append(mat)
+    return ob
+
+
+def add_half_dome(name, loc, mat, sx, sy, sz):
+    """浅穹顶: 单位球裁掉 z<0 的部分, 再按 (sx, sy, sz) 缩放。"""
+    bpy.ops.mesh.primitive_uv_sphere_add(radius=1.0, segments=32, ring_count=12, location=loc)
+    ob = bpy.context.active_object
+    ob.name = name
+    bm = bmesh.new()
+    bm.from_mesh(ob.data)
+    bmesh.ops.delete(bm, geom=[v for v in bm.verts if v.co.z < -1e-6], context="VERTS")
+    bm.to_mesh(ob.data)
+    bm.free()
+    ob.scale = (sx, sy, sz)
+    if mat: ob.data.materials.append(mat)
+    smooth(ob)
+    return ob
+
+
+def apply_xform(ob):
+    """把对象变换烘进网格 (合并前用: 合并结果在舱本地系里变换 = 恒等)。"""
+    ob.data.transform(ob.matrix_basis)
+    ob.matrix_basis = Matrix.Identity(4)
+
+
 # ground & platform -----------------------------------------------------
 add_cyl("FW_Ground", P["ground_r"], 0.2, (0, 0, -0.1), mat=m_ground, verts=64)
 add_cyl("FW_Platform", P["platform_r"], P["platform_h"],
@@ -317,10 +397,14 @@ add_cyl("FW_Platform", P["platform_r"], P["platform_h"],
 add_torus("FW_EdgeRing", P["platform_r"] - 0.05, 0.06,
           (0, 0, P["platform_h"] + 0.02), mat=m_edge_c, ms=96, ns=8)
 
-# 台阶 (platform -y 侧, 8 级到 1.55 高站台)
+# 台阶 (platform -y 侧, 8 级到 1.55 高站台)。v3 第 2 批: 第 0 级 (最上一级) 加深到 1.2, 北端塞进圆台下面 ——
+# 圆台边缘是弧线, 4.4 m 宽的方台阶原先只在正中 (x=0) 与圆台相接, 两侧 (x -> ±2.2) 台阶起点离圆台边缘最多差
+# 0.28 m, 人偏离中线上下台阶会踩空几帧 (下乘落点走台阶东侧下台, 实测 19 帧腾空)。
+# 应用端 controller.js 的台阶矩形 (stepRects 第 0 级) 与此同步。
 for k in range(8):
     top_z = P["platform_h"] - (k + 1) * 0.194
-    add_box(f"FW_Step{k}", (4.4, 0.9, 0.194), (0, -(9.45 + k * 0.9), top_z - 0.097),
+    start, depth = (8.70, 1.2) if k == 0 else (9.0 + k * 0.9, 0.9)       # app z 起点 / 进深
+    add_box(f"FW_Step{k}", (4.4, depth, 0.194), (0, -(start + depth / 2), top_z - 0.097),
             mat=m_platform)
 
 # 地面灯环 (v2.3: 内环南向断弧 ±13°, 避免发光线从登舱台阶下方穿过造成悬浮错觉)
@@ -355,21 +439,142 @@ for i in range(8):
     add_cyl(f"FW_CanDrop{i}", 0.02, 0.4, (lx, ly, 5.8), mat=m_iron, verts=8)
     add_sphere(f"FW_CanLamp{i}", 0.1, (lx, ly, 5.5), mat=m_lamp, seg=12, ring=8)
 
-# 排队围栏 (queue railings, 台阶两侧; v2.3 落地并外移 x=±2.7 —
-# 原 x=±1.5 且按站台面标高 1.55 定位, 骑在台阶上方悬空; ±1.5 落地会埋进台阶体内)
-for lane_x in (-2.7, 2.7):
-    n_post = 5
-    for k in range(n_post):
-        y = -10.8 - k * 0.9
-        add_cyl(f"FW_QPost{lane_x}_{k}", 0.035, 1.0, (lane_x, y, 0.5),
-                mat=m_iron, verts=8)
-        add_sphere(f"FW_QPostTop{lane_x}_{k}", 0.05, (lane_x, y, 1.02),
-                   mat=m_dot[1], seg=10, ring=6)
-    for rz in (0.62, 0.98):
-        y0, y1 = -10.8, -10.8 - (n_post - 1) * 0.9
-        add_cyl(f"FW_QRail{lane_x}_{rz}", 0.025, abs(y1 - y0),
-                (lane_x, (y0 + y1) / 2, rz), rot=(radians(90), 0, 0),
-                mat=m_iron, verts=8)
+# ===== v3 第 2 批 (2026-11-27): 站台成为必经之路 ================================================
+# 动线: 南面主路 -> 入口门楼 (app z 17.4) -> 8 级台阶 (两侧铁艺扶手 + 灯笼) -> 站台 ->
+#       排队通道 (围栏 x = ±0.8, app z 2.0..8.85; 东侧 z 4.0..6.0 开口, 通东侧观景区 / 下乘落点) ->
+#       登舱闸 (app z 1.9, 轮停稳、舱吸附到位才开) -> 渡板 -> 停靠舱南门, 闸内按 E 登舱; 下乘落回站台东侧。
+# 坐标: Blender (x, y = -app_z, z 高)。应用端与此对应:
+#   controller.js (STATION 常量 + 碰撞) / interact.js (登舱锚点、指路提示) /
+#   ferris.js (闸门开合 FW_BoardGate_L|R、闸柱灯 FW_GateSignal、吊灯点光 FW_StationLamp)。
+# 落在园区地面的件一律下探到 -0.08 (园区地坪顶在 0 以下), 不靠「正好 0」贴合。
+ST_PORTAL_Z = 17.4                   # 入口门楼 (app z)
+ST_HR_X = 2.3                        # 台阶扶手 (x; 台阶宽 4.4, 扶手立在台阶两侧的地面)
+ST_LANE_X = 0.8                      # 排队通道围栏 (x)
+ST_LANE_Z0, ST_LANE_Z1 = 2.0, 8.85   # 通道围栏 app z 范围 (8.85 = 站台南缘, 再往南是台阶口)
+ST_GAP_Z = (4.0, 6.0)                # 东侧围栏开口 (app z): 台阶两侧上来的人从这里进通道
+ST_GATE_Z = 1.9                      # 登舱闸线 (app z)
+ST_PLATE_Z = (0.94, 1.34)            # 渡板 app z 范围: 紧贴停靠舱裙边 (z ±0.93) 外侧, 再往里会插进裙边
+ST_LAMPS = [(2.6, 5.18), (5.6, 5.18)]  # 站台吊灯 (app z, 灯心高): 雨棚只盖到 |y| 6.22; 灯芯自发光 + 运行时点光
+PH = P["platform_h"]                 # 1.55
+
+# ---- 入口门楼: 两根黑铁柱 (柱箍 / 柱尖鎏金) + 横梁 + 鎏金新月 + 柱内侧灯笼 ----
+for sx in (1, -1):
+    px, py = sx * 2.5, -ST_PORTAL_Z
+    add_box(f"FW_PortalPlinth{sx}", (0.40, 0.40, 0.17), (px, py, 0.005), mat=m_iron)          # 底座 -0.08..0.09
+    add_cyl(f"FW_PortalCol{sx}", 0.09, 3.44, (px, py, 0.09 + 1.72), mat=m_iron, verts=12)    # 0.09..3.53
+    add_cyl(f"FW_PortalRing{sx}", 0.115, 0.06, (px, py, 2.70), mat=m_gold, verts=12)
+    add_cone(f"FW_PortalTip{sx}", 0.10, 0.32, (px, py, 3.69), mat=m_gold, verts=8)           # 3.53..3.85
+    lx = sx * 2.28
+    cyl_between(f"FW_PortalArm{sx}", (px, py, 2.98), (lx, py, 2.98), 0.015, m_iron, verts=6)
+    add_cyl(f"FW_PortalLantern{sx}", 0.10, 0.22, (lx, py, 2.84), mat=m_station, verts=6)
+    add_cone(f"FW_PortalCap{sx}", 0.13, 0.08, (lx, py, 2.99), mat=m_iron, verts=6)
+add_box("FW_PortalBeam", (5.2, 0.10, 0.14), (0, -ST_PORTAL_Z, 3.46), mat=m_iron)             # 3.39..3.53
+add_box("FW_PortalBeamGold", (5.2, 0.112, 0.02), (0, -ST_PORTAL_Z, 3.54), mat=m_gold)
+add_cyl("FW_PortalMoonPost", 0.03, 0.40, (0, -ST_PORTAL_Z, 3.73), mat=m_iron, verts=8)        # 3.53..3.93
+add_crescent("FW_PortalMoon", 0.42, (0, -ST_PORTAL_Z, 4.34), rot=(pi / 2, 0, 0), mat=m_gold, seg=32)  # 外圆 3.92..4.76
+
+# ---- 台阶扶手: 每侧 4 根立柱 (x = ±2.3, 台阶口那根立在站台面上, 其余落在地面) + 斜扶手 + 中横杆;
+#      台阶脚 / 台阶口的柱顶挂灯笼 ----
+hr = [(16.5, 1.00), (13.5, 1.582), (10.8, 2.164), (8.6, PH + 1.0)]   # (app z, 扶手顶高)
+for sx in (1, -1):
+    hx_ = sx * ST_HR_X
+    for k, (az, top) in enumerate(hr):
+        base = PH - 0.10 if k == len(hr) - 1 else -0.08
+        add_cyl(f"FW_HRPost{sx}_{k}", 0.04, top - base, (hx_, -az, (top + base) / 2), mat=m_iron, verts=10)
+        add_sphere(f"FW_HRKnob{sx}_{k}", 0.055, (hx_, -az, top + 0.03), mat=m_gold, seg=10, ring=6)
+    for k in range(len(hr) - 1):
+        (z0, t0), (z1, t1) = hr[k], hr[k + 1]
+        cyl_between(f"FW_HRRail{sx}_{k}", (hx_, -z0, t0), (hx_, -z1, t1), 0.03, m_iron, verts=8)
+        cyl_between(f"FW_HRRail2{sx}_{k}", (hx_, -z0, t0 - 0.45), (hx_, -z1, t1 - 0.45), 0.018, m_iron, verts=6)
+    for k in (0, len(hr) - 1):
+        az, top = hr[k]
+        add_sphere(f"FW_HRLamp{sx}_{k}", 0.08, (hx_, -az, top + 0.17), mat=m_station, seg=12, ring=8)
+        add_cone(f"FW_HRLampCap{sx}_{k}", 0.10, 0.07, (hx_, -az, top + 0.28), mat=m_iron, verts=6)
+
+# ---- 排队通道围栏 (站台面上, x = ±0.8): 西侧通长; 东侧 z 4.0..6.0 留开口, 开口两根柱子加高、挂灯笼 ----
+lane_top, lane_mid = PH + 1.02, PH + 0.58
+lane_z = {-1: [2.0, 3.14, 4.28, 5.43, 6.57, 7.71, 8.85], 1: [2.0, 3.1, 6.9, 7.88, 8.85]}
+lane_seg = {-1: list(zip(lane_z[-1], lane_z[-1][1:])), 1: [(2.0, 4.0), (6.0, 6.9), (6.9, 7.88), (7.88, 8.85)]}
+for sx in (1, -1):
+    lx_ = sx * ST_LANE_X
+    for k, az in enumerate(lane_z[sx]):
+        add_cyl(f"FW_LanePost{sx}_{k}", 0.035, 1.08, (lx_, -az, PH + 0.54), mat=m_iron, verts=8)
+        add_sphere(f"FW_LaneLamp{sx}_{k}", 0.055, (lx_, -az, PH + 1.15), mat=m_station, seg=10, ring=6)
+    for k, (z0, z1) in enumerate(lane_seg[sx]):
+        cyl_between(f"FW_LaneRail{sx}_{k}", (lx_, -z0, lane_top), (lx_, -z1, lane_top), 0.03, m_iron, verts=8)
+        cyl_between(f"FW_LaneRail2{sx}_{k}", (lx_, -z0, lane_mid), (lx_, -z1, lane_mid), 0.018, m_iron, verts=6)
+for k, az in enumerate(ST_GAP_Z):
+    add_cyl(f"FW_GapPost{k}", 0.06, 1.55, (ST_LANE_X, -az, PH + 0.775), mat=m_iron, verts=10)
+    add_cyl(f"FW_GapRing{k}", 0.075, 0.05, (ST_LANE_X, -az, PH + 1.42), mat=m_gold, verts=10)
+    add_sphere(f"FW_GapLamp{k}", 0.09, (ST_LANE_X, -az, PH + 1.66), mat=m_station, seg=12, ring=8)
+
+# ---- 登舱闸: 两根闸柱 (柱顶灯 FW_GateSignal, 轮停稳时亮灵火青) + 对开双扇铁艺闸门 ----
+# 闸门扇 = 空节点 FW_BoardGate_L / _R (铰链在柱内侧 x = ∓0.70, app z 1.9, 台面高), 扇面是它的子网格
+# (局部坐标以铰链为原点, 沿闸线伸向通道中央)。运行时绕世界竖轴各转 90° 开合, 开位贴回两侧围栏 (往南),
+# 不侵入停靠舱。扇面不进静组合并 (静组只收无父网格), 自身按材质合并成 Iron / Gold 两个子网格。
+for sx in (1, -1):
+    add_cyl(f"FW_GatePost{sx}", 0.055, 1.70, (sx * ST_LANE_X, -ST_GATE_Z, PH + 0.85), mat=m_iron, verts=10)
+    add_cyl(f"FW_GateRing{sx}", 0.07, 0.05, (sx * ST_LANE_X, -ST_GATE_Z, PH + 1.50), mat=m_gold, verts=10)
+    add_sphere(f"FW_GateLamp{sx}", 0.09, (sx * ST_LANE_X, -ST_GATE_Z, PH + 1.80), mat=m_gate_signal, seg=12, ring=8)
+bpy.ops.object.select_all(action="DESELECT")
+for side, dir_ in (("L", 1), ("R", -1)):        # L: 西侧铰链, 扇面朝 +x; R: 东侧铰链, 扇面朝 -x
+    hinge = Vector((-dir_ * 0.70, -ST_GATE_Z, PH))
+    pivot = add_empty(f"FW_BoardGate_{side}", hinge)
+    parts = []
+
+    def P3(u, y, z):                              # 扇面局部坐标 -> 世界 (u: 离铰链沿扇面的距离)
+        return (hinge.x + dir_ * u, hinge.y + y, hinge.z + z)
+
+    parts.append(cyl_between(f"GP_{side}_Top", P3(0.02, 0, 1.00), P3(0.66, 0, 1.00), 0.022, m_iron, verts=8))
+    parts.append(cyl_between(f"GP_{side}_Bot", P3(0.02, 0, 0.12), P3(0.66, 0, 0.12), 0.022, m_iron, verts=8))
+    parts.append(cyl_between(f"GP_{side}_StileA", P3(0.02, 0, 0.10), P3(0.02, 0, 1.02), 0.022, m_iron, verts=8))
+    parts.append(cyl_between(f"GP_{side}_StileB", P3(0.66, 0, 0.10), P3(0.66, 0, 1.02), 0.022, m_iron, verts=8))
+    for k in range(1, 5):
+        u = 0.02 + 0.64 * k / 5
+        parts.append(cyl_between(f"GP_{side}_Bar{k}", P3(u, 0, 0.12), P3(u, 0, 1.00), 0.012, m_iron, verts=6))
+    # 鎏金新月贴在竖条的南侧 (app +z, 通道里的人这一面); R 扇绕竖轴转 180° 与 L 扇镜像
+    parts.append(add_crescent(f"GP_{side}_Moon", 0.15, P3(0.34, -0.02 if dir_ > 0 else -0.035, 0.70),
+                              rot=(pi / 2, 0, 0 if dir_ > 0 else pi), mat=m_gold, seg=20))
+    for ob in parts:
+        apply_xform(ob)                               # 对象变换 -> 恒等, 网格顶点 = 世界坐标
+        ob.data.transform(Matrix.Translation(-hinge))  # 顶点改成以铰链为原点
+        ob.parent = pivot                             # 普通父子 (不设 matrix_parent_inverse): 空节点转, 扇面跟着转
+    gate_groups = {}
+    for ob in parts:
+        gate_groups.setdefault(ob.data.materials[0].name, []).append(ob)
+    for mat_name, obs in gate_groups.items():
+        bpy.ops.object.select_all(action="DESELECT")
+        for ob in obs:
+            ob.select_set(True)
+        bpy.context.view_layer.objects.active = obs[0]
+        if len(obs) > 1:
+            bpy.ops.object.join()
+        bpy.context.view_layer.objects.active.name = f"FW_BoardGate_{side}_{mat_name.replace('FW_', '', 1)}"
+    print(f"GATE_{side} " + ", ".join(sorted(o.name for o in pivot.children)))
+bpy.ops.object.select_all(action="DESELECT")
+
+# ---- 渡板: 停靠舱门口的小踏板 (顶 1.69, 比台面高 0.14); 玩家走不进停靠舱, 登舱按 E ----
+add_box("FW_GapPlate", (1.0, ST_PLATE_Z[1] - ST_PLATE_Z[0], 0.14),
+        (0, -(ST_PLATE_Z[0] + ST_PLATE_Z[1]) / 2, PH + 0.07), mat=m_iron)
+add_box("FW_GapPlateGold", (1.0, 0.03, 0.012), (0, -(ST_PLATE_Z[1] - 0.015), PH + 0.146), mat=m_gold)
+
+# ---- 登舱标线: 停靠舱门前地面上一圈鎏金内嵌线 (框住渡板, 「站这里等」) ----
+for sx in (1, -1):      # 两侧纵线
+    add_box(f"FW_MarkSide{sx}", (0.04, 0.82, 0.006), (sx * 0.66, -1.46, PH + 0.003), mat=m_gold)
+add_box("FW_MarkFront", (1.36, 0.04, 0.006), (0, -1.85, PH + 0.003), mat=m_gold)
+
+# ---- 站台吊灯 x2: 雨棚底下垂吊杆 + 灯帽 + 六棱发光灯芯 + 铁艺竖棱 + 鎏金底环和吊坠 ----
+for k, (az, lz) in enumerate(ST_LAMPS):
+    ly = -az
+    add_cyl(f"FW_StationDrop{k}", 0.015, 6.0 - (lz + 0.27), (0, ly, (6.0 + lz + 0.27) / 2), mat=m_iron, verts=6)
+    add_cone(f"FW_StationCap{k}", 0.21, 0.12, (0, ly, lz + 0.21), mat=m_iron, verts=6)
+    add_cyl(f"FW_StationCore{k}", 0.13, 0.28, (0, ly, lz), mat=m_station, verts=6)
+    for j in range(6):
+        th = j * pi / 3                      # 竖棱立在六棱灯芯的棱上
+        add_cyl(f"FW_StationRib{k}_{j}", 0.012, 0.30, (0.145 * cos(th), ly + 0.145 * sin(th), lz), mat=m_iron, verts=6)
+    add_torus(f"FW_StationRing{k}", 0.135, 0.012, (0, ly, lz - 0.15), mat=m_gold, ms=24, ns=6)
+    add_cone(f"FW_StationTip{k}", 0.05, 0.10, (0, ly, lz - 0.215), mat=m_gold, verts=6, rot=(pi, 0, 0))
+print(f"STATION portal_y={-ST_PORTAL_Z} lane_x=±{ST_LANE_X} gap_z={ST_GAP_Z} gate_z={ST_GATE_Z} lamps={ST_LAMPS}")
 
 # 售票亭 (ticket booth, 右前; v2.3 落地 z=0 起步, 原按站台面标高悬空 1.55)
 bx, by = 7.6, -8.2
@@ -535,69 +740,6 @@ HEAD = CEIL - 0.02
 assert abs((HZ - R) + CF - (P["platform_h"] + P["cabin_step"])) < 1e-6, \
     "hub_z 与舱地板 / 站台高不匹配 (停靠时枢轴在 hub_z - R, 舱地板应高出站台 cabin_step)"
 assert CD / 2 < P["rim_half_gap"] - 0.5, "舱进深太大: 侧窗离轮缘不足 0.5 m"
-
-
-def add_plane(name, w, h, loc, rot=(0, 0, 0), mat=None):
-    bpy.ops.mesh.primitive_plane_add(size=1.0, location=loc, rotation=rot)
-    ob = bpy.context.active_object
-    ob.name = name
-    ob.scale = (w, h, 1.0)
-    if mat: ob.data.materials.append(mat)
-    return ob
-
-
-def add_crescent(name, s, loc, rot=(0, 0, 0), mat=None, depth=0.10, seg=28):
-    """新月片: 外圆 (R=1) 减内圆 (r=0.88, 圆心偏 0.44) 的轮廓, 沿本地 +Z 拉厚 depth*s。
-    平面在本地 XY (y 向上), 上下对称; 贴到哪个面就绕 X / Z 转过去。"""
-    R_, r_, cx = 1.0, 0.88, 0.44
-    x = (R_ * R_ - r_ * r_ + cx * cx) / (2 * cx)
-    y = math.sqrt(max(R_ * R_ - x * x, 0.0))
-    a_out = math.atan2(y, x)             # 外圆上的交点角
-    a_in = math.atan2(y, x - cx)         # 内圆上的交点角
-    pts = []
-    for k in range(seg + 1):             # 外圆: 上交点 -> 左侧 -> 下交点
-        a = a_out + (2 * pi - 2 * a_out) * k / seg
-        pts.append((R_ * cos(a), R_ * sin(a)))
-    for k in range(1, seg):              # 内圆: 下交点 -> (-0.44, 0) -> 上交点
-        a = -a_in - (2 * pi - 2 * a_in) * k / seg
-        pts.append((cx + r_ * cos(a), r_ * sin(a)))
-    bm = bmesh.new()
-    bm.faces.new([bm.verts.new((px * s, py * s, 0.0)) for px, py in pts])
-    res = bmesh.ops.extrude_face_region(bm, geom=bm.faces[:])
-    bmesh.ops.translate(bm, vec=(0.0, 0.0, depth * s),
-                        verts=[v for v in res["geom"] if isinstance(v, bmesh.types.BMVert)])
-    bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
-    me = bpy.data.meshes.new(name)
-    bm.to_mesh(me)
-    bm.free()
-    ob = bpy.data.objects.new(name, me)
-    sc.collection.objects.link(ob)
-    ob.location = loc
-    ob.rotation_euler = rot
-    if mat: me.materials.append(mat)
-    return ob
-
-
-def add_half_dome(name, loc, mat, sx, sy, sz):
-    """浅穹顶: 单位球裁掉 z<0 的部分, 再按 (sx, sy, sz) 缩放。"""
-    bpy.ops.mesh.primitive_uv_sphere_add(radius=1.0, segments=32, ring_count=12, location=loc)
-    ob = bpy.context.active_object
-    ob.name = name
-    bm = bmesh.new()
-    bm.from_mesh(ob.data)
-    bmesh.ops.delete(bm, geom=[v for v in bm.verts if v.co.z < -1e-6], context="VERTS")
-    bm.to_mesh(ob.data)
-    bm.free()
-    ob.scale = (sx, sy, sz)
-    if mat: ob.data.materials.append(mat)
-    smooth(ob)
-    return ob
-
-
-def apply_xform(ob):
-    """把对象变换烘进网格 (合并前用: 合并结果在舱本地系里变换 = 恒等)。"""
-    ob.data.transform(ob.matrix_basis)
-    ob.matrix_basis = Matrix.Identity(4)
 
 
 def build_cabin_proto():
@@ -787,6 +929,9 @@ def add_cam(name, loc, target, lens=50):
     return cam
 
 cam_front = add_cam("FW_CamFront", (0, -64, 18), (0, 1, 17), lens=34)
+# v3 第 2 批: 站台正面 (门楼 / 台阶扶手 / 通道 / 登舱闸) 与 站台面上看登舱闸和停靠舱
+cam_station = add_cam("FW_CamStation", (0.9, -27.5, 5.2), (0, 0, 3.0), lens=32)
+cam_gate = add_cam("FW_CamGate", (2.3, -7.4, 3.25), (0, -1.6, 2.35), lens=30)
 cam_three = add_cam("FW_CamThree", (46, -52, 27), (0, 0, 16), lens=36)
 cam_side  = add_cam("FW_CamSide", (70, -5, 19), (0, 0, 17), lens=35)
 
@@ -924,7 +1069,8 @@ except Exception:
 
 stills = [("01_front.png", cam_front), ("02_three_quarter.png", cam_three),
           ("03_side.png", cam_side), ("04_cabin_detail.png", cam_det),
-          ("05_interior_fp.png", cam_fp)]
+          ("05_interior_fp.png", cam_fp), ("06_station.png", cam_station),
+          ("07_gate.png", cam_gate)]
 ok = True
 for name, cam in stills:
     if not render_still(name, cam):

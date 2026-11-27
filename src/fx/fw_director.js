@@ -13,7 +13,7 @@
 //   平视画面上缘只有 30° (FOV 60°), 炸点高出眼位一多就出画, 所以默认与眼位同高、水平拉开 11–18m;
 //   摩天轮顶舱朝窗外看, 轮缘灯管挡住约 29°–45° 的仰角 → 离得最远 (18m), 仰视上限约 +10m
 import * as THREE from "three";
-import { EYE, CABIN } from "../player/controller.js";
+import { EYE, CABIN, STATION } from "../player/controller.js";
 
 const TOWER_FIRST = 2.5;     // 登顶后到第一发的秒数
 const TOWER_MIN_GAP = 6;     // 每次登顶的第一发: 距这个炸点上一发（含常规秀穿插的）至少这么久 —— 不让人登顶后空等
@@ -60,8 +60,9 @@ export function createFireworkDirector({ fireworks, player, ferris, coaster, par
     n.copy(ferris.spinAxis).normalize();
     rel.copy(ferris.cabinRoots[0].getWorldPosition(new THREE.Vector3())).sub(hub);
     const radius = rel.addScaledVector(n, -rel.dot(n)).length();
-    const b = park?.boarding ?? { x: hub.x, z: hub.z + 1 };
-    const side = (b.x - hub.x) * n.x + (b.z - hub.z) * n.z >= 0 ? 1 : -1;
+    // 判定用的定点取入口门楼 (app (0, 17.4))。以前取 colliders.json 的登舱点 (0, 16.4) —— v3 第 2 批 (2026-11-27)
+    // 地面登舱点取消, 不再依赖那个字段; 两个定点都在轮心正下方, 判定结果不变
+    const side = (STATION.PORTAL.z - hub.z) * n.z >= 0 ? 1 : -1;
     if (Number.isFinite(radius) && radius > 0) {
       add({
         id: "wheel", label: "摩天轮顶", need: "L1", lid: lidx("L1"),

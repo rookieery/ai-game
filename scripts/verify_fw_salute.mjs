@@ -439,8 +439,9 @@ if (ONLY.has("D")) {
   await store("fireworkSalute", true);
   await store("fireworkSaluteHeight", 0);
   // ---- 摩天轮: 真键登舱 → 坐到长椅 (面朝 +z 窗) ----
-  await page.evaluate(() => window.__game.player.teleport(0, 18.8));
-  await sleep(500);
+  await page.evaluate(() => window.__game.player.teleport(0, 1.5, 1.55)); // v3 第 2 批: 站台闸内登舱 (地面登舱点取消)
+  await page.waitForFunction(() => window.__game.ferris.isDocked(), { timeout: 15000 });
+  await sleep(200);
   await page.keyboard.press("KeyE");
   await page.waitForFunction(() => window.__game.state === "riding" && window.__game.ride === "ferris", { timeout: 10000 });
   await sleep(700);

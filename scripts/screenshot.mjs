@@ -97,12 +97,15 @@ if (mode === "states") {
   console.log("walk-smoke pos:", JSON.stringify(posAfterWalk));
   await page.screenshot({ path: `${outDir}/g2_walked.png` });
 
-  // 3. 传送到登舱点 -> 交互提示
+  // 3. 台阶脚 (地面): 指路提示「乘坐请上站台」(v3 第 2 批: 地面不再有登舱点)
   await page.evaluate(() => window.__game.player.teleport(0, 18.8));
   await page.waitForTimeout(500);
   await page.screenshot({ path: `${outDir}/g3_board_prompt.png` });
 
-  // 4. E 登舱 -> 乘坐在最低点
+  // 4. 上站台进闸内 -> 等「轮停稳、舱吸附到位」(登舱闸开) -> E 登舱
+  await page.evaluate(() => window.__game.player.teleport(0, 1.5, 1.55));
+  await page.waitForFunction(() => window.__game.ferris.isDocked(), { timeout: 15000 });
+  await page.waitForTimeout(300);
   await page.keyboard.press("KeyE");
   await page.waitForTimeout(1600);
   await page.screenshot({ path: `${outDir}/g4_ride_boarding.png` });
@@ -140,9 +143,9 @@ if (mode === "states") {
   await page.click("#enter-btn");
   await page.waitForTimeout(1200);
 
-  // 登舱
-  await page.evaluate(() => window.__game.player.teleport(0, 18.8));
-  await page.waitForTimeout(400);
+  // 登舱 (v3 第 2 批: 地面登舱点取消 —— 站台闸内等轮停稳后 E)
+await page.evaluate(() => window.__game.player.teleport(0, 1.5, 1.55));
+await page.waitForFunction(() => window.__game.ferris.isDocked(), { timeout: 15000 }); // 轮停稳、舱吸附到位才可登舱 (v3 第 2 批)
   await page.keyboard.press("KeyE");
   await page.waitForTimeout(1800);
   await page.screenshot({ path: `${outDir}/c1_board_stand.png` });

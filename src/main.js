@@ -2,7 +2,7 @@
 import { createScene, startLoop } from "./core/scene.js";
 import { createWorld } from "./core/world.js";
 import { createInput } from "./core/input.js";
-import { createPlayer } from "./player/controller.js";
+import { createPlayer, STATION } from "./player/controller.js";
 import { createInteract } from "./interact.js";
 import { createAudio } from "./core/audio.js";
 import { loadGLB, createLoadingManager } from "./park/loader.js";
@@ -207,7 +207,7 @@ async function boot() {
   interact = createInteract({
     input, hud, audio,
     player, park, fireworks,
-    coaster, coasterGate, tower, carousel,
+    coaster, coasterGate, tower, carousel, ferris,
     getState: () => game.state,
     onOpenGate() {
       if (game.state !== "walk") return;
@@ -228,7 +228,8 @@ async function boot() {
       });
     },
     onBoard() {
-      if (game.state !== "walk") return;
+      // 只在轮停稳、停靠舱吸附到位时登舱（登舱闸也只在此时开；见 rides/ferris.js）
+      if (game.state !== "walk" || !ferris.isDocked()) return;
       game.state = "boarding";
       game.ride = "ferris";
       audio.setRiding(true);
@@ -259,7 +260,7 @@ async function boot() {
   });
   updates.push(interact);
 
-  // 乘坐中 E 下客（按 ride 分流: 过山车=排队下一站下车; 摩天轮回地面登舱点 / 木马下马回平台）
+  // 乘坐中 E 下客（按 ride 分流: 过山车=排队下一站下车; 摩天轮落回站台东侧 / 木马下马回平台）
   input.onPress("KeyE", () => {
     if (game.state !== "riding") return;
     if (game.ride === "coaster") {
@@ -285,8 +286,11 @@ async function boot() {
       } else {
         player.exitCabin();
         ferris.disembark();
-        // 统一送回地面登舱点（站台登舱后避免落在站台投影内；淡入淡出掩盖位移）
-        player.teleport(park?.boarding?.x ?? 0, park?.boarding?.z ?? 16.4);
+        // v3 第 2 批：落回站台东侧（停靠舱与东侧观景区之间），面向南侧台阶 —— 原路上台、原路下台。
+        // 脚高直接给站台顶，免得联锁先看到 y=0 松开一帧（轮体抖一下）再重新吸附
+        player.teleport(STATION.EXIT.x, STATION.EXIT.z, STATION.H);
+        player.setView(Math.PI, -0.04);
+        hud.toast("已回到站台 · 南侧台阶下台");
       }
       game.ride = null;
       hud.hidePlaque();
@@ -352,10 +356,15 @@ async function boot() {
     update(dt) {
       // 站台安全联锁：站在摩天轮登舱站台（台面 1.55, 半径 9）时轮体缓停吸附舱位。
       // 只看高度会误伤：站上缠魂塔 / 过山车站台都会把轮刹停，所以同时限定到站台圆内
-      ferris.setHold(
-        game.state === "walk" && player.pos.y > 1.4 && player.pos.y < 2.2 &&
-        Math.hypot(player.pos.x, player.pos.z) < 9.8,
-      );
+      const onFwPlat = game.state === "walk" && player.pos.y > 1.4 && player.pos.y < 2.2 &&
+        Math.hypot(player.pos.x, player.pos.z) < 9.8;
+      ferris.setHold(onFwPlat);
+      // 登舱闸（v3 第 2 批）：轮停稳、舱吸附到位才开。① 闸线碰撞随开合禁用 / 恢复；
+      // ② 人还站在闸线带里时不落闸 —— 带里判定不设下限脚高：跳跃会让联锁松开一瞬，闸门不能趁人腾空时落闸
+      const inGateBand = game.state === "walk" && player.pos.y < 3.2 &&
+        Math.abs(player.pos.z - STATION.GATE_Z) < 0.75 && Math.hypot(player.pos.x, player.pos.z) < 9.8;
+      ferris.setGateClear(!inGateBand);
+      player.setRectDisabled("fwGate", ferris.gatePassable);
       // M4 过山车站台联锁: walk 态站上站台时列车保持停靠 (乘坐中 state≠walk 自然放行)
       coaster.setHold(
         game.state === "walk" && player.pos.y > 2.0 &&

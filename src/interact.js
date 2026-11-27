@@ -1,11 +1,11 @@
 // 交互系统：距离检测 -> 灵摆提示 -> E 触发（登舱 / 上马 / 打卡收集 / 缠魂塔升降梯）+ F 烟花发射器
 import { KIND_NAME } from "./fx/fireworks.js";
+import { STATION } from "./player/controller.js";
 
 export function createInteract({
   input, player, park, hud, getState, onBoard, onBoardCarousel, onCollect, audio, fireworks,
-  coaster, coasterGate, onOpenGate, onBoardCoaster, tower, carousel,
+  coaster, coasterGate, onOpenGate, onBoardCoaster, tower, carousel, ferris,
 }) {
-  const boarding = park?.boarding ?? { x: 0, z: 16.4 };
   // 显灵木马平台 (45,-18) r8.0: 台面上 (y≈0.62) 靠近中柱侧 r<7.6 出提示
   const carouselCenter = { x: 45, z: -18 };
   // 烟花发射器 x6: 就近出「按 F 点射」提示（E 不响应, 不与打卡/乘坐冲突）
@@ -82,12 +82,14 @@ export function createInteract({
         if (tw.run) active = { run: tw.run };
         return;
       }
-      // 登舱锚点二选一：地面登舱点；或站台停靠舱旁（脚高 > 1.4 ⇒ 在站台上，
-      // 舱位吸附在轮面最低点 = 世界原点附近，锚点取停靠舱侧后 1.6m）
-      const onPlat = p.y > 1.4;
-      const bx = onPlat ? 0 : boarding.x;
-      const bz = onPlat ? 1.6 : boarding.z;
-      if (dist2(p.x, p.z, bx, bz) < 2.6) {
+      // 登舱（v3 第 2 批 2026-11-27：站台是必经之路）—— 三个条件同时满足才出「乘坐摩天轮」：
+      //   ① 在站台上（脚高 > 1.4）  ② 到了闸口（z < GATE_Z + 0.4：站在开着的闸门口或已过闸）且离登舱锚点 1.0 m 内
+      //   ③ 轮已停稳、停靠舱吸附到位（登舱闸也只在此时开，见 rides/ferris.js）
+      // z 上限取闸口里侧而不是闸线: 人走到闸门口就停步也算到了。闸关着时人被挡在 z ≥ 2.33 以外,
+      // 加上条件 ③, 不会隔着闸出提示。地面不再有登舱点: 台阶脚门楼附近只出指路提示（函数末尾，无 E 动作）
+      const b = STATION.BOARD;
+      if (p.y > 1.4 && p.z < STATION.GATE_Z + 0.4 &&
+          dist2(p.x, p.z, b.x, b.z) < b.r && ferris?.isDocked()) {
         active = { run: onBoard };
         label = "乘坐摩天轮";
       } else {
@@ -129,7 +131,10 @@ export function createInteract({
       }
 
       if (active) hud.showPrompt(label);
-      else hud.hidePrompt();
+      // 摩天轮指路（纯指引，无 E 动作）：站在台阶脚门楼附近的地面上 —— 登舱要上站台、过登舱闸
+      else if (p.y < 0.6 && dist2(p.x, p.z, STATION.PORTAL.x, STATION.PORTAL.z) < STATION.PORTAL.r) {
+        hud.showPrompt("乘坐摩天轮 · 请上站台", "↑");
+      } else hud.hidePrompt();
     },
   };
 }

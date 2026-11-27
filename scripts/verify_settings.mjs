@@ -41,8 +41,9 @@ await page.keyboard.press("KeyO"); // 关面板
 await page.waitForTimeout(500);
 
 // 3. 登舱看舱内默认 40% 亮度（本轮优化主角）
-await page.evaluate(() => window.__game.player.teleport(0, 18.8));
-await page.waitForTimeout(400);
+await page.evaluate(() => window.__game.player.teleport(0, 1.5, 1.55));
+await page.waitForFunction(() => window.__game.ferris.isDocked(), { timeout: 15000 }); // 轮停稳、舱吸附到位才可登舱 (v3 第 2 批)
+await page.waitForTimeout(200);
 await page.keyboard.press("KeyE");
 await page.waitForTimeout(1600);
 await page.evaluate(() => {
