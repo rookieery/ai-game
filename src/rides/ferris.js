@@ -1,11 +1,15 @@
 // 摩天轮逻辑：程序化驱动旋转（不依赖烘焙动画）
 // 约定（与 Blender 管线一致）：
-//   FW_Wheel       —— 轮体总根
-//   FW_CabinRoot_i —— 每舱的摆正参照根
+//   FW_Wheel        —— 轮体总根
+//   FW_CabinRoot_i  —— 每舱的摆正参照根
+//   FW_C<i>_<材质>  —— 每舱的网格节点；v3（2026-11-27 舱体重做）起 16 个舱共用同一套网格
+//                     （glb 里 16 个节点引用同一个 mesh），载入后合批成每种材质一个 InstancedMesh；
+//                     登舱门框 FW_DoorSignal 例外（要逐舱开关灵火青），保留 16 个独立网格
 // 实现：glTF 导出会带 Y-up/Z-up 转换，空节点的本地轴不可靠。因此：
 //   · 旋转轴由几何检测得出：轮体是圆盘，世界包围盒「最薄」的方向即轮轴（水平穿轮心）
 //   · 每帧把每个舱根的世界姿态精确设回「初始摆正姿态」（轴无关、绝对水平）
 import * as THREE from "three";
+import { CABIN } from "../player/controller.js";
 
 const _pq = new THREE.Quaternion();
 const _wq = new THREE.Quaternion();
@@ -39,22 +43,63 @@ export function createFerrisWheel(gltfRoot) {
   if (!wheel) console.warn("[ferris] FW_Wheel 节点未找到");
 
   // 自发光材质登记（设置面板可调）：
-  //   舱内照明 = FW_InteriorGlow(天花/墙板) + FW_RoofLamp(檐灯) —— 随「舱内灯光亮度」
-  //   装饰灯效 = 其余 FW_ 发光材质(轮缘/彩点/轮毂/招牌/灯环/舱体涂装) —— 随「装饰灯亮度」
+  //   舱内照明 = FW_CabinGlow(天花发光盘) + FW_CoveLight(窗顶光槽) + FW_CabinLamp(顶灯)
+  //              + FW_RoofLamp(舱檐口灯线 / 雨棚吊灯) —— 随「舱内灯光亮度」
+  //   装饰灯效 = 其余 FW_ 发光材质(轮缘/彩点/轮毂/招牌/灯环/舱体漆面/鎏金新月) —— 随「装饰灯亮度」
+  //   FW_DoorSignal（登舱门框）不进表：每个舱一份材质，由停靠状态逐舱开关（见 applySignal）
   // 轮缘灯管近距离贴脸辉光偏强，基准系数 0.8 (远景观感由 Bloom 兜底)
-  const CABIN_LIGHT_BASE = 16; // 登舱补光点光基准强度
+  const CABIN_LIGHT_BASE = 22; // 所乘舱补光点光基准强度（挂在天花下 0.50 m，向下照）
+  const SIGNAL_BASE = 1.1;     // 停靠舱门框灵火青强度（随装饰灯）
   const cabinGlowMats = [];
   const decoGlowMats = [];
   gltfRoot.traverse((o) => {
     const mats = Array.isArray(o.material) ? o.material : (o.material ? [o.material] : []);
     for (const m of mats) {
-      if (!m.name || !m.name.startsWith("FW_") || !m.emissive) continue;
-      if (m.emissive.r + m.emissive.g + m.emissive.b < 1e-3) continue; // 非自发光
+      if (!m.name || !m.name.startsWith("FW_") || m.name === "FW_DoorSignal") continue;
+      if (!m.emissive || m.emissive.r + m.emissive.g + m.emissive.b < 1e-3) continue; // 非自发光
       const base = m.emissiveIntensity ?? 1;
-      if (/^FW_(InteriorGlow|RoofLamp)$/.test(m.name)) cabinGlowMats.push({ m, base });
+      if (/^FW_(CabinGlow|CoveLight|CabinLamp|RoofLamp)$/.test(m.name)) cabinGlowMats.push({ m, base });
       else decoGlowMats.push({ m, base: m.name.startsWith("FW_Rim") ? base * 0.8 : base });
     }
   });
+
+  // ---------- 舱体合批 ----------
+  // 同一种 (网格, 材质) 在每个舱各有一个节点 -> 一个 InstancedMesh（192 个 draw call -> 12）。
+  // 原网格留在各舱根下、只置为不可见（setInstanced 可切回逐舱网格做对照）。
+  const groups = new Map();   // geometry|material -> { geo, mat, items: [{ mesh, cab }] }
+  for (const root of cabins) {
+    root.traverse((o) => {
+      if (!o.isMesh) return;
+      const key = o.geometry.uuid + "|" + o.material.uuid;
+      let g = groups.get(key);
+      if (!g) { g = { geo: o.geometry, mat: o.material, items: [] }; groups.set(key, g); }
+      g.items.push({ mesh: o, cab: root });
+    });
+  }
+  const instanced = [];       // [{ im, cabs }]
+  const originals = [];       // 被合批的原网格
+  const doorMats = [];        // [{ cab, mat }] 每舱一份门框材质
+  for (const g of groups.values()) {
+    if (g.mat.name === "FW_DoorSignal") {
+      for (const { mesh, cab } of g.items) {
+        mesh.material = g.mat.clone();
+        mesh.material.emissiveIntensity = 0;   // 平时熄灭
+        doorMats.push({ cab, mat: mesh.material });
+      }
+      continue;
+    }
+    if (g.items.length !== cabins.length || cabins.length < 2) continue;
+    const im = new THREE.InstancedMesh(g.geo, g.mat, cabins.length);
+    im.name = "FW_CabinInst_" + g.mat.name;
+    im.frustumCulled = false;                  // 实例每帧随舱移动，不能按局部包围盒剔除
+    im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    gltfRoot.add(im);
+    for (const it of g.items) {
+      it.mesh.visible = false;
+      originals.push(it);
+    }
+    instanced.push({ im, cabs: g.items.map((it) => it.cab) });
+  }
 
   gltfRoot.updateWorldMatrix(true, true);
 
@@ -83,6 +128,8 @@ export function createFerrisWheel(gltfRoot) {
   const _d = new THREE.Vector3();
   const _down = new THREE.Vector3();
   const _cr = new THREE.Vector3();
+  const _m4 = new THREE.Matrix4();
+  const _rootInv = new THREE.Matrix4();
   let rideCabIdx = -1;
   let cabLight = null;
 
@@ -102,6 +149,14 @@ export function createFerrisWheel(gltfRoot) {
   // 停靠舱旁 E 登舱）；避免底舱持续掠过站台行人头顶。离开站台后恢复旋转。
   let holdWanted = false;
   let snapTheta = null; // 停靠目标角（非 null 时 theta 向它缓动）
+  let signalIdx = -1;   // 当前门框亮灵火青的舱（-1 = 全灭）
+
+  // 停靠舱门框灵火青：只有吸附到位（轮停稳）的最低那一舱亮，其余全灭
+  function applySignal() {
+    for (const { cab, mat } of doorMats) {
+      mat.emissiveIntensity = cab === cabins[signalIdx] ? SIGNAL_BASE * state.decoLight : 0;
+    }
+  }
 
   // 最低舱相对「轮面正下方」的角度偏差（rad, 绕 spinAxis；spinAxis 必为水平轴）
   function bottomOffset() {
@@ -123,6 +178,7 @@ export function createFerrisWheel(gltfRoot) {
     cabinRoots: cabins,
     wheelRoot: wheel,
     spinAxis, // 轮轴 (世界系单位向量, 水平): fx/fw_director.js 算所乘舱离顶时间要用
+    instancedMeshes: instanced.map((x) => x.im),
     update(dt) {
       if (!wheel) return;
       if (snapTheta !== null) {
@@ -144,6 +200,27 @@ export function createFerrisWheel(gltfRoot) {
         c.parent.getWorldQuaternion(_pq); // 内部会刷新祖先矩阵，含轮体
         c.quaternion.copy(_inv.copy(_pq).invert()).multiply(cabinRest[i]);
       }
+
+      // 合批舱体：每个实例的矩阵 = 对应舱根的世界矩阵（换算到 gltfRoot 本地系）
+      if (instanced.length) {
+        gltfRoot.updateWorldMatrix(true, false);
+        _rootInv.copy(gltfRoot.matrixWorld).invert();
+        for (const { im, cabs } of instanced) {
+          for (let k = 0; k < cabs.length; k++) {
+            cabs[k].updateWorldMatrix(true, false);
+            im.setMatrixAt(k, _m4.multiplyMatrices(_rootInv, cabs[k].matrixWorld));
+          }
+          im.instanceMatrix.needsUpdate = true;
+        }
+      }
+
+      // 停靠舱门框灵火青：联锁吸附到位（轮停稳）时最低的那一舱亮，其余时候全灭
+      const docked = snapTheta !== null && Math.abs(snapTheta - state.theta) < 1e-3
+        ? nearestBottomCabin() : -1;
+      if (docked !== signalIdx) {
+        signalIdx = docked;
+        applySignal();
+      }
     },
     // 登舱：锁定最低点舱位（转速由 update 按 riding 态取用），挂舱内暖光
     board() {
@@ -153,9 +230,9 @@ export function createFerrisWheel(gltfRoot) {
       if (!cabLight) {
         cabLight = new THREE.PointLight("#ffe9c4", CABIN_LIGHT_BASE * state.cabinLight, 7, 2);
       }
-      // 落地灯位（柱脚旁偏门侧）：走动模式下眼位可到舱中心 0.37m 内，
-      // 灯挂中心会贴脸照爆（Bloom 过曝）；落地后最近 1.1m，光也更均匀
-      cabLight.position.set(0, -2.05, 0.15);
+      // v3：灯挂在舱中央、天花下 0.50 m（略低于站姿眼位）向下照 —— v2 挂在脚边 0.29 m，柱根炸热点；
+      //      再高会让深色天花被照成亮板（第 1 批实测：贴天花挂时顶部一条亮带）
+      cabLight.position.set(0, CABIN.FLOOR_Y + 1.50, 0);
       cabins[rideCabIdx].add(cabLight);
     },
     // 下客：恢复待机转速
@@ -180,6 +257,12 @@ export function createFerrisWheel(gltfRoot) {
       for (const { m, base } of cabinGlowMats) m.emissiveIntensity = base * state.cabinLight;
       for (const { m, base } of decoGlowMats) m.emissiveIntensity = base * state.decoLight;
       if (cabLight) cabLight.intensity = CABIN_LIGHT_BASE * state.cabinLight;
+      applySignal();
+    },
+    // 合批开关（取证 / 对照用）：off = 各舱原网格逐个可见
+    setInstanced(on) {
+      for (const { im } of instanced) im.visible = !!on;
+      for (const it of originals) it.mesh.visible = !on;
     },
     // 乘坐中：返回所乘舱的世界位姿（舱根每帧被锁回摆正姿态，quat 恒定）
     // 供玩家控制器做舱内本地走动；非乘坐态返回 null

@@ -1,7 +1,9 @@
-// 舱内天花穿模回归验证（v2.2 抬高舱顶）
+// 舱内天花净空回归验证
 // 前置: npm run dev 已在 http://127.0.0.1:8765
-// 断言: 站姿眼位(舱本地竖直分量)必须 <= -0.82 (= 发光天花底 -0.72 − 相机 near 0.1)
-// 截图: 站姿抬头三个朝向 + 坐姿对照 + 下乘后外观
+// v3 (2026-11-27 舱体重做): 舱 2.10×1.70, 地板顶相对舱根 -2.70, 净高 2.00 (天花底 -0.70), 没有中柱;
+//   站姿眼高 1.65 (= 园区眼高), 坐姿眼高 1.20
+// 断言: 站姿眼位(舱本地竖直分量)必须 <= -0.80 (= 天花底 -0.70 − 相机 near 0.1); 实际 -1.05, 余量 0.25
+// 截图: 站姿抬头三个朝向 + 两张近观 + 坐姿对照 + 下乘后外观
 import { chromium } from "playwright";
 import { mkdirSync } from "node:fs";
 
@@ -23,7 +25,7 @@ const eyeInfo = () => page.evaluate(() => {
   const local = g.camera.position.clone().sub(fr.pos).applyQuaternion(fr.quat.clone().invert());
   const loc = g.player.cabinLocal();
   return {
-    eyeY: +local.y.toFixed(3),           // 舱本地竖直分量（天花板底 -0.72, near 0.1 -> 界 -0.82）
+    eyeY: +local.y.toFixed(3),           // 舱本地竖直分量（天花板底 -0.70, near 0.1 -> 界 -0.80）
     x: +local.x.toFixed(3),
     depth: +local.z.toFixed(3),
     seated: loc ? loc.seated : null,
@@ -53,44 +55,45 @@ const expect = async (name, cond, detail = "") => {
 
 let e = await eyeInfo();
 await expect("登舱为站姿", e && e.seated === false, JSON.stringify(e));
-await expect("站姿眼位 <= -0.82 (天花底 -0.72 − near 0.1)", e && e.eyeY <= -0.82, `eyeY=${e?.eyeY}`);
+await expect("站姿眼位 <= -0.80 (天花底 -0.70 − near 0.1)", e && e.eyeY <= -0.80, `eyeY=${e?.eyeY}`);
+await expect("站姿眼位 ≈ -1.05 (地板顶 -2.70 + 眼高 1.65)", e && Math.abs(e.eyeY - -1.05) < 0.05, `eyeY=${e?.eyeY}`);
 
-// 站姿抬头: 三个朝向（+x 大窗 / 角落 / 长椅端墙）
+// 站姿抬头: 三个朝向（+x 侧窗 / 角落 / 长椅端墙）
 for (const [tag, yaw] of [["window", -Math.PI / 2], ["corner", Math.PI / 4], ["bench", 0]]) {
   await page.evaluate((y) => window.__game.player.setView(y, 1.25), yaw);
   await page.waitForTimeout(400);
   await page.screenshot({ path: `${outDir}/s1_stand_up_${tag}.png` });
   e = await eyeInfo();
-  await expect(`站姿抬头(${tag})眼位仍 <= -0.82`, e && e.eyeY <= -0.82, `eyeY=${e?.eyeY}`);
+  await expect(`站姿抬头(${tag})眼位仍 <= -0.80`, e && e.eyeY <= -0.80, `eyeY=${e?.eyeY}`);
 }
 
-// 中柱-天花收口（v2.2b 柱贯通验证）: 正面近观 + 窗侧斜视
-await page.evaluate(() => window.__game.player.setView(0, 0.55)); // 面向中柱微仰视
+// 近观两张（v3 没有中柱）: 面向登舱门微仰视看天花顶灯 + 走到侧窗边后斜回看舱内
+await page.evaluate(() => window.__game.player.setView(Math.PI, 0.55)); // 面向门侧 (+z) 微仰视
 await page.waitForTimeout(400);
-await page.screenshot({ path: `${outDir}/s1b_pole_front.png` });
+await page.screenshot({ path: `${outDir}/s1b_ceiling_door.png` });
 await page.evaluate(() => {
   window.__game.player.setView(-Math.PI / 2, -0.2); // 先面向 +x 走到窗边
 });
 await page.keyboard.down("KeyW");
 await page.waitForTimeout(900);
 await page.keyboard.up("KeyW");
-await page.evaluate(() => window.__game.player.setView(Math.PI / 2 + 0.5, 0.45)); // 斜回中柱仰视
+await page.evaluate(() => window.__game.player.setView(Math.PI / 2 + 0.5, 0.45)); // 斜回看舱内仰视
 await page.waitForTimeout(400);
-await page.screenshot({ path: `${outDir}/s1c_pole_diagonal.png` });
+await page.screenshot({ path: `${outDir}/s1c_ceiling_diagonal.png` });
 
 // 坐姿对照
 await page.keyboard.press("KeyC");
 await page.waitForTimeout(1200);
 e = await eyeInfo();
 await expect("坐姿生效", e && e.seated === true, JSON.stringify(e));
-await expect("坐姿眼位 ≈ -1.16", e && Math.abs(e.eyeY - -1.16) < 0.05, `eyeY=${e?.eyeY}`);
+await expect("坐姿眼位 ≈ -1.50", e && Math.abs(e.eyeY - -1.50) < 0.05, `eyeY=${e?.eyeY}`);
 for (const [tag, yaw] of [["window", -Math.PI / 2], ["bench", 0]]) {
   await page.evaluate((y) => window.__game.player.setView(y, 1.25), yaw);
   await page.waitForTimeout(400);
   await page.screenshot({ path: `${outDir}/s2_sit_up_${tag}.png` });
 }
 
-// 下乘 -> 外观复查（站台近观 + 全轮远景，确认舱顶抬高无悬空件）
+// 下乘 -> 外观复查（站台近观 + 全轮远景，确认舱体在位、没有悬空件）
 await page.keyboard.press("KeyE");
 await page.waitForTimeout(1600);
 await page.evaluate(() => window.__game.player.setView(-Math.PI / 2, 0.35));

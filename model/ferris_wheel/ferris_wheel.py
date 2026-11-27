@@ -17,6 +17,16 @@ v2.3 场景贴合修复:
   - FW_GroundRing1 南向断弧 ±13°, 不再从台阶下方穿过 (悬浮错觉线)
   - 修复 join_group 分组未填充导致合并静默失效 (glb 1266 mesh -> 按材质合并)
   - legacy FW_Ground 地面盘只在 blend/预览保留, glb 导出前移除 (避免盖住公园地坪)
+
+v3 舱体重做 (2026-11-27, 「景版」; 造型语言跟缠魂塔 / 墓园: 黑铁 + 暗夜紫 + 鎏金新月):
+  - 真实观光舱尺寸: 外廓 2.20 (沿轮缘) x 1.80 (进深), 净高 2.00; 地板顶相对枢轴 -2.70
+    -> 轮心 20.1 -> 20.41, 停靠时舱地板离站台 0.16 (轮顶 36.1 -> 36.4)
+  - 下半舱是壳 (四周壁板 + 地板), 窗台 / 窗顶是周边窄框; 玻璃是 4 片单层 (不再是实心盒);
+    没有中柱; 窗台离地板 0.40 (坐姿也能俯看); 长椅落地、靠背顶 0.90 (低于坐姿眼位)
+  - 登舱侧 (-y = app +z) 整扇玻璃门 + 把手; 门框材质 FW_DoorSignal (运行时停靠舱亮灵火青)
+  - 天花: 深色板 + 顶灯 (FW_CabinLamp) + 窗顶内侧光槽 (FW_CoveLight) + 发光盘 (FW_CabinGlow, 远看窗内亮)
+  - 舱只建一次, 按材质合并后 16 个舱共用同一套网格 (glb 里 16 个节点引用同一 mesh,
+    运行时 ferris.js 合批成 InstancedMesh); 不导出动画 / UV (运行时程序化转轮)
 """
 import bpy
 import bmesh
@@ -24,7 +34,7 @@ import math
 from math import radians, pi, cos, sin, atan2
 from pathlib import Path
 import numpy as np
-from mathutils import Vector
+from mathutils import Vector, Matrix
 
 # ---------------------------------------------------------------- params ---
 P = {
@@ -33,7 +43,7 @@ P = {
     "rim_chord_b_r": 15.25,     # 轮缘内弦 (桁架双弦杆)
     "rim_half_gap": 2.2,        # 轮缘平面 y = +/- gap (2.2: 桁架距舱侧窗 >=1.4m, 避免贴窗穿帮)
     "inner_ring_r": 9.6,
-    "hub_z": 20.1,
+    "hub_z": 20.41,             # v3: 20.1 -> 20.41 (舱变高后停靠地板仍离站台 0.16; 轮顶 36.4 < 缠魂塔 40)
     "platform_r": 9.0,
     "platform_h": 1.55,         # 高站台: 落舱时舱地板(1.76)与站台(1.55)差 0.21 可跨入
     "ground_r": 70.0,
@@ -47,8 +57,15 @@ P = {
     "leg_top_x": 1.1,
     "leg_top_y": 2.2,
     "res_still": (1600, 900),
-    "glass_alpha": 0.20,        # 0.34 -> 0.20: 舱内看外部结构不再被染成贴脸暗板
+    "glass_alpha": 0.06,        # v3: 单层单片玻璃, 近乎无色 (0.20 -> 0.06: 不再给夜景压一层深蓝)
     "render_video": False,      # 迭代期 False, 定稿 True
+    # v3 舱体 (见文件头说明); 应用端 controller.js 的 CABIN 常量与此严格对应
+    "cabin_w": 2.20,            # 外宽 (沿轮缘)
+    "cabin_d": 1.80,            # 进深 (沿轮轴; 轮缘在 y = +/- 2.2, 侧窗离轮缘 1.3)
+    "cabin_floor_dz": -2.70,    # 地板顶相对枢轴 (停靠时 = 站台 1.55 + 0.16)
+    "cabin_h": 2.00,            # 净高 (地板顶 -> 天花底)
+    "cabin_sill": 0.40,         # 窗台离地板
+    "cabin_step": 0.16,         # 停靠时舱地板高出站台
 }
 
 # 万圣节色板
@@ -94,7 +111,7 @@ def sock(node, ident):
     return None
 
 def make_mat(name, color, rough=0.5, metal=0.0, emit=None, strength=0.0,
-             coat=0.0, alpha=1.0):
+             coat=0.0, alpha=1.0, single=False):
     m = bpy.data.materials.new(name)
     m.use_nodes = True
     p = next(n for n in m.node_tree.nodes if n.type == "BSDF_PRINCIPLED")
@@ -115,6 +132,9 @@ def make_mat(name, color, rough=0.5, metal=0.0, emit=None, strength=0.0,
     if coat:
         s = sock(p, "Coat Weight")
         if s: s.default_value = coat
+    if single:
+        # 单面材质 (glTF doubleSided=false): 舱体件法线朝外即可, 玻璃不再被 three 双面画两遍
+        m.use_backface_culling = True
     return m
 
 def smooth(ob):
@@ -226,56 +246,43 @@ def look_at(ob, target):
     d = Vector(target) - ob.location
     ob.rotation_euler = d.to_track_quat("-Z", "Y").to_euler()
 
-def obj_fcurves(ob):
-    fcs = []
-    ad = ob.animation_data
-    if not ad or not ad.action:
-        return fcs
-    act = ad.action
-    try:
-        for layer in act.layers:
-            for strip in layer.strips:
-                for cb in strip.channelbags:
-                    fcs.extend(cb.fcurves)
-    except Exception as e:
-        print("WARN fcurve access fallback:", type(e).__name__)
-        try:
-            fcs.extend(act.fcurves)
-        except Exception:
-            pass
-    return fcs
-
 # ---------------------------------------------------------------- build ----
 bpy.ops.wm.read_factory_settings(use_empty=True)
 sc = bpy.context.scene
 sc.render.fps = P["fps"]
 sc.frame_start = 1
-spin_frames = int(P["spin_period_s"] * P["fps"])
-sc.frame_end = spin_frames
+sc.frame_end = 1                     # v3: 不烘焙动画, 只留一帧静止姿态
 
 col_static = bpy.data.collections.new("Static")
 col_wheel  = bpy.data.collections.new("WheelSpin")
 sc.collection.children.link(col_static)
 sc.collection.children.link(col_wheel)
 
-PAINTS = [HEX["orange"], HEX["violet"], HEX["green"], HEX["red"]]
 DOTS   = [HEX["warm"], HEX["orange"], HEX["violet"], HEX["green"]]
 
 # materials -------------------------------------------------------------
 m_metal    = make_mat("FW_Metal", HEX["metal"], rough=0.45, metal=0.85)
 m_metal_d  = make_mat("FW_MetalDark", HEX["metal_d"], rough=0.6, metal=0.7)
-m_iron     = make_mat("FW_Iron", HEX["iron"], rough=0.55, metal=0.8)
+# v3: 铁件改喷漆钢 (金属度 0.8 -> 0.25): 场景没有环境贴图, 高金属度在夜里只剩高光点、其余纯黑
+m_iron     = make_mat("FW_Iron", "#2E2A38", rough=0.5, metal=0.25)
 m_wood     = make_mat("FW_Wood", HEX["wood"], rough=0.85, metal=0.0)
 m_ground   = make_mat("FW_Ground", HEX["ground"], rough=0.95)
 m_platform = make_mat("FW_Platform", HEX["platform"], rough=0.55, metal=0.1)
 m_rim_a    = make_mat("FW_RimAmber", HEX["orange"], rough=0.4, emit=HEX["orange"], strength=2.2)
 m_rim_v    = make_mat("FW_RimViolet", HEX["violet"], rough=0.4, emit=HEX["violet"], strength=2.2)
 m_dot = [make_mat(f"FW_Dot{i}", c, rough=0.4, emit=c, strength=2.6) for i, c in enumerate(DOTS)]
-m_cabin = [make_mat(f"FW_Cabin{i}", c, rough=0.28, metal=0.05, emit=c, strength=0.35,
-                    coat=0.6) for i, c in enumerate(PAINTS)]
-m_trim  = [make_mat(f"FW_Trim{i}", c, rough=0.4, emit=c, strength=1.5)
-           for i, c in enumerate(PAINTS)]
-m_glass = make_mat("FW_Glass", "#142A3E", rough=0.06, metal=0.0, alpha=P["glass_alpha"])
+m_lamp   = make_mat("FW_RoofLamp", HEX["warm"], rough=0.4, emit=HEX["warm"], strength=2.6)
+m_edge_c = make_mat("FW_EdgeWarm", HEX["warm"], rough=0.4, emit=HEX["warm"], strength=2.4)
+# v3 舱体材质 (全部单面; 自发光 <= 1 的导出时会乘进 emissiveFactor, 运行时按材质名归到
+# 「舱内灯光」(CabinGlow / CoveLight / CabinLamp / RoofLamp) 或「装饰灯」(Lacquer / Gold / DoorSignal))
+m_lacquer = make_mat("FW_Lacquer", "#5630A6", rough=0.38, metal=0.05,
+                     emit="#5630A6", strength=0.30, single=True)
+m_gold    = make_mat("FW_Gold", "#C9A227", rough=0.4, metal=0.45,
+                     emit="#C9A227", strength=0.55, single=True)
+m_velvet  = make_mat("FW_Velvet", "#2C1040", rough=0.95, single=True)
+m_ceil    = make_mat("FW_Ceiling", "#17121F", rough=0.9, single=True)
+m_glass   = make_mat("FW_Glass", "#B7CDDA", rough=0.05, metal=0.0,
+                     alpha=P["glass_alpha"], single=True)
 try:
     m_glass.blend_method = "BLEND"
 except Exception:
@@ -284,15 +291,15 @@ try:
     m_glass.surface_render_method = "BLENDED"
 except Exception:
     pass
-# 舱内暖光面板: strength 2.0 — v2.2 面板即舱内可见天花板(底 -0.72), 站姿眼位距它 ~0.20m;
-# 基色改暗(#241C12): 面板贴脸直视, 若用亮暖基色会被舱内点光漫反射打白过曝;
-# 只留自发光 — 默认舱内灯 40% 时亮度 0.80 < Bloom 阈值 0.85 不起晕, 调高亮度仍可点亮辉光
-m_glow   = make_mat("FW_InteriorGlow", "#241C12", rough=0.5, emit=HEX["warm"], strength=2.0)
-m_bench  = make_mat("FW_Bench", "#4A3A26", rough=0.8)
-m_lamp   = make_mat("FW_RoofLamp", HEX["warm"], rough=0.4, emit=HEX["warm"], strength=2.6)
-m_pump   = make_mat("FW_Pumpkin", HEX["orange"], rough=0.35, emit=HEX["orange"], strength=2.4)
-m_stem   = make_mat("FW_Stem", "#3E5230", rough=0.8)
-m_edge_c = make_mat("FW_EdgeWarm", HEX["warm"], rough=0.4, emit=HEX["warm"], strength=2.4)
+# 舱内三档暖光: 顶灯 / 发光盘 (远看窗内是亮的) / 窗顶内侧光槽。强度按默认舱内灯 40% 折算
+# (2.4 / 0.84 / 0.26); 基色取暗 (#241C12): 这些件贴着舱内点光, 亮基色会被照白。
+# 0.84 < Bloom 阈值 0.85, 发光盘默认不起晕, 调高舱内灯仍能点亮辉光
+m_cabglow = make_mat("FW_CabinGlow", "#241C12", rough=0.5, emit=HEX["warm"], strength=2.1, single=True)
+m_cove    = make_mat("FW_CoveLight", "#241C12", rough=0.5, emit=HEX["warm"], strength=0.65, single=True)
+m_cablamp = make_mat("FW_CabinLamp", "#241C12", rough=0.4, emit=HEX["warm"], strength=6.0, single=True)
+# 登舱门框: 平时是喷漆钢色, 运行时停靠且停稳的舱亮灵火青 (ferris.js)
+m_signal  = make_mat("FW_DoorSignal", "#2E2A38", rough=0.5, metal=0.25,
+                     emit="#8FE3D9", strength=1.1, single=True)
 m_ring_a = make_mat("FW_RingAmber", HEX["orange"], rough=0.4, emit=HEX["orange"], strength=1.8)
 m_ring_v = make_mat("FW_RingViolet", HEX["violet"], rough=0.4, emit=HEX["violet"], strength=1.8)
 m_hub_g  = make_mat("FW_HubGlow", HEX["warm"], rough=0.4, emit=HEX["warm"], strength=2.6)
@@ -515,13 +522,213 @@ for sy in (1, -1):
         wheel_child(ob)
 
 # cabins -------------------------------------------------------------------
-# 相对 pivot 的 z 布局 (dz) — 真实观光舱比例 (外高 ~2.5m):
-#   v2.2 抬高舱顶: 原天花横梁 FW_Transom(底 -0.9425) 低于站姿眼位 -0.94, 抬头穿梁见外,
-#   且发光面板被梁整个挡住(舱内天花一片死黑)。现梁上移到玻璃带顶作外饰带(舱内不可见),
-#   发光面板成为舱内天花板。
-#   车顶 -0.36..-0.48 / 檐线 -0.48..-0.53 / 玻璃带 -0.56..-1.86 / 舱体 -1.86..-2.42 / 裙边 -2.42..-2.52
-#   内部地板顶 -2.34, 坐姿视线 ~ -1.16 (玻璃带中部), 内净高 ~1.62 (发光天花底 -0.72)
-#   站姿眼顶 1.40+bob0.018=1.418, +相机 near 0.1 = 1.518 < 1.62, 余量 ~0.10m
+# v3 (2026-11-27 重做, 「景版」): 舱退到视野边缘, 把画面让给园子; 主题靠材质 (黑铁 / 暗夜紫 / 鎏金新月)。
+# 舱只建一次 (枢轴 = 原点的本地系), 按材质合并; 16 个舱共用同一套网格数据 —— glb 里 16 个节点引用
+# 同一个 mesh, 运行时 ferris.js 合批成 InstancedMesh。
+# 本地系: x 沿轮缘, +y = 长椅侧 (北, app -z), -y = 登舱门侧 (南, app +z), z 向上 (枢轴为 0)。
+#   地板顶 CF / 窗台 SILL / 窗顶 HEAD / 天花底 CEIL; 应用端 controller.js 的 CABIN 常量与此严格对应。
+CW, CD = P["cabin_w"], P["cabin_d"]
+CF = P["cabin_floor_dz"]
+SILL = CF + P["cabin_sill"]
+CEIL = CF + P["cabin_h"]
+HEAD = CEIL - 0.02
+assert abs((HZ - R) + CF - (P["platform_h"] + P["cabin_step"])) < 1e-6, \
+    "hub_z 与舱地板 / 站台高不匹配 (停靠时枢轴在 hub_z - R, 舱地板应高出站台 cabin_step)"
+assert CD / 2 < P["rim_half_gap"] - 0.5, "舱进深太大: 侧窗离轮缘不足 0.5 m"
+
+
+def add_plane(name, w, h, loc, rot=(0, 0, 0), mat=None):
+    bpy.ops.mesh.primitive_plane_add(size=1.0, location=loc, rotation=rot)
+    ob = bpy.context.active_object
+    ob.name = name
+    ob.scale = (w, h, 1.0)
+    if mat: ob.data.materials.append(mat)
+    return ob
+
+
+def add_crescent(name, s, loc, rot=(0, 0, 0), mat=None, depth=0.10, seg=28):
+    """新月片: 外圆 (R=1) 减内圆 (r=0.88, 圆心偏 0.44) 的轮廓, 沿本地 +Z 拉厚 depth*s。
+    平面在本地 XY (y 向上), 上下对称; 贴到哪个面就绕 X / Z 转过去。"""
+    R_, r_, cx = 1.0, 0.88, 0.44
+    x = (R_ * R_ - r_ * r_ + cx * cx) / (2 * cx)
+    y = math.sqrt(max(R_ * R_ - x * x, 0.0))
+    a_out = math.atan2(y, x)             # 外圆上的交点角
+    a_in = math.atan2(y, x - cx)         # 内圆上的交点角
+    pts = []
+    for k in range(seg + 1):             # 外圆: 上交点 -> 左侧 -> 下交点
+        a = a_out + (2 * pi - 2 * a_out) * k / seg
+        pts.append((R_ * cos(a), R_ * sin(a)))
+    for k in range(1, seg):              # 内圆: 下交点 -> (-0.44, 0) -> 上交点
+        a = -a_in - (2 * pi - 2 * a_in) * k / seg
+        pts.append((cx + r_ * cos(a), r_ * sin(a)))
+    bm = bmesh.new()
+    bm.faces.new([bm.verts.new((px * s, py * s, 0.0)) for px, py in pts])
+    res = bmesh.ops.extrude_face_region(bm, geom=bm.faces[:])
+    bmesh.ops.translate(bm, vec=(0.0, 0.0, depth * s),
+                        verts=[v for v in res["geom"] if isinstance(v, bmesh.types.BMVert)])
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+    me = bpy.data.meshes.new(name)
+    bm.to_mesh(me)
+    bm.free()
+    ob = bpy.data.objects.new(name, me)
+    sc.collection.objects.link(ob)
+    ob.location = loc
+    ob.rotation_euler = rot
+    if mat: me.materials.append(mat)
+    return ob
+
+
+def add_half_dome(name, loc, mat, sx, sy, sz):
+    """浅穹顶: 单位球裁掉 z<0 的部分, 再按 (sx, sy, sz) 缩放。"""
+    bpy.ops.mesh.primitive_uv_sphere_add(radius=1.0, segments=32, ring_count=12, location=loc)
+    ob = bpy.context.active_object
+    ob.name = name
+    bm = bmesh.new()
+    bm.from_mesh(ob.data)
+    bmesh.ops.delete(bm, geom=[v for v in bm.verts if v.co.z < -1e-6], context="VERTS")
+    bm.to_mesh(ob.data)
+    bm.free()
+    ob.scale = (sx, sy, sz)
+    if mat: ob.data.materials.append(mat)
+    smooth(ob)
+    return ob
+
+
+def apply_xform(ob):
+    """把对象变换烘进网格 (合并前用: 合并结果在舱本地系里变换 = 恒等)。"""
+    ob.data.transform(ob.matrix_basis)
+    ob.matrix_basis = Matrix.Identity(4)
+
+
+def build_cabin_proto():
+    """只建一次。所有件都在舱本地系里, 枢轴在原点。返回件列表 (未合并)。"""
+    parts = []
+
+    def reg(ob):
+        parts.append(ob)
+        return ob
+
+    hx, hy = CW / 2, CD / 2
+    # ---- 裙边 / 地板 ----
+    reg(add_box("CP_Skirt", (CW + 0.06, CD + 0.06, 0.08), (0, 0, CF - 0.06), mat=m_iron))
+    reg(add_box("CP_Floor", (CW - 0.10, CD - 0.10, 0.06), (0, 0, CF - 0.03), mat=m_wood))
+    # ---- 下体: 壳 (暗夜紫漆面, 四角圆柱倒圆) + 鎏金线 + 新月徽 ----
+    for sy in (1, -1):
+        reg(add_box("CP_BodyY", (CW - 0.20, 0.05, 0.40), (0, sy * (hy - 0.025), CF + 0.18), mat=m_lacquer))
+        reg(add_box("CP_GoldLineY", (CW - 0.20, 0.012, 0.014), (0, sy * (hy + 0.004), CF + 0.385), mat=m_gold))
+        reg(add_crescent("CP_CresY", 0.11, (0, sy * (hy + 0.012), CF + 0.20),
+                         rot=(-pi / 2 if sy > 0 else pi / 2, 0, 0), mat=m_gold, seg=14))
+    for sx in (1, -1):
+        reg(add_box("CP_BodyX", (0.05, CD - 0.20, 0.40), (sx * (hx - 0.025), 0, CF + 0.18), mat=m_lacquer))
+        reg(add_box("CP_GoldLineX", (0.012, CD - 0.20, 0.014), (sx * (hx + 0.004), 0, CF + 0.385), mat=m_gold))
+        reg(add_crescent("CP_CresX", 0.11, (sx * (hx - 0.001), 0, CF + 0.20),
+                         rot=(pi / 2, 0, sx * pi / 2), mat=m_gold, seg=14))
+        for sy in (1, -1):
+            reg(add_cyl("CP_BodyCorner", 0.10, 0.40, (sx * (hx - 0.10), sy * (hy - 0.10), CF + 0.18),
+                        mat=m_lacquer, verts=16))
+    # ---- 窗台框 / 窗顶框: 周边窄框 (v2 的整截面实心板是「看不见地板」的根因) ----
+    for sy in (1, -1):
+        reg(add_box("CP_SillY", (CW + 0.06, 0.10, 0.05), (0, sy * (hy - 0.025), SILL + 0.025), mat=m_iron))
+        reg(add_box("CP_HeadY", (CW + 0.06, 0.10, 0.06), (0, sy * (hy - 0.025), HEAD + 0.03), mat=m_iron))
+    for sx in (1, -1):
+        reg(add_box("CP_SillX", (0.10, CD - 0.10, 0.05), (sx * (hx - 0.025), 0, SILL + 0.025), mat=m_iron))
+        reg(add_box("CP_HeadX", (0.10, CD - 0.10, 0.06), (sx * (hx - 0.025), 0, HEAD + 0.03), mat=m_iron))
+    # ---- 玻璃: 4 片单层, 法线朝外 (单面材质; 两头塞进框和角柱里) ----
+    gz0, gz1 = SILL + 0.035, HEAD + 0.015
+    for sy in (1, -1):
+        reg(add_plane("CP_GlassY", CW - 0.06, gz1 - gz0, (0, sy * (hy - 0.005), (gz0 + gz1) / 2),
+                      rot=(-pi / 2 if sy > 0 else pi / 2, 0, 0), mat=m_glass))
+    for sx in (1, -1):
+        reg(add_plane("CP_GlassX", CD - 0.06, gz1 - gz0, (sx * (hx - 0.005), 0, (gz0 + gz1) / 2),
+                      rot=(pi / 2, 0, sx * pi / 2), mat=m_glass))
+    # ---- 立柱 / 竖梃: 角柱 r 0.032, 细梃 r 0.013 (没有中柱) ----
+    zc = (SILL + 0.05 + HEAD) / 2
+    zh = HEAD - SILL - 0.05
+    for sx in (1, -1):
+        for sy in (1, -1):
+            reg(add_cyl("CP_Post", 0.032, HEAD - SILL + 0.11,
+                        (sx * (hx - 0.02), sy * (hy - 0.02), (SILL + HEAD) / 2 + 0.025), mat=m_iron, verts=12))
+        for my in (0.29, -0.29):
+            reg(add_cyl("CP_MullX", 0.013, zh, (sx * (hx - 0.01), my, zc), mat=m_iron, verts=8))
+    for mx in (0.37, -0.37):
+        reg(add_cyl("CP_MullY", 0.013, zh, (mx, hy - 0.01, zc), mat=m_iron, verts=8))
+    # ---- 登舱门 (-y 面): 门框 (FW_DoorSignal) + 无框玻璃门扇 (上下横档) + 外侧把手 ----
+    # 门扇不再另立竖梃: 门梃 + 门扇竖梃会并成一根「双棍」(v2 每面墙 5 根棍的同一个毛病)
+    for sx in (1, -1):
+        reg(add_cyl("CP_DoorJamb", 0.024, HEAD - SILL, (sx * 0.46, -(hy - 0.01), (SILL + HEAD) / 2),
+                    mat=m_signal, verts=10))
+    reg(add_box("CP_DoorHead", (0.94, 0.03, 0.03), (0, -(hy - 0.01), HEAD - 0.015), mat=m_signal))
+    reg(add_box("CP_DoorRailTop", (0.88, 0.03, 0.03), (0, -(hy - 0.015), HEAD - 0.06), mat=m_iron))
+    reg(add_box("CP_DoorRailBot", (0.88, 0.035, 0.09), (0, -(hy - 0.015), SILL + 0.075), mat=m_iron))
+    # 把手在离地 0.97..1.27 m: 高于舱内扶手 (0.85), 从舱里看两者不叠成十字
+    reg(add_cyl("CP_Handle", 0.013, 0.30, (0.36, -(hy + 0.035), CF + 1.12), mat=m_gold, verts=8))
+    for dz in (0.12, -0.12):
+        reg(add_cyl("CP_HandleStd", 0.008, 0.05, (0.36, -(hy + 0.012), CF + 1.12 + dz),
+                    rot=(pi / 2, 0, 0), mat=m_gold, verts=6))
+    # ---- 屋顶: 檐板 + 檐口灯线 + 浅穹顶 + 新月顶饰 ----
+    reg(add_box("CP_Eave", (CW + 0.14, CD + 0.14, 0.06), (0, 0, CEIL + 0.07), mat=m_lacquer))
+    reg(add_box("CP_EaveLight", (CW + 0.17, CD + 0.17, 0.012), (0, 0, CEIL + 0.034), mat=m_lamp))
+    reg(add_half_dome("CP_Dome", (0, 0, CEIL + 0.10), m_lacquer, CW / 2 + 0.02, CD / 2 + 0.02, 0.15))
+    # 新月顶饰 x2: 贴在穹顶前后两侧 (y = ±0.42), 与 A 臂错开一个平面 —— 立在正中会被两根臂夹住看不清
+    for sy in (1, -1):
+        fin_z = CEIL + 0.10 + 0.15 * math.sqrt(1.0 - (0.42 / (CD / 2 + 0.02)) ** 2) + 0.10
+        reg(add_crescent("CP_Finial", 0.14, (0, sy * 0.42 + 0.007, fin_z), rot=(pi / 2, 0, 0), mat=m_gold, seg=20))
+    # ---- 吊架: 枢轴鼓 (套在轮体横连杆外) + 颈 + A 臂 + 鎏金底板 (落在穹顶面上) ----
+    reg(add_cyl("CP_HangerDrum", 0.10, 0.34, (0, 0, 0), rot=(pi / 2, 0, 0), mat=m_iron, verts=16))
+    reg(add_cyl("CP_HangerNeck", 0.05, 0.14, (0, 0, -0.07), mat=m_iron, verts=12))
+    arm_z = CEIL + 0.10 + 0.15 * math.sqrt(1.0 - (0.62 / (CW / 2 + 0.02)) ** 2)   # 穹顶面在 x = 0.62 处的高度
+    for sx in (1, -1):
+        reg(cyl_between("CP_HangerArm", (0, 0, -0.12), (sx * 0.62, 0, arm_z + 0.13), 0.038, m_iron, verts=10))
+        reg(add_box("CP_HangerPlate", (0.22, 0.16, 0.02), (sx * 0.62, 0, arm_z + 0.012), mat=m_gold))
+    # ---- 内饰: 天花 / 顶灯 / 发光盘 / 光槽 / 长椅 / 扶手 ----
+    reg(add_box("CP_Ceiling", (CW - 0.02, CD - 0.02, 0.04), (0, 0, CEIL + 0.02), mat=m_ceil))
+    reg(add_cyl("CP_CeilGlow", 0.26, 0.010, (0, 0, CEIL - 0.002), mat=m_cabglow, verts=28))
+    reg(add_cyl("CP_Downlight", 0.075, 0.012, (0, 0, CEIL - 0.008), mat=m_cablamp, verts=20))
+    reg(add_torus("CP_LampRing", 0.11, 0.008, (0, 0, CEIL - 0.010), mat=m_gold, ms=32, ns=6))
+    for sy in (1, -1):
+        reg(add_box("CP_CoveY", (CW - 0.14, 0.02, 0.035), (0, sy * (hy - 0.07), HEAD - 0.05), mat=m_cove))
+    for sx in (1, -1):
+        reg(add_box("CP_CoveX", (0.02, CD - 0.14, 0.035), (sx * (hx - 0.07), 0, HEAD - 0.05), mat=m_cove))
+    by = hy - 0.26                      # 长椅中心线 (座面 y 0.42 .. 0.86)
+    for sx in (1, -1):
+        reg(add_box("CP_BenchLeg", (0.06, 0.36, 0.42), (sx * 0.82, by, CF + 0.21), mat=m_iron))
+    reg(add_box("CP_BenchSeat", (1.92, 0.44, 0.05), (0, by, CF + 0.445), mat=m_wood))
+    reg(add_box("CP_Cushion", (1.88, 0.40, 0.07), (0, by - 0.01, CF + 0.505), mat=m_velvet))
+    reg(add_box("CP_BenchBack", (1.92, 0.07, 0.36), (0, hy - 0.065, CF + 0.72), mat=m_velvet))   # 顶 0.90
+    reg(cyl_between("CP_GrabRail", (-0.95, -(hy - 0.10), CF + 0.85), (0.95, -(hy - 0.10), CF + 0.85),
+                    0.016, m_gold, verts=8))                # 门侧黄铜扶手, 离地 0.85
+    for sx in (1, -1):
+        reg(cyl_between("CP_GrabStd", (sx * 0.95, -(hy - 0.10), CF + 0.85), (sx * 0.95, -(hy - 0.03), CF + 0.85),
+                        0.012, m_gold, verts=6))
+    return parts
+
+
+def join_cabin_proto(parts):
+    """按材质合并舱体原型 -> 每种材质一个网格 FW_Cabin_<材质名>, 变换恒等。"""
+    for ob in parts:
+        apply_xform(ob)
+    groups = {}
+    for ob in parts:
+        groups.setdefault(ob.data.materials[0].name, []).append(ob)
+    out = []
+    for mat_name, obs in groups.items():
+        bpy.ops.object.select_all(action="DESELECT")
+        for ob in obs:
+            ob.select_set(True)
+        bpy.context.view_layer.objects.active = obs[0]
+        if len(obs) > 1:
+            bpy.ops.object.join()
+        ob = bpy.context.view_layer.objects.active
+        short = mat_name.replace("FW_", "", 1)
+        ob.name = f"FW_Cabin_{short}"
+        ob.data.name = f"FW_Cabin_{short}"
+        out.append(ob)
+    bpy.ops.object.select_all(action="DESELECT")
+    print(f"CABIN_PROTO {len(out)} meshes: " + ", ".join(sorted(o.data.name for o in out)))
+    return out
+
+
+cabin_parts = join_cabin_proto(build_cabin_proto())
 cabin_roots = []
 for i in range(P["cabins"]):
     th = i * 2 * pi / P["cabins"]
@@ -535,137 +742,16 @@ for i in range(P["cabins"]):
     link_col(root, col_wheel)
     cabin_roots.append((root, th))
 
-    def cabin_part(ob):
-        parent_keep(ob, root)
+    for part in cabin_parts:
+        short = part.data.name.replace("FW_Cabin_", "", 1)
+        if i == 0:
+            ob = part                       # 原型对象就是 0 号舱
+            ob.name = f"FW_C0_{short}"
+        else:
+            # 共用网格数据 + 普通父子 (本地变换恒等): glb 里 16 个节点引用同一个 mesh
+            ob = bpy.data.objects.new(f"FW_C{i}_{short}", part.data)
         link_col(ob, col_wheel)
-
-    ci = i % len(m_cabin)
-    paint = m_cabin[ci]
-    trim = m_trim[ci]
-    Z = lambda dz: pz + dz  # noqa: E731
-
-    # crossbar + joint + A-frame hanger
-    ob = cyl_between(f"FW_Crossbar_{i}", (px, -(G + 0.18), pz), (px, G + 0.18, pz),
-                     0.06, m_metal, verts=8)
-    cabin_part(ob)
-    ob = add_cyl(f"FW_Joint_{i}", 0.08, 0.18, (px, 0, Z(-0.08)), mat=m_metal, verts=10)
-    cabin_part(ob)
-    ob = cyl_between(f"FW_ArmL_{i}", (px, 0, Z(-0.14)), (px - 0.52, 0, Z(-0.42)), 0.048, m_metal)
-    cabin_part(ob)
-    ob = cyl_between(f"FW_ArmR_{i}", (px, 0, Z(-0.14)), (px + 0.52, 0, Z(-0.42)), 0.048, m_metal)
-    cabin_part(ob)
-
-    # roof cap + eave trim + lantern (v2.2 整体上移 0.14)
-    ob = add_bevel_box(f"FW_Roof_{i}", (1.78, 1.24, 0.12), (px, 0, Z(-0.42)),
-                       mat=paint, segments=4, width=0.04)
-    cabin_part(ob)
-    ob = add_box(f"FW_RoofTrim_{i}", (1.86, 1.32, 0.05), (px, 0, Z(-0.505)), mat=trim)
-    cabin_part(ob)
-    ob = add_sphere(f"FW_Lantern_{i}", 0.09, (px, 0, Z(-0.26)), mat=m_lamp, seg=12, ring=8)
-    cabin_part(ob)
-    ob = add_cyl(f"FW_LanternCap_{i}", 0.05, 0.06, (px, 0, Z(-0.17)), mat=m_metal_d, verts=8)
-    cabin_part(ob)
-
-    # glass band (wraparound, 1.30m 高, v2.2 顶边抬到 -0.56)
-    ob = add_bevel_box(f"FW_Glass_{i}", (1.70, 1.18, 1.30), (px, 0, Z(-1.21)),
-                       mat=m_glass, segments=3, width=0.035)
-    cabin_part(ob)
-    # window frame: corner posts (比玻璃带上下各长出 0.02)
-    for sx in (1, -1):
-        for sy in (1, -1):
-            ob = add_box(f"FW_Post_{i}_{sx}_{sy}", (0.07, 0.07, 1.34),
-                         (px + sx * 0.815, sy * 0.555, Z(-1.21)), mat=m_metal)
-            cabin_part(ob)
-    # mullions: +-x 大窗面各 2 根(分 3 格), +-y 门面各 1 根
-    # (修复: 原定位漏加 sz*0.815, 两根竖杆悬在舱内走道中央)
-    for sz in (1, -1):
-        for my in (-0.39, 0.39):
-            ob = add_box(f"FW_MullZ_{i}_{sz}_{my}", (0.05, 0.06, 1.30),
-                         (px + sz * 0.815, my, Z(-1.21)), mat=m_metal)
-            cabin_part(ob)
-    for sy in (1, -1):
-        ob = add_box(f"FW_MullY_{i}_{sy}", (0.06, 0.05, 1.30),
-                     (px, sy * 0.585, Z(-1.21)), mat=m_metal)
-        cabin_part(ob)
-    # v2.2: 上移到玻璃带顶部作外饰横带(舱内不可见; 舱内天花板 = FW_GlowCeil 底 -0.72)
-    ob = add_box(f"FW_Transom_{i}", (1.72, 1.20, 0.045), (px, 0, Z(-0.635)), mat=m_metal)
-    cabin_part(ob)
-    ob = add_box(f"FW_Sill_{i}", (1.72, 1.20, 0.05), (px, 0, Z(-1.80)), mat=m_metal)
-    cabin_part(ob)
-    # door frames (两侧 +-y 开口) — 暗色金属: 门框凸入舱内 0.03, 走动模式可贴到 0.2m,
-    # 发光 trim (strength 1.5) 会贴脸炸 Bloom; 外观门框改暗框, 发光交给腰线/檐口
-    for sy in (1, -1):
-        for sx in (1, -1):
-            ob = add_box(f"FW_DoorJamb_{i}_{sy}_{sx}", (0.08, 0.06, 1.30),
-                         (px + sx * 0.70, sy * 0.585, Z(-1.21)), mat=m_metal_d)
-            cabin_part(ob)
-        ob = add_box(f"FW_DoorHead_{i}_{sy}", (1.48, 0.06, 0.08),
-                     (px, sy * 0.585, Z(-0.74)), mat=m_metal_d)
-        cabin_part(ob)
-
-    # interior: floor + glow ceiling + wainscot + end bench + pole
-    # 舱内走动版布局: 端墙单长椅(贴登舱门对面) + 中央立柱, 让出贯通站立走道
-    ob = add_box(f"FW_Floor_{i}", (1.58, 1.06, 0.08), (px, 0, Z(-2.38)), mat=m_bench)
-    cabin_part(ob)
-    ob = add_box(f"FW_GlowCeil_{i}", (1.50, 1.04, 0.04), (px, 0, Z(-0.70)), mat=m_glow)
-    cabin_part(ob)
-    # 墙裙暖光条移到登舱门侧墙 (原 +y 侧现为长椅背板)
-    ob = add_box(f"FW_GlowWall_{i}", (1.50, 0.04, 0.44), (px, -0.52, Z(-2.12)), mat=m_glow)
-    cabin_part(ob)
-    # 端墙长椅: 座长 1.30(坐2人) / 座深 0.35 + 靠背 0.07 / 座高同前(顶 -1.86)
-    ob = add_box(f"FW_BenchSeat_{i}", (1.30, 0.35, 0.09),
-                 (px, 0.285, Z(-1.905)), mat=m_bench)
-    cabin_part(ob)
-    ob = add_box(f"FW_BenchBack_{i}", (1.30, 0.07, 0.50),
-                 (px, 0.495, Z(-1.61)), mat=m_bench)
-    cabin_part(ob)
-    for sx in (1, -1):
-        ob = add_box(f"FW_BenchArm_{i}_{sx}", (0.05, 0.42, 0.06),
-                     (px + sx * 0.625, 0.285, Z(-1.74)), mat=m_wood)
-        cabin_part(ob)
-    # v2.2 中柱贯通: 顶插发光面板 0.01 / 底插地板 0.02 (原顶插旧横梁 -0.94, 舱顶抬高后悬空 0.15)
-    ob = add_cyl(f"FW_Pole_{i}", 0.045, 1.65, (px, 0, Z(-1.535)), mat=m_metal, verts=10)
-    cabin_part(ob)
-    # 舱内真实暖光点光源 (自发光面板不产光, 长椅地板需要它照亮)
-    bpy.ops.object.light_add(type="POINT", location=(px, 0, Z(-1.25)))
-    lamp = bpy.context.active_object
-    lamp.name = f"FW_CabinLight_{i}"
-    lamp.data.energy = 12.0
-    lamp.data.color = hex_lin(HEX["warm"])[:3]
-    lamp.data.shadow_soft_size = 0.15
-    cabin_part(lamp)
-
-    # lower body + belt trim + pumpkin emblems(四向) + skirt + bumpers
-    ob = add_bevel_box(f"FW_Body_{i}", (1.70, 1.18, 0.56), (px, 0, Z(-2.14)),
-                       mat=paint, segments=3, width=0.05)
-    cabin_part(ob)
-    ob = add_box(f"FW_Belt_{i}", (1.76, 1.24, 0.06), (px, 0, Z(-1.90)), mat=trim)
-    cabin_part(ob)
-    # +-z 面南瓜 (压扁 z)
-    for sz in (1, -1):
-        ob = add_sphere(f"FW_Pump_{i}_z{sz}", 0.17, (px, 0, Z(-1.98)),
-                        mat=m_pump, seg=14, ring=10, scale=(1.0, 1.0, 0.5))
-        cabin_part(ob)
-        ob = add_cyl(f"FW_PumpStem_{i}_z{sz}", 0.025, 0.1, (px, 0, Z(-1.84)),
-                     mat=m_stem, verts=6)
-        cabin_part(ob)
-    # +-y 面南瓜 (压扁 y)
-    for sy in (1, -1):
-        ob = add_sphere(f"FW_Pump_{i}_y{sy}", 0.17, (px, sy * 0.60, Z(-1.98)),
-                        mat=m_pump, seg=14, ring=10, scale=(1.0, 0.5, 1.0))
-        cabin_part(ob)
-        ob = add_cyl(f"FW_PumpStem_{i}_y{sy}", 0.025, 0.1, (px, sy * 0.60, Z(-1.84)),
-                     mat=m_stem, verts=6)
-        cabin_part(ob)
-    ob = add_bevel_box(f"FW_Skirt_{i}", (1.78, 1.26, 0.10), (px, 0, Z(-2.47)),
-                       mat=m_metal_d, segments=2, width=0.03)
-    cabin_part(ob)
-    for sx in (1, -1):
-        for sy in (1, -1):
-            ob = add_sphere(f"FW_Bumper_{i}_{sx}_{sy}", 0.07,
-                            (px + sx * 0.82, sy * 0.56, Z(-2.50)),
-                            mat=m_metal, seg=10, ring=6)
-            cabin_part(ob)
+        ob.parent = root
 
 # lights, world, camera ------------------------------------------------------
 bpy.ops.object.light_add(type="SUN", location=(25, -30, 55))
@@ -711,15 +797,15 @@ def _ang_diff(a, b):
 best = min(range(P["cabins"]), key=lambda i: _ang_diff(cabin_roots[i][1], det_th))
 cz = HZ + R * sin(cabin_roots[best][1])
 cx = R * cos(cabin_roots[best][1])
-cam_det = add_cam("FW_CamDetail", (cx + 3.6, -6.6, cz + 2.4), (cx, 0, cz - 1.6), lens=50)
+cam_det = add_cam("FW_CamDetail", (cx + 4.4, -7.6, cz + 1.8), (cx, 0, cz - 1.35), lens=50)
 
 # 舱内第一人称视角 (验证内饰与走道): 找最接近 -90 度(最低点)的舱, 站姿视线
 fp_th = radians(-90)
 best_fp = min(range(P["cabins"]), key=lambda i: _ang_diff(cabin_roots[i][1], fp_th))
 fpz = HZ + R * sin(cabin_roots[best_fp][1])
 fpx = R * cos(cabin_roots[best_fp][1])
-cam_fp = add_cam("FW_CamInterior", (fpx + 0.35, -0.16, fpz - 1.40),
-                 (fpx - 1.8, -0.16, fpz - 1.52), lens=18)
+cam_fp = add_cam("FW_CamInterior", (fpx - 0.42, 0.30, fpz - 1.05),
+                 (fpx + 0.5, -3.0, fpz - 1.35), lens=18)   # v3: 站姿眼高 1.65, 朝登舱门
 
 sc.view_settings.view_transform = "Standard"
 sc.view_settings.exposure = 0.15
@@ -736,30 +822,7 @@ try:
 except Exception as e:
     print("BLOOM_FAIL", type(e).__name__, str(e)[:120])
 
-# animation -------------------------------------------------------------------
-wheel.rotation_euler.y = 0.0
-wheel.keyframe_insert("rotation_euler", frame=1)
-wheel.rotation_euler.y = 2 * pi
-wheel.keyframe_insert("rotation_euler", frame=1 + spin_frames)
-
-for root, _ in cabin_roots:
-    root.rotation_euler.y = 0.0
-    root.keyframe_insert("rotation_euler", frame=1)
-    root.rotation_euler.y = -2 * pi
-    root.keyframe_insert("rotation_euler", frame=1 + spin_frames)
-
-def finalize_curves(ob):
-    for fc in obj_fcurves(ob):
-        for kp in fc.keyframe_points:
-            kp.interpolation = "LINEAR"
-        try:
-            mod = fc.modifiers.new("CYCLES")
-        except Exception:
-            pass
-
-finalize_curves(wheel)
-for root, _ in cabin_roots:
-    finalize_curves(root)
+# (v3: 不烘焙旋转动画 —— 运行时 ferris.js 程序化转轮, 导出时不带动画 / UV)
 
 # 按材质分组合并 (压 draw call; 动画节点 FW_Wheel / FW_CabinRoot_i 不动)
 def under_root(ob, root_name):
@@ -803,9 +866,7 @@ bpy.ops.object.select_all(action="DESELECT")
 join_group(lambda ob: ob.parent is None, "FW_S")                      # 静组 (站台/支架)
 join_group(lambda ob: under_root(ob, "FW_Wheel") and not under_root(ob, "FW_CabinRoot"),
            "FW_W")                                                    # 轮体结构
-for i in range(P["cabins"]):                                          # 每舱
-    join_group(lambda ob, i=i: under_root(ob, f"FW_CabinRoot_{i}"), f"FW_C{i}")
-bpy.ops.object.select_all(action="DESELECT")
+bpy.ops.object.select_all(action="DESELECT")   # 舱体已是共用网格, 不逐舱合并
 
 # save source (预览渲染仍含地面盘; glb 在预览之后单独导出) -----------------------
 bpy.ops.wm.save_as_mainfile(filepath=str(OUT / "ferris_wheel.blend"))
@@ -916,8 +977,8 @@ if ground:
     bpy.data.objects.remove(ground, do_unlink=True)
 try:
     bpy.ops.export_scene.gltf(filepath=str(OUT / "ferris_wheel.glb"),
-                              export_format="GLB", export_animations=True,
-                              export_apply=True)
+                              export_format="GLB", export_animations=False,
+                              export_texcoords=False, export_apply=True)
 except (TypeError, RuntimeError) as e:
     print("GLTF_KWARG_FALLBACK", type(e).__name__)
     bpy.ops.export_scene.gltf(filepath=str(OUT / "ferris_wheel.glb"),

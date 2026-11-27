@@ -141,7 +141,7 @@ if (ONLY.has("A")) {
     L.map((l) => `${l.id}${l.kind}`).join(" "));
   const exp = {
     tower: [info.place.x + 16, info.place.z, info.lift.zTop + info.lift.floorThk + 1.65],
-    wheel: [0, 18, 35.16],
+    wheel: [0, 18, 35.36],   // 顶舱眼位 = 轮心 20.41 + R 16 + 舱地板顶 -2.70 + 站姿眼高 1.65 (v2 舱是 35.16)
     coaster: [cr.x + cr.tx * 16, cr.z + cr.tz * 16, cr.y + cr.eye],
   };
   for (const id of Object.keys(exp)) {

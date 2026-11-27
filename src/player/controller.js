@@ -5,8 +5,8 @@
 //               台阶 ≤0.30 直接迈上，更高的顶面（长椅/干草/木桶/站台…）空格跳上
 //               + 眺望塔叠层地面（colliders_tower.json floors：螺旋梯/环廊/栈桥/轿厢，
 //               只取「<= 脚底+步高」的最高块为支撑，xz 重叠的上下几圈互不干扰）
-//   舱内模式 —— 摩天轮舱本地坐标行走，解析碰撞（外墙/长椅/中柱），
-//               C 键坐/站切换；相机 = 舱世界位姿 × 本地偏移（净高不足, 禁跳）
+//   舱内模式 —— 摩天轮舱本地坐标行走，解析碰撞（外墙/长椅），
+//               C 键坐/站切换；相机 = 舱世界位姿 × 本地偏移（舱内禁跳）
 import * as THREE from "three";
 
 export const EYE = 1.65; // 眼高（园区; fx/fw_director.js 算塔顶观景眼位要用）
@@ -23,25 +23,25 @@ const COYOTE = 0.1;    // 土狼时间：离地后仍可起跳的窗口
 const BUFFER = 0.15;   // 跳跃预输入缓冲
 const GRACE = 0.05;    // 顶面支撑判定的边缘容差
 
-// 舱内参数（舱本地坐标，与 ferris_wheel.py v2.2 内饰布局严格一致）：
-//   地板 1.58×1.06（半宽 0.79 / 半深 0.53），地板顶相对舱根 -2.34
-//   净高 1.62（舱内天花板 = FW_GlowCeil 发光面板，底 -0.72；外饰横梁在其上方，舱内不可见）
-//   端墙长椅占 z ∈ [-0.53, -0.11]（座面 -0.11），中柱在原点 r 0.045
+// 舱内参数（舱本地坐标，与 ferris_wheel.py v3 舱体布局严格一致；2026-11-27 舱体重做）：
+//   地板 2.10×1.70（半宽 1.05 / 半深 0.85），地板顶相对舱根 -2.70，净高 2.00（天花底 -0.70）
+//   长椅侧（-z）端墙长椅占 z ∈ [-0.86, -0.42]（座面顶 -0.42，绒面坐垫高 0.54，靠背到 -0.87）
+//   v3 舱内没有中柱；登舱门在 +z 端
 export const CABIN = {
-  FLOOR_Y: -2.34,
-  EYE_STAND: 1.40,                // 站姿眼高（1.62 − 眼顶 1.418 − near 0.1 余量 ~0.10 > 0）
-  EYE_SIT: 1.18,                  // 坐姿眼高（与旧坐姿相机 -1.16 一致）
+  FLOOR_Y: -2.70,
+  EYE_STAND: EYE,                 // 站姿眼高 = 园区眼高 1.65（v2 进舱缩到 1.40；净高 2.00 余量 0.25）
+  EYE_SIT: 1.20,                  // 坐姿眼高
   R: 0.15,                        // 舱内玩家半径
   SPEED: 2.2,                     // 舱内步速（Shift 疾走失效）
-  BX: 0.62,                       // |x| 界 = 地板半宽 0.79 - R - 0.02
-  BZ_LO: 0.04,                    // z 下界 = 长椅座面 -0.11 + R
-  BZ_HI: 0.36,                    // z 上界 = 地板半深 0.53 - R - 0.02
-  POLE_R: 0.195,                  // 中柱排斥半径 = 柱 0.045 + R
-  SEATS: [                        // C 键坐点（长椅两座位）+ 起身落点
-    { x: 0.31, z: -0.285, standZ: 0.10 },
-    { x: -0.31, z: -0.285, standZ: 0.10 },
+  BX: 0.88,                       // |x| 界 = 地板半宽 1.05 - R - 0.02
+  BZ_LO: -0.27,                   // z 下界 = 长椅座面前沿 -0.42 + R
+  BZ_HI: 0.68,                    // z 上界 = 地板半深 0.85 - R - 0.02
+  SEATS: [                        // C 键坐点（长椅三座位）+ 起身落点
+    { x: 0.62, z: -0.64, standZ: -0.20 },
+    { x: 0, z: -0.64, standZ: -0.20 },
+    { x: -0.62, z: -0.64, standZ: -0.20 },
   ],
-  SPAWN: { x: 0, z: 0.25 },       // 登舱落位（门侧，避开中柱排斥圈）
+  SPAWN: { x: 0, z: 0.35 },       // 登舱落位（门侧）
 };
 
 export function createPlayer(camera, input, park) {
@@ -182,19 +182,14 @@ export function createPlayer(camera, input, park) {
 
   const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
-  // 舱内碰撞解算：先钳外墙/长椅矩形，再推离中柱圆
+  // 舱内碰撞解算：钳外墙 / 长椅矩形（v3 舱内没有中柱，不需要圆排斥）
   // （local 是 Vector2：.x / .y 即舱本地 x / z）
   function resolveCabin(p) {
     p.x = clamp(p.x, -CABIN.BX, CABIN.BX);
     p.y = clamp(p.y, CABIN.BZ_LO, CABIN.BZ_HI);
-    const d = Math.hypot(p.x, p.y);
-    if (d < CABIN.POLE_R && d > 1e-4) {
-      p.x *= CABIN.POLE_R / d;
-      p.y *= CABIN.POLE_R / d;
-    }
   }
 
-  // 位移积分（步长 >0.08m 自动细分，防极端 dt 下一步跨过中柱/长椅）
+  // 位移积分（步长 >0.08m 自动细分，防极端 dt 下一步跨过长椅前沿）
   function stepCabin(dx, dz) {
     const dist = Math.hypot(dx, dz);
     const n = Math.max(1, Math.ceil(dist / 0.08));

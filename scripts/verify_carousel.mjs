@@ -203,7 +203,9 @@ const inst = await page.evaluate(async () => {
     aim();
     g.scene.updateMatrixWorld(true);
     const ims = [];
-    g.scene.traverse((o) => { if (o.isInstancedMesh) ims.push(o); });
+    // 只数木马自己的合批: v3 (2026-11-27) 摩天轮舱体也合成了 11 个 InstancedMesh (名字 FW_CabinInst_*),
+    // 全场景无差别地数会把它们算进来 (33 个 / 234 个实例, 176 个「未匹配」)
+    g.scene.traverse((o) => { if (o.isInstancedMesh && !o.name.startsWith("FW_")) ims.push(o); });
     res.count = c.instancedCount;
     res.found = ims.length;
     res.instances = ims.reduce((a, m) => a + m.count, 0);
