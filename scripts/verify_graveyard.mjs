@@ -8,6 +8,7 @@
 //   W 两个门  —— 主路沿西支路直进西门、园内沿北脊出北门: 真按 W 走到, 横向偏离 <= 0.12 m; 门柱之间的通道能过, 四根门柱都穿不进去
 //   A 主走道  —— 西门 -> 东端方尖碑正面停住 (碑座面 + 0.38); 绕方尖碑四分之三圈; 焦点庭再往东被围栏挡住 (挡在园内)
 //   M 低土冢  —— 两圈带 h 的圆, 能走上去站到 0.21 m, 再走下来
+//   T 材质    —— 全园铁件是电介质 (评审 V), 发射器亮钢没动, 墓园冷光材质在场
 //   F 围栏    —— 园内 23 个方位真按 W 朝外走: 全部停住、仍在园内、停点贴着围栏碰撞圆 (r0.22 + 0.38), 没有方位能穿出去
 //   S 碑 / 灯 —— 园里 20 块碑 + 2 个十字架 + 1 座方尖碑都有盒墙; 正对石碑 / 摩天轮舱 / 过山车轮对走: 停点 = 可见面 + 玩家半径 (0.38) ± 0.08 m;
 //               两行碑之间能走过去; 正对守墓灯走: 不穿进灯柱 (圆排斥件会让人绕过去)
@@ -118,6 +119,27 @@ if (sample) {
   await page.evaluate(() => window.__settings.store.set("graveyardLight", 100));
   await page.waitForTimeout(400);
 }
+
+// ---------- T 材质 (第五批, 评审 V): 全园铁件是电介质; 发射器的亮钢没动; 墓园自发光件用专用的冷光 ----------
+const mats = await page.evaluate(() => {
+  const out = {};
+  window.__game.scene.traverse((o) => {
+    const ms = o.material ? (Array.isArray(o.material) ? o.material : [o.material]) : [];
+    for (const m of ms) if (m.name && out[m.name] === undefined) {
+      // 自发光的实际强度: 强度 > 1 时导出器写 emissiveIntensity; <= 1 时直接乘进发光颜色 (emissiveIntensity 恒为 1)
+      const k = m.color && m.emissive && m.color.r > 1e-4 ? (m.emissive.r / m.color.r) : 1;
+      out[m.name] = { metal: m.metalness, rough: m.roughness, ei: m.emissiveIntensity ?? null, es: (m.emissiveIntensity ?? 1) * k };
+    }
+  });
+  return out;
+});
+const mat = (n) => mats[n] ?? null;
+expect("全园铁件 PE_Iron 是电介质 (metalness <= 0.2)", !!mat("PE_Iron") && mat("PE_Iron").metal <= 0.2, JSON.stringify(mat("PE_Iron")));
+expect("深色金属件 PE_MetalDark 是电介质 (metalness <= 0.2)", !!mat("PE_MetalDark") && mat("PE_MetalDark").metal <= 0.2, JSON.stringify(mat("PE_MetalDark")));
+expect("发射器亮钢 PE_Steel 没动 (metalness >= 0.8)", !!mat("PE_Steel") && mat("PE_Steel").metal >= 0.8, JSON.stringify(mat("PE_Steel")));
+expect("墓园冷光 PE_GraveGlow 在场, 实际强度约 0.8; 彼岸花柔红约 0.38; 墓园不再单列铁件材质", !!mat("PE_GraveGlow") && Math.abs(mat("PE_GraveGlow").es - 0.8) < 1e-3 &&
+  !!mat("PE_EmitRedSoft") && Math.abs(mat("PE_EmitRedSoft").es - 0.38) < 1e-2 && !mat("PE_GraveIron"),
+  `glow=${JSON.stringify(mat("PE_GraveGlow"))} red=${JSON.stringify(mat("PE_EmitRedSoft"))} graveIron=${JSON.stringify(mat("PE_GraveIron"))}`);
 
 // ---------- W 两个门 + A 主走道 ----------
 const west = await walk(3.0, 54.7, [21.5, 54.7], { maxMs: 14000 });     // 主路东缘 -> 沿西支路 -> 过西门

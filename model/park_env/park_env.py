@@ -722,30 +722,32 @@ m_ground  = make_mat("PE_Ground", HEX["ground"], rough=0.95)
 m_grass   = make_mat("PE_Grass", HEX["grass"], rough=0.95)
 m_tuft    = make_vcol_mat("PE_GrassTuft", "#FFFFFF", rough=1.0)  # v3 弯叶 (顶点色渐变)
 m_path    = make_mat("PE_Path", HEX["path"], rough=0.8, metal=0.05)
-m_iron    = make_mat("PE_Iron", HEX["iron"], rough=0.55, metal=0.8)
-m_metal_d = make_mat("PE_MetalDark", HEX["metal_d"], rough=0.6, metal=0.7)
+# 第五批 (2026-11-27, 评审 V; 用户同意全园换): 铁件由金属改成电介质深灰蓝。场景没有环境贴图, metalness 0.8 的铁在夜色里
+# 是纯黑、只剩点光高光; 电介质在月光 / 半球光下看得出形。原先只给墓园单独做了一份, 现在全园统一成这一种。
+# 发射器的亮钢 PE_Steel 不动 (用户后面统一改发射器)
+m_iron    = make_mat("PE_Iron", "#3A3F52", rough=0.6, metal=0.15)
+m_metal_d = make_mat("PE_MetalDark", "#2A2F3E", rough=0.65, metal=0.15)
 m_steel   = make_mat("PE_Steel", "#3A4152", rough=0.35, metal=0.9)   # 发射器亮钢炮管
 m_wood_d  = make_mat("PE_WoodDark", "#3A2A1D", rough=0.9)            # 发射器深木件
 m_stone   = make_mat("PE_Stone", HEX["stone"], rough=0.85)
 # 墓碑专用顶点色材质 (2026-11-26 墓园 v4): 原 PE_Stone #3A3F4C 在夜园里被月光照到的面只有 2-5/255。
 # 下暗上亮的渐变约等于原石材的 2.5-6 倍反照率; 许愿池 / 石像鬼 / 路障仍用 PE_Stone, 不受影响。
 m_grst    = make_vcol_mat("PE_GraveStone", "#FFFFFF", rough=0.8)
-GV_STONE_LO = hex_lin("#565D6E")[:3]
-GV_STONE_HI = hex_lin("#8A93A6")[:3]
-# 墓园铁件 (第三批): 电介质深灰蓝。场景没有环境贴图, metalness 0.8 的 PE_Iron 只剩点光高光, 在夜色里是纯黑 ——
-# 围栏 / 门拱 / 灯笼挂在灯下也看不出形。园内其余铁件仍用 PE_Iron (全园铁艺材质另行处理)
-m_grv_iron = make_mat("PE_GraveIron", "#3A3F52", rough=0.6, metal=0.15)
-m_grv_gold = make_mat("PE_GraveGold", "#C9A227", rough=0.45, metal=0.5, emit="#C9A227", strength=0.35)  # 鎏金: 门徽 / 月盘
+# 第五批 (用户选定「冷月」氛围 + 中间亮度): 压暗一档并偏冷蓝 —— 第一批为了「看得见」提得很亮, 近景偏白发平
+GV_STONE_LO = hex_lin("#474D60")[:3]
+GV_STONE_HI = hex_lin("#77829C")[:3]
+m_grv_iron = m_iron   # 第五批起全园铁件统一, 墓园不再单列材质 (原 PE_GraveIron 参数与它相同)
+m_grv_gold = make_mat("PE_GraveGold", "#C9A227", rough=0.45, metal=0.5, emit="#C9A227", strength=0.2)   # 鎏金: 门徽 / 月盘 (第五批 0.35 -> 0.2, 只留一点微光)
 # 第四批 b (评审 S): 墓园草皮盘原用共用的 PE_Grass, 与地坪几乎同色; 园内走道原用石板灰。换成带一点生气的草色和腐叶色
 #   (亮度与原来相当, 只换色相 —— 守墓灯下走道仍比草皮亮一截)。园外两条通路 (西支路 / 北接路) 仍是石板灰
 m_grv_sod  = make_mat("PE_GraveSod", "#141A13", rough=0.95)
-m_grv_path = make_mat("PE_GravePath", "#3A2C20", rough=0.9)
+m_grv_path = make_mat("PE_GravePath", "#322721", rough=0.9)   # 第五批略压暗 (原 #3A2C20)
 m_wood    = make_mat("PE_Wood", HEX["wood"], rough=0.85)
 m_straw   = make_mat("PE_Straw", HEX["straw"], rough=0.9)
 m_cloth   = make_mat("PE_Cloth", HEX["cloth"], rough=0.95)
 m_ridge   = make_mat("PE_Ridge", HEX["ridge"], rough=1.0)
 m_warm    = make_mat("PE_EmitWarm", HEX["warm"], emit=HEX["warm"], strength=2.6)
-m_warm_s  = make_mat("PE_EmitWarmSoft", HEX["warm"], emit=HEX["warm"], strength=1.5)  # 守墓灯烛芯: 近景不糊 bloom (同发射器型别环的 soft 系列)
+m_warm_s  = make_mat("PE_EmitWarmSoft", HEX["warm"], emit=HEX["warm"], strength=1.5)  # 全园共用柔暖光 (发射器型别环等; 墓园第五批起改用下面的 PE_GraveGlow)
 m_orange  = make_mat("PE_EmitOrange", HEX["orange"], emit=HEX["orange"], strength=2.4)
 m_violet  = make_mat("PE_EmitViolet", HEX["violet"], emit=HEX["violet"], strength=2.2)
 m_green   = make_mat("PE_EmitGreen", HEX["green"], emit=HEX["green"], strength=2.2)
@@ -753,7 +755,11 @@ m_orange_s = make_mat("PE_EmitOrangeSoft", HEX["orange"], emit=HEX["orange"], st
 m_violet_s = make_mat("PE_EmitVioletSoft", HEX["violet"], emit=HEX["violet"], strength=1.2)
 m_green_s  = make_mat("PE_EmitGreenSoft", HEX["green"], emit=HEX["green"], strength=1.2)
 m_red     = make_mat("PE_EmitRed", HEX["red"], emit=HEX["red"], strength=2.2)
-m_red_s   = make_mat("PE_EmitRedSoft", HEX["red"], emit=HEX["red"], strength=0.7)  # 彼岸花 (第四批): 原 2.2 倍红通道削顶、读成橙色
+m_red_s   = make_mat("PE_EmitRedSoft", HEX["red"], emit=HEX["red"], strength=0.38)  # 彼岸花 (第四批 0.7, 第五批 0.38): 原 2.2 倍红通道削顶、读成橙色;
+#   第五批碑脚成排之后花成了暗地里最亮的东西, 0.45 仍偏艳 -> 0.38 (更深的红)
+# 墓园专用冷光 (第五批, 用户选定「冷月」氛围): 守墓灯 / 门柱灯笼的烛芯、摩天轮舱窗、枯树枝上的小灯、方尖碑星心。
+#   原先借用全园共用的 1.5 倍暖白 —— 默认设置开着辉光时晕成白块; 现在 0.8 倍、青白偏蓝。墓园里的紫火尖 / 眼睛改用现成的 PE_EmitVioletSoft (1.2)
+m_grv_glow = make_mat("PE_GraveGlow", "#C8DAF7", emit="#C8DAF7", strength=0.8)
 m_dot     = [make_mat(f"PE_Dot{i}", c, emit=c, strength=2.6) for i, c in enumerate(DOTS)]
 m_balloon = [make_mat(f"PE_Balloon{i}", c, emit=c, strength=1.1) for i, c in enumerate(DOTS)]  # 近景不糊 bloom
 m_pump    = make_vcol_mat("PE_Pumpkin", "#C87419", rough=0.42)          # v3: 本体不发光, 瓣谷顶点色压暗
@@ -1537,7 +1543,8 @@ for k, th in enumerate((radians(10), radians(70), radians(130),
     flower_spots.append((cx, cy))
 
 def gv_lantern_head(name, x, y, cz0, cz1, cr):
-    """灯头 (守墓灯 / 门柱灯共用): 六棱铁笼 + 暖白烛芯 + 紫火尖。cz0 / cz1 = 笼的上下环高, cr = 六边形外接圆半径"""
+    """灯头 (守墓灯 / 门柱灯共用): 六棱铁笼 + 烛芯 + 紫火尖。cz0 / cz1 = 笼的上下环高, cr = 六边形外接圆半径。
+    第五批起烛芯是墓园专用冷光 (PE_GraveGlow), 紫火尖是柔紫 (PE_EmitVioletSoft)"""
     for czn in (cz0, cz1):
         add_torus(f"{name}_ring{czn:.2f}", cr, 0.016, (x, y, czn), mat=m_grv_iron, ms=6, ns=5)
     for k in range(6):
@@ -1545,9 +1552,13 @@ def gv_lantern_head(name, x, y, cz0, cz1, cr):
         cyl_between(f"{name}_bar{k}", (x + cr * cos(a), y + cr * sin(a), cz0),
                     (x + cr * cos(a), y + cr * sin(a), cz1), 0.012, m_grv_iron, verts=4)
     add_cone(f"{name}_cap", cr + 0.06, 0.17, (x, y, cz1 + 0.095), mat=m_grv_iron, verts=6)
-    add_sphere(f"{name}_finial", 0.03, (x, y, cz1 + 0.20), mat=m_violet, seg=8, ring=5)
-    add_cyl(f"{name}_candle", 0.075, 0.22, (x, y, cz0 + 0.17), mat=m_warm_s, verts=8)
-    add_sphere(f"{name}_flame", 0.06, (x, y, cz0 + 0.34), mat=m_violet, seg=8, ring=5, scale=(1, 1, 1.35))
+    add_sphere(f"{name}_finial", 0.03, (x, y, cz1 + 0.20), mat=m_violet_s, seg=8, ring=5)
+    add_cyl(f"{name}_candle", 0.075, 0.22, (x, y, cz0 + 0.17), mat=m_grv_glow, verts=8)
+    add_sphere(f"{name}_flame", 0.06, (x, y, cz0 + 0.34), mat=m_violet_s, seg=8, ring=5, scale=(1, 1, 1.35))
+
+GV_LAMP_COLOR, GV_LAMP_CD = "#C8DAF7", 32   # 守墓灯点光 (第五批): 青白偏蓝、32 cd (原暖白 40 cd; 用户要「冷月」氛围、亮度取中间档 ——
+#   在页面里试了 22 / 26 / 30 / 34 cd 并量画面亮度, 去掉灯串后 22 cd 和偏暗的预览一样暗, 32 cd 才回到中间档)
+
 
 def grave_lantern(name, x, y):
     """守墓灯 v2 (2026-11-26): 落地铁柱 (两道箍) + 六棱铁笼 + 暖白烛芯 + 紫火尖, 灯头中心离地约 2.1 m。
@@ -1562,7 +1573,8 @@ def grave_lantern(name, x, y):
         add_torus(f"{name}_hoop{hz:.2f}", 0.063, 0.014, (x, y, hz), mat=m_grv_iron, ms=14, ns=5)
     gv_lantern_head(f"{name}_head", x, y, cz0, cz1, 0.17)
     collider(x, y, 0.2)
-    park_light(x, y, cz0 + 0.24, "#FFD9A8", 40, 22, decay=2, tag=name, key="graveyardLight")
+    # 第五批: 冷月氛围 —— 颜色与强度见 GV_LAMP_COLOR / GV_LAMP_CD; 32 cd 时 2 m 外的碑面约 105/255 (石材同时压暗到约 0.8 倍)
+    park_light(x, y, cz0 + 0.24, GV_LAMP_COLOR, GV_LAMP_CD, 20, decay=2, tag=name, key="graveyardLight")
 
 def gv_gargoyle(name, x, y, z, ry, s):
     """门柱顶石像鬼 (2026-11-26 第三批第二版): 蹲姿 —— 底座 + 圆盘 + 拱背的躯干 (后半身用一个大半重叠的椭球撑宽) + 前腿 (贴圆盘前伸) +
@@ -1592,7 +1604,7 @@ def gv_gargoyle(name, x, y, z, ry, s):
         px_, py_ = L_(0.22, hs * 0.17)
         vc(add_cone(f"{name}_horn{hs}", 0.07 * s, 0.32 * s, (px_, py_, z + 1.68 * s), mat=m_grst, verts=5, rot=(radians(-20), 0, ry)), z + 1.68 * s)
         px_, py_ = L_(0.56, hs * 0.1)
-        add_sphere(f"{name}_eye{hs}", 0.036 * s, (px_, py_, z + 1.42 * s), mat=m_violet, seg=6, ring=4)
+        add_sphere(f"{name}_eye{hs}", 0.036 * s, (px_, py_, z + 1.42 * s), mat=m_violet_s, seg=6, ring=4)
     for hs in (-1, 1):
         def W_(da, db, dz):
             wx_, wy_ = L_(da, db)
@@ -1621,6 +1633,9 @@ def gv_gargoyle(name, x, y, z, ry, s):
 #   (第四批 b 又加了一丛彼岸花, 共 9 丛)
 # 第四批 b (评审 Q / S): 东端焦点 = 新月方尖碑 (用户选定: 两级底座 + 收分碑身 + 金字塔尖 + 鎏金星尖, 四面月相), 旁边第三盏守墓灯
 #   当「暖光心」; 草皮盘 / 园内走道换材质 (PE_GraveSod / PE_GravePath); 盘缘一圈路缘石 (门口断开); 三座可走上去的低土冢。
+# 第五批 (2026-11-27, 用户看实机后定「冷月」氛围、亮度取中间档): 5 盏点光改青白偏蓝并降强度 (守墓灯 40 -> 32 cd, 门灯 26 -> 18 cd);
+#   墓园里的自发光件改用专用的冷光 PE_GraveGlow (0.8) / 柔紫 / 柔红 0.38 / 鎏金微光 0.2; 石材压暗偏冷; 去掉墓园灯串;
+#   彼岸花每丛 12 株 + 两行碑脚各一排 (评审 O)。段外: 全园铁件换材质 (评审 V), 东南秘境招牌转向 (评审 W)。
 # 随机流约定: 这一段新增的随机一律走墓园自己的 rgv; 全局 random 在段内只保留「改造前就有」的消耗
 #   (枯树 spooky_tree 内部 + 段末 GV_LEGACY_DRAWS 占位)。段内也不改 on_path / pump_plan / tree_extras ——
 #   那些规则决定其后的散布 (南瓜伴生 / 草丛 / 地斑 / 树) 哪些候选被舍弃, 一改全园就重新随机。
@@ -1654,7 +1669,8 @@ add_box("PE_PathGraveN", (3.0, 8.0, 0.12), (35.0, -44.0, -0.02), mat=m_path)
 add_box("PE_PathGraveW", (18.0, 3.0, 0.12), (11.25, -54.7, -0.02), mat=m_path)
 # 园内走道 (第三批): 东西主走道 (中线 = 西支路中线 app z 54.7, 宽 2.4) / 北脊 (中线 app x 35) / 东端焦点庭 (r2.4)
 GV_AZ, GV_AW = 54.7, 2.4
-GV_GATE_LIGHT_H, GV_GATE_CD = 2.6, 26   # 门的真实点光: 门洞正中的挂高 (m) 与强度 (cd), 由来见 gv_gate 末尾
+GV_GATE_LIGHT_H, GV_GATE_CD, GV_GATE_COLOR = 2.6, 18, "#BFD3FF"   # 门的真实点光: 门洞正中的挂高 (m) / 强度 (cd) / 颜色, 由来见 gv_gate 末尾
+#   (第五批冷月氛围: 原 26 cd 暖白 -> 18 cd 青白偏蓝)
 add_box("PE_PathGraveA", (28.9, GV_AW, 0.12), (33.95, -GV_AZ, -0.02), mat=m_grv_path)
 add_box("PE_PathGraveS", (GV_AW, 8.9, 0.12), (35.0, -50.25, -0.02), mat=m_grv_path)
 add_cyl("PE_PathGraveF", 2.4, 0.12, (50.4, -GV_AZ, -0.02), mat=m_grv_path, verts=32)
@@ -1737,7 +1753,7 @@ def gv_gate(name, pa, pb, out_n):
     # 不必重跑模型 —— 页面里试了 7 组, 定在门洞正中 2.6 m (同机位近白 0.04%, 门外 / 门内 / 北门三个机位新月徽都读得出新月加星;
     # 标定图 shots/graveyard_review/b3/calib/: 3.45m/70cd 1.47%, 3.0/30 0.12%, 3.2/25 0.13%, 2.6/30 0.04%)。柱面挑臂灯头内外各一盏,
     # 点光就落在四盏灯头之间; 强度 30 -> 26 cd 是为了压一下柱内侧面的刺白 (独立审阅意见)
-    park_light((ax + pb[0]) / 2, -(az + pb[1]) / 2, GV_GATE_LIGHT_H, "#FFD9A8", GV_GATE_CD, 22, decay=2, tag=name, key="graveyardLight")
+    park_light((ax + pb[0]) / 2, -(az + pb[1]) / 2, GV_GATE_LIGHT_H, GV_GATE_COLOR, GV_GATE_CD, 20, decay=2, tag=name, key="graveyardLight")
     return (ax + ux * half, az + uz * half)
 
 GV_GATE_N = gv_gate("PE_GateN", (33.2, 46.1), (36.8, 46.1), (0.0, -1.0))    # 北门: 北接路的园外段宽 3 m, 门洞同宽
@@ -1923,7 +1939,7 @@ def gv_cabin(name, x, z, face, yaw, lean, s=1.0, arm=False):
     objs.append(add_box(f"{name}_hull", (1.10 * s, 0.76 * s, 0.60 * s), fr.pt((0, 0, -0.08 * s)), rot=rr, mat=m_grst))
     objs.append(add_box(f"{name}_glass", (1.06 * s, 0.72 * s, 0.66 * s), fr.pt((0, 0, 0.55 * s)), rot=rr, mat=m_grv_iron))
     for sx in (-0.25, 0.25):
-        objs.append(add_box(f"{name}_win{sx > 0}", (0.30 * s, 0.02 * s, 0.22 * s), fr.pt((sx * s, -0.365 * s, 0.56 * s)), rot=rr, mat=m_warm_s))
+        objs.append(add_box(f"{name}_win{sx > 0}", (0.30 * s, 0.02 * s, 0.22 * s), fr.pt((sx * s, -0.365 * s, 0.56 * s)), rot=rr, mat=m_grv_glow))
     objs.append(add_box(f"{name}_mullion", (0.05 * s, 0.03 * s, 0.64 * s), fr.pt((0, -0.365 * s, 0.55 * s)), rot=rr, mat=m_grv_iron))
     objs.append(add_box(f"{name}_eave", (1.24 * s, 0.88 * s, 0.04 * s), fr.pt((0, 0, 0.90 * s)), rot=rr, mat=m_grv_gold))
     objs.append(add_box(f"{name}_roof", (1.18 * s, 0.82 * s, 0.07 * s), fr.pt((0, 0, 0.955 * s)), rot=rr, mat=m_grst))
@@ -1974,7 +1990,7 @@ def gv_horse(name, x, z, face, yaw, lean, pole_h):
                               scale=(0.4, 0.9, 1.5))
             lock.rotation_euler = fr.rot((radians(-24), sd_ * radians(18), 0))
             objs.append(lock)
-        add_sphere(f"{name}_eye{sd_}", 0.016, P_(sd_ * 0.08, -0.285, 0.22), mat=m_violet, seg=6, ring=4)
+        add_sphere(f"{name}_eye{sd_}", 0.016, P_(sd_ * 0.08, -0.285, 0.22), mat=m_violet_s, seg=6, ring=4)
     objs.append(add_torus(f"{name}_bridle", 0.062, 0.009, P_(0, -0.395, 0.105), rot=fr.rot((radians(126), 0, 0)), mat=m_grv_gold, ms=14, ns=5))
     for ob in objs:
         gv_vc(ob)
@@ -2085,7 +2101,7 @@ def gv_obelisk(name, x, z):
         gv_vc(ob)
     # 星尖: 暖白星心 + 一竖四横五根鎏金尖
     zs = z1 + 0.34 + 0.09
-    add_sphere(f"{name}_starcore", 0.05, (x, -z, zs), mat=m_warm_s, seg=10, ring=7)
+    add_sphere(f"{name}_starcore", 0.05, (x, -z, zs), mat=m_grv_glow, seg=10, ring=7)
     for k in range(5):
         if k == 0:
             rr_, cc_ = (0, 0, 0), (x, -z, zs + 0.14)
@@ -2162,7 +2178,7 @@ for h_ in sorted(gv_hang, key=lambda h_: abs(h_[1] - 3.8)):
         break
 for gq_, gh_ in enumerate(gv_pick):
     cyl_between(f"PE_GraveTree_lampw{gq_}", (gh_[2], gh_[3], gh_[1]), (gh_[2], gh_[3], gh_[1] - 0.26), 0.004, m_grv_iron, verts=4)
-    add_sphere(f"PE_GraveTree_lamp{gq_}", 0.045, (gh_[2], gh_[3], gh_[1] - 0.31), mat=m_warm_s, seg=8, ring=5)
+    add_sphere(f"PE_GraveTree_lamp{gq_}", 0.045, (gh_[2], gh_[3], gh_[1] - 0.31), mat=m_grv_glow, seg=8, ring=5)
 print("GV_TREE_LAMPS", len(gv_pick), "of", len(gv_hang), "branch points from", gv_hang_obs, "objects; hang heights", [round(p_[1], 2) for p_ in gv_pick])
 # 彼岸花丛 x8 (第四批 a 重做, 评审 O / R): 花头 = 6 片外翻后卷的瓣 (blade 的累计转角 2.25 rad, 超过 90 度所以叶尖卷向下方)
 #   + 6 根细管长蕊 (斜伸出去, 顶端花药小球)。花瓣与长蕊走新的柔红自发光材质 (0.7): 原来的 m_red 是 2.2 倍且被别处共用,
@@ -2170,29 +2186,45 @@ print("GV_TREE_LAMPS", len(gv_pick), "of", len(gv_hang), "branch points from", g
 # 每株仍是 15 次 rlg 取值 (位置 2 + 朝向 1 + 6 瓣 + 6 蕊各 1), 与下面的全局流占位数对应
 gv_lily_spots = [(23.3, 51.3), (23.3, 58.2), (38.3, 47.6), (45.47, 51.47), (27.7, 66.1)] + \
                [(43.6 + 1.9 * cos(radians(a_)), 51.8 - 1.9 * sin(radians(a_))) for a_ in (35, 80, 100, 145)]
+# 碑脚的花排 (第五批, 评审 O「沿碑脚成线」): (花排 app z, 各块碑的 app x)。北一行的碑朝南 (朝走道), 花排在它南侧 0.62 m;
+#   南一行的碑朝北, 花排在它北侧 0.62 m。每块碑正前方一行 12 株 (宽约 1.1 m)。不加碰撞 —— 紧贴碑座的排斥带, 人本来就走不进去
+gv_lily_rows = ((51.92, (25.0, 27.0, 29.0, 31.0, 33.0, 37.0, 39.0, 41.0)),
+                (57.58, (25.0, 29.0, 33.0, 37.0, 41.0)))
 rlg = random.Random()
 rlg.setstate(random.getstate())
+
+
+def gv_lily_flower(nm, fx, fy):
+    """一株彼岸花: 弯茎 + 6 片外翻后卷的瓣 + 6 根细管长蕊 (顶端花药)。fx / fy = 茎脚 (Blender); 随机走 rlg, 每株 15 次"""
+    a0 = rlg.uniform(0, 2 * pi)
+    bx, by = fx + 0.08 * cos(a0), fy + 0.08 * sin(a0)
+    tube_frustum(f"{nm}_st", [(fx, fy, 0.01), (fx + 0.04 * cos(a0), fy + 0.04 * sin(a0), 0.2), (bx, by, 0.4)],
+                 [0.014, 0.01, 0.006], m_stem, sides=5)
+    for st in range(6):      # 花瓣: 先朝上, 再向外翻卷 (blade 的累计转角 2.25 rad, 超过 90 度所以叶尖卷向下方)
+        a = st * pi / 3 + rlg.uniform(-0.15, 0.15)
+        blade(f"{nm}_pt{st}", (bx, by, 0.44), 0.13, 0.028, a, 2.25, m_red_s,
+              hex_lin("#8A1E1E")[:3], hex_lin("#FF4A4A")[:3], segs=5, lean=0.35)
+    for st in range(6):      # 长蕊: 细管斜伸出去, 顶端花药
+        a = st * pi / 3 + pi / 6 + rlg.uniform(-0.1, 0.1)
+        sp_ = [(bx, by, 0.45), (bx + 0.07 * cos(a), by + 0.07 * sin(a), 0.61), (bx + 0.19 * cos(a), by + 0.19 * sin(a), 0.69)]
+        tube_frustum(f"{nm}_st{st}", sp_, [0.006, 0.005, 0.004], m_red_s, sides=4)
+        add_sphere(f"{nm}_an{st}", 0.014, sp_[2], mat=m_red_s, seg=5, ring=3)
+
+
+# 彼岸花 (第四批 a 重做, 评审 O / R; 第五批每丛 7 -> 12 株、材质 0.7 -> 0.38): 走墓园专用的柔红自发光材质 —— 原来的 m_red 是
+#   2.2 倍且被别处共用, 红通道削顶、读成橙色番红花。丛位: 两行的行头 / 北门内侧 / 枯树四周 (评审 R 的一环; 走道一侧不放) /
+#   西南低土冢旁。每株 15 次 rlg 取值 (位置 2 + 朝向 1 + 6 瓣 + 6 蕊各 1), 与下面的全局流占位数对应
 for ci, (cx, cz) in enumerate(gv_lily_spots):
     cx, cy = cx, -cz
-    for f in range(7):
-        fx = cx + rlg.uniform(-0.7, 0.7)
-        fy = cy + rlg.uniform(-0.7, 0.7)
-        a0 = rlg.uniform(0, 2 * pi)
-        bx, by = fx + 0.08 * cos(a0), fy + 0.08 * sin(a0)
-        tube_frustum(f"PE_Higan{ci}_{f}_st",
-                     [(fx, fy, 0.01), (fx + 0.04 * cos(a0), fy + 0.04 * sin(a0), 0.2),
-                      (bx, by, 0.4)],
-                     [0.014, 0.01, 0.006], m_stem, sides=5)
-        for st in range(6):      # 花瓣: 先朝上, 再向外翻卷
-            a = st * pi / 3 + rlg.uniform(-0.15, 0.15)
-            blade(f"PE_Higan{ci}_{f}_pt{st}", (bx, by, 0.44), 0.13, 0.028, a, 2.25, m_red_s,
-                  hex_lin("#8A1E1E")[:3], hex_lin("#FF4A4A")[:3], segs=5, lean=0.35)
-        for st in range(6):      # 长蕊: 细管斜伸出去, 顶端花药
-            a = st * pi / 3 + pi / 6 + rlg.uniform(-0.1, 0.1)
-            sp_ = [(bx, by, 0.45), (bx + 0.07 * cos(a), by + 0.07 * sin(a), 0.61), (bx + 0.19 * cos(a), by + 0.19 * sin(a), 0.69)]
-            tube_frustum(f"PE_Higan{ci}_{f}_st{st}", sp_, [0.006, 0.005, 0.004], m_red_s, sides=4)
-            add_sphere(f"PE_Higan{ci}_{f}_an{st}", 0.014, sp_[2], mat=m_red_s, seg=5, ring=3)
-    collider(cx, cy, 0.6)   # 花丛散布半径约 0.7; 旧圆 1.0 在花外 0.4 m 就挡人
+    for f in range(12):
+        gv_lily_flower(f"PE_Higan{ci}_{f}", cx + rlg.uniform(-0.75, 0.75), cy + rlg.uniform(-0.75, 0.75))
+    collider(cx, cy, 0.6)   # 花丛散布半径约 0.75; 旧圆 1.0 在花外 0.4 m 就挡人
+for ri_, (fz_, fxs_) in enumerate(gv_lily_rows):
+    for xi_, rx_ in enumerate(fxs_):
+        for f in range(12):
+            gv_lily_flower(f"PE_HiganR{ri_}_{xi_}_{f}", rx_ + (f - 5.5) * 0.095 + rlg.uniform(-0.04, 0.04),
+                           -(fz_ + rlg.uniform(-0.10, 0.10)))
+
 # 全局随机流占位: 上面的彼岸花丛改造前直接消耗全局 random —— 4 丛 x 7 株 x 15 次 uniform
 # (位置 2 + 朝向 1 + 6 根花丝各 2)。现在花改走 rlg, 这里补回同样的消耗; 以后重写彼岸花也不要动这一行,
 # 否则段后园区 (市集 / 长椅 / 枯树 / 远山 / 城市灯火) 会全部重新随机。
@@ -2200,28 +2232,10 @@ GV_LEGACY_DRAWS = 4 * 7 * 15
 for _ in range(GV_LEGACY_DRAWS):
     random.random()
 
-# 灯串: 主走道上空之字形横跨 —— 西门拱顶 -> 北侧挂杆 -> 南侧挂杆 -> 北侧挂杆 -> 南侧挂杆 -> 焦点庭西侧的挂杆 (第四批 b 从 (50.4,51.8) 挪到
-# (47.4,51.9): 方尖碑立在焦点庭正中, 自己的剪影要干净, 旁边不再立杆)。
-# 走在走道上时逐跨从头顶斜着过街 (之字形): 方向契约的首屏是站在走道正中朝东看, 与走道平行的灯串透视成一条短线,
-# 横跨走道的才读得出「灯串横贯上 1/3」。
-# 挂点离地 3.95 m、垂度 0.40、灯珠再低 0.09: 跨中最低的珠底约 3.4 m (跳跃碰不到)。北侧挂杆让开北脊 (app x 33.8..36.2)、
-# 守墓灯 (40.05,53.05) 与枯树 (43.6,51.8)。前庭灯串: 东挂杆顶 -> 北门东柱的拱脚。
-# 端点是 Blender 坐标 (x, y, 高度) —— 不是 glTF 的 (x, 高度, -y)。第一版按后者写, 主走道的灯串整串埋到地下 54 m、
-# 前庭那串一头挂到 44 m 高空: 灯珠数量照常增加 (数量比对看不出来), 游戏里只是「看不到灯串」, 靠逐网格顶点比对才查出来。
-# 下面所以加一条端点高度断言
-GV_STR_H = 3.95
-gv_str_poles = {"C": (26.5, GV_AZ - 2.2), "A": (33.2, GV_AZ + 2.2), "D": (37.0, GV_AZ - 2.2),
-                "B": (44.0, GV_AZ + 2.2), "E": (47.4, GV_AZ - 2.8)}
-for nm_, (px_, pz_) in gv_str_poles.items():
-    light_pole(f"PE_StrPoleGrave{nm_}", px_, -pz_, h=4.1, attach=GV_STR_H)
-gv_str_anchors = [(GV_GATE_W[0], -GV_GATE_W[1], 3.90)] + [(px_, -pz_, GV_STR_H) for px_, pz_ in gv_str_poles.values()]
-for k, (sp0_, sp1_) in enumerate(zip(gv_str_anchors, gv_str_anchors[1:])):
-    string_lights(f"PE_StrG{k}", sp0_, sp1_, sag=0.40, mats=[m_warm, m_violet])
-# 垂度压到 0.12 (0.30 时跨中最低的珠底只有 2.80 m, 低于跳跃眼高 2.84); 东端落在东柱柱帽外 0.3 m 的拱脚, 不把端头灯珠埋进柱帽
-gv_str_fore = [(40.0, -44.0, 3.70), (36.8 + 0.3 * 3.2 / 3.83, -46.1 + 0.3 * 2.1 / 3.83, 3.12)]
-string_lights("PE_StrG5", gv_str_fore[0], gv_str_fore[1], sag=0.12, mats=[m_warm, m_violet])
-for sp_ in gv_str_anchors + gv_str_fore:
-    assert 2.5 < sp_[2] < 8.0 and abs(sp_[1]) < 150.0, f"灯串端点应是 Blender 坐标 (x, y, 高度): {sp_}"
+# 灯串: 第三批在主走道上空挂的之字形 5 跨 (+ 5 根挂杆) 和前庭到北门的 1 跨, 第五批去掉了 ——
+#   用户看实机觉得「灯光太亮, 不太像墓园」, 灯串是灯会感最强的一项 (去掉后园内不再有任何挂灯)。
+#   前庭上空原来那条灯串 (runs 里的 GRAVE_RUN, 两根挂杆 PE_StrPoleGraveW / E 在) 不在墓园里, 保留。
+#   string_lights 的端点是 Blender 坐标 (x, y, 高度) —— 不是 glTF 的 (x, 高度, -y), 以后再挂别写反。
 
 # 打卡南瓜 pumpkin_grave: 从旧址西北角 (30.5,-36.5) 挪到北门内、北脊西侧 (32.7,-47.9), 标签不变。
 # pump_plan 里的坐标不能动 (它还喂着草丛 / 地斑的避让表, 改了全园散布就变) —— 建完之后整体平移它的几个部件,
@@ -2761,7 +2775,7 @@ zone_sign("PE_ZoneBay_sign", -51.8, -33.0, 90)
 
 # 秘境预留区 (东南): 西边开口 y∈[-54,-48], 支路 -32.3° 正对缺口
 zone_fence("PE_ZoneThird", 78, 112, -78, -42, "W", -54, -48)
-zone_sign("PE_ZoneThird_sign", 76.2, -45.5, 90)
+zone_sign("PE_ZoneThird_sign", 76.2, -45.5, 0)    # 第五批 (评审 W): 原转 90° 时板面朝西、正对 54 m 外的墓园; 改成朝南北
 
 tmark(f"props done (grass={len(tufts)} pumps={len(pump_plan)} flowers={len(flower_spots)})")
 

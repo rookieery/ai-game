@@ -71,9 +71,9 @@
    "x": 35,
    "y": 2.6,
    "z": 46.1,
-   "color": "#FFD9A8",
-   "intensity": 26,
-   "distance": 22,
+   "color": "#BFD3FF",
+   "intensity": 18,
+   "distance": 20,
    "decay": 2,
    "tag": "PE_GateN",
    "key": "graveyardLight"
@@ -82,9 +82,9 @@
    "x": 19.9,
    "y": 2.6,
    "z": 54.7,
-   "color": "#FFD9A8",
-   "intensity": 26,
-   "distance": 22,
+   "color": "#BFD3FF",
+   "intensity": 18,
+   "distance": 20,
    "decay": 2,
    "tag": "PE_GateW",
    "key": "graveyardLight"
@@ -93,9 +93,9 @@
    "x": 26.6,
    "y": 2.14,
    "z": 56.35,
-   "color": "#FFD9A8",
-   "intensity": 40,
-   "distance": 22,
+   "color": "#C8DAF7",
+   "intensity": 32,
+   "distance": 20,
    "decay": 2,
    "tag": "PE_GraveLantern",
    "key": "graveyardLight"
@@ -104,9 +104,9 @@
    "x": 43.4,
    "y": 2.14,
    "z": 53.05,
-   "color": "#FFD9A8",
-   "intensity": 40,
-   "distance": 22,
+   "color": "#C8DAF7",
+   "intensity": 32,
+   "distance": 20,
    "decay": 2,
    "tag": "PE_GraveLanternS",
    "key": "graveyardLight"
@@ -115,9 +115,9 @@
    "x": 48.9,
    "y": 2.14,
    "z": 56,
-   "color": "#FFD9A8",
-   "intensity": 40,
-   "distance": 22,
+   "color": "#C8DAF7",
+   "intensity": 32,
+   "distance": 20,
    "decay": 2,
    "tag": "PE_GraveLanternE",
    "key": "graveyardLight"
@@ -2274,31 +2274,6 @@
    "r": 0.6
   },
   {
-   "x": 26.5,
-   "z": 52.5,
-   "r": 0.2
-  },
-  {
-   "x": 33.2,
-   "z": 56.9,
-   "r": 0.2
-  },
-  {
-   "x": 37,
-   "z": 52.5,
-   "r": 0.2
-  },
-  {
-   "x": 44,
-   "z": 56.9,
-   "r": 0.2
-  },
-  {
-   "x": 47.4,
-   "z": 51.9,
-   "r": 0.2
-  },
-  {
    "x": -23,
    "z": 26.9,
    "r": 0.6,
@@ -2535,13 +2510,13 @@
    "r": 0.2
   },
   {
-   "x": 76.2,
-   "z": 47.2,
+   "x": 74.5,
+   "z": 45.5,
    "r": 0.2
   },
   {
-   "x": 76.2,
-   "z": 43.8,
+   "x": 77.9,
+   "z": 45.5,
    "r": 0.2
   },
   {

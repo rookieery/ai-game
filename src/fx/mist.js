@@ -97,6 +97,7 @@ const PUFF_VERT = /* glsl */ `
   varying float vAlpha;
   varying float vDepth;
   varying vec3 vWorld;
+  varying float vH;
 
   void main() {
     float t = uTime;
@@ -117,7 +118,12 @@ const PUFF_VERT = /* glsl */ `
     vec4 vp = viewMatrix * vec4(wp, 1.0);
     float rot = (fract(seed * 9.3) - 0.5) * 1.2 + t * (fract(seed * 3.7) - 0.5) * 0.10;
     float ca = cos(rot), sa = sin(rot);
-    vp.xy += mat2(ca, -sa, sa, ca) * position.xy * aScale;
+    vec2 gOff = mat2(ca, -sa, sa, ca) * position.xy * aScale;
+    vp.xy += gOff;
+    // 贴地渐隐 (第五批, 评审 AE): 雾团面片是竖立的, 下缘伸到地面以下, 被地面深度挡住的那条线是一条水平硬边
+    //   (中景粉色雾带的底边)。把面元的世界高度传给片元 (面片偏移在视空间, 用相机右 / 上轴换回世界)
+    vH = wp.y + vec3(viewMatrix[0][0], viewMatrix[0][1], viewMatrix[0][2]).y * gOff.x
+               + vec3(viewMatrix[1][0], viewMatrix[1][1], viewMatrix[1][2]).y * gOff.y;
     vUv = uv;
     vTile = step(0.5, fract(seed * 13.7)) * 0.5;
     vDepth = -vp.z;
@@ -139,6 +145,7 @@ const PUFF_FRAG = /* glsl */ `
   varying float vAlpha;
   varying float vDepth;
   varying vec3 vWorld;
+  varying float vH;
   ${LIGHT_TINT_GLSL}
   ${FOG_MIX_GLSL}
 
@@ -147,7 +154,8 @@ const PUFF_FRAG = /* glsl */ `
     if (m < 0.004) discard;
     vec3 col = mix(uCool, uWarm, lightTint(vWorld));
     col = fogMix(col, vDepth);
-    gl_FragColor = vec4(col, m * vAlpha * uGlobalAlpha);
+    // 贴地渐隐 (第五批, 评审 AE): 世界高度 0 -> 1 m 之间从全透明渐到不透明, 雾团下缘不再被地面切出硬边
+    gl_FragColor = vec4(col, m * vAlpha * uGlobalAlpha * smoothstep(0.0, 1.0, vH));
   }
 `;
 
@@ -220,12 +228,12 @@ const TINT_LIGHTS = [
   { pos: [-12, 1.2, -14], color: "#ff9a5c", r: 14, live: 1, base: 70, gain: 0.5 }, // 广场西 ↔ plaza2
   { pos: [0, 1.2, 146], color: "#ffc46b", r: 20, live: 2, base: 55, gain: 0.55 },  // 大门(v3 r146) ↔ gate
   // 墓园 (2026-11-26): 跟随两盏守墓灯。旧写法是在 (33.5,1.2,40.5) 摆一盏并不存在的「南瓜簇」静态灯染 —— 雾是暖的、地是黑的
-  { pos: [0, 0, 0], color: "#ffd9a8", r: 8, live: "PE_GraveLantern", gain: 0.45 },  // 守墓灯 (主走道南侧, 26.6 56.35)
-  { pos: [0, 0, 0], color: "#ffd9a8", r: 8, live: "PE_GraveLanternS", gain: 0.45 }, // 守墓灯 (主走道北侧, 43.4 53.05)
-  { pos: [0, 0, 0], color: "#ffd9a8", r: 8, live: "PE_GraveLanternE", gain: 0.45 }, // 守墓灯 (焦点庭方尖碑旁, 48.9 56.0; 第四批 b)
+  { pos: [0, 0, 0], color: "#c8daf7", r: 8, live: "PE_GraveLantern", gain: 0.45 },  // 守墓灯 (主走道南侧, 26.6 56.35)
+  { pos: [0, 0, 0], color: "#c8daf7", r: 8, live: "PE_GraveLanternS", gain: 0.45 }, // 守墓灯 (主走道北侧, 43.4 53.05)
+  { pos: [0, 0, 0], color: "#c8daf7", r: 8, live: "PE_GraveLanternE", gain: 0.45 }, // 守墓灯 (焦点庭方尖碑旁, 48.9 56.0; 第四批 b)
   // 门的门灯 (第三批): 挂在门洞正中 2.6 m、30 cd; 灯染半径略放大、增益压低, 门下不成一团亮雾
-  { pos: [0, 0, 0], color: "#ffd9a8", r: 9, live: "PE_GateN", gain: 0.3 },         // 北门 (35, 46.1)
-  { pos: [0, 0, 0], color: "#ffd9a8", r: 9, live: "PE_GateW", gain: 0.3 },         // 西门 (19.9, 54.7)
+  { pos: [0, 0, 0], color: "#bfd3ff", r: 9, live: "PE_GateN", gain: 0.3 },         // 北门 (35, 46.1)
+  { pos: [0, 0, 0], color: "#bfd3ff", r: 9, live: "PE_GateW", gain: 0.3 },         // 西门 (19.9, 54.7)
   { pos: [-25.5, 1.2, 30], color: "#ffa53b", r: 12, live: -1, gain: 0.8 },         // 摊位灯
   { pos: [-70, 1.2, 45], color: "#7fd8c8", r: 14, live: 3, base: 30, gain: 0.8 },  // 幽灵港 ↔ bay
   { pos: [15, 1.2, -100], color: "#ff9a5c", r: 16, live: 4, base: 42, gain: 0.8 }, // 北过山车 ↔ north
